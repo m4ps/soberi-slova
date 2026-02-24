@@ -9,3 +9,4 @@ Original prompt: Найди первую невыполненную задачу
 - Для стабильного smoke-рендера добавлен статический stage-backdrop (без геймплейной логики), чтобы canvas всегда содержал однозначный кадр.
 - Исправлен артефакт Playwright-снимков: включён `preserveDrawingBuffer` для корректного повторного `toDataURL` захвата WebGL canvas.
 - Обновлены проектные артефакты по задаче: BACKLOG (INIT-001 done), CHANGELOG, ADR-004, отчёт tasks/INIT-001.md.
+- Git: создана ветка `codex/init-001-bootstrap`, сделаны коммиты. Push в `origin` заблокирован: remote `origin` не настроен в текущем workspace.
