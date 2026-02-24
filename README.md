@@ -27,6 +27,7 @@ npm run dev:proxy
 - `npm run dev:proxy` — запуск `@yandex-games/sdk-dev-proxy` в `--dev-mode=true` (хост `localhost:5173`).
 - `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` для prod-like локального режима (хост `localhost:4173`).
 - `npm run build` — typecheck + production build.
+- `npm run clean:init` — удаление временных init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
 - `npm run lint` — статический анализ TypeScript-кода (ESLint).
 - `npm run lint:fix` — автоисправление lint-замечаний.
 - `npm run format` — форматирование baseline-файлов (Prettier).
@@ -141,3 +142,4 @@ flowchart TD
 - INIT-003: добавлен typed command/query bus с envelopes результатов и smoke-тестом маршрутизации.
 - INIT-004: подключён `PlatformYandex` runtime bootstrap для YaGames SDK + локальный dev/prod proxy цикл.
 - INIT-005: настроен инженерный baseline (`lint/typecheck/build/test/format`) и CI pre-merge workflow.
+- INIT-090: удалены временные init-артефакты, добавлен воспроизводимый cleanup-скрипт `clean:init`.

@@ -2,6 +2,12 @@
 
 ## 2026-02-24
 
+### [INIT]-[090] Приборка init-этапа и удаление временных артефактов
+- Удалён временный агентский журнал `progress.md`; хранение факта выполненных работ закреплено через `CHANGELOG.md` и `tasks/*.md`.
+- `.gitignore` дополнен правилом `progress.md`, чтобы временные handoff-файлы не попадали в репозиторий.
+- Добавлен скрипт `npm run clean:init` для воспроизводимой локальной приборки init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
+- README обновлён: добавлена команда `clean:init` в список инженерных скриптов.
+
 ### [OPS] GitHub Actions deploy workflow для GitHub Pages
 - Добавлен workflow `.github/workflows/deploy-pages.yml` для автоматического деплоя в GitHub Pages при `push` в `main` и вручную (`workflow_dispatch`).
 - В deploy-пайплайн добавлены обязательные baseline quality-gates (`npm run ci:baseline`) перед публикацией артефакта.
