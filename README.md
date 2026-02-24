@@ -51,6 +51,17 @@ npm run dev:proxy
 (`integration`, `deterministic generator checks`, `Playwright smoke`, `bundle size threshold`)
 добавляются отдельными задачами следующих этапов backlog.
 
+## GitHub Actions + Deploy
+
+- Baseline CI: `.github/workflows/ci.yml` (trigger: `push`, `pull_request`).
+- GitHub Pages deploy: `.github/workflows/deploy-pages.yml` (trigger: `push` в `main` и `workflow_dispatch`).
+- Deploy workflow публикует `dist/` через `actions/upload-pages-artifact` + `actions/deploy-pages`
+  и собирает Vite с `--base="/<repo-name>/"`, чтобы корректно работать на Pages URL вида
+  `https://<owner>.github.io/<repo-name>/`.
+
+Чтобы включить Pages-деплой в репозитории, в настройках GitHub Pages должен быть выбран режим
+`Build and deployment: GitHub Actions`.
+
 ## Draft / Prod Тест-Режимы (INIT-004)
 
 Draft/dev-mode локально:

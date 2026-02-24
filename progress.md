@@ -94,3 +94,11 @@ Original prompt: Найди первую невыполненную задачу
 
 ### TODO / Next
 - INIT-090: удалить временные артефакты этапа инициализации после baseline-инвентаризации.
+
+## 2026-02-24 Ops: GitHub remote + actions/deploy enablement
+- Добавлен workflow `.github/workflows/deploy-pages.yml`:
+  - trigger: `push` в `main`, `workflow_dispatch`;
+  - permissions: `contents:read`, `pages:write`, `id-token:write`;
+  - build + upload artifact + deploy через `actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`.
+- В deploy workflow сборка выполняется с `npm run build -- --base=\"/<repo-name>/\"` для корректного пути ассетов на GitHub Pages.
+- README и CHANGELOG обновлены с инструкциями по активации Pages через GitHub Actions.

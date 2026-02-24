@@ -2,6 +2,12 @@
 
 ## 2026-02-24
 
+### [OPS] GitHub Actions deploy workflow для GitHub Pages
+- Добавлен workflow `.github/workflows/deploy-pages.yml` для автоматического деплоя в GitHub Pages при `push` в `main` и вручную (`workflow_dispatch`).
+- В deploy-пайплайн добавлены обязательные baseline quality-gates (`npm run ci:baseline`) перед публикацией артефакта.
+- Для корректной работы на `https://<owner>.github.io/<repo>/` добавлена сборка Vite с `--base="/<repo-name>/"` внутри deploy workflow.
+- README дополнен инструкциями по GitHub Actions и требованием включить `Build and deployment: GitHub Actions` в настройках Pages.
+
 ### [INIT]-[005] Инженерный baseline quality-gates + CI
 - Добавлены baseline quality-команды: `lint`, `lint:fix`, `format`, `format:check`, `ci:baseline`.
 - Подключены `eslint` (flat-config для TypeScript) и `prettier` с едиными настройками форматирования baseline-файлов.
