@@ -76,8 +76,11 @@ async function bootstrap(): Promise<void> {
       stageChildren: sceneSnapshot.stageChildren,
       telemetryBufferSize: telemetryModule.getBufferedEvents().length,
       persistence: persistenceModule.getLastSnapshot(),
+      platformLifecycle: platformYandexModule.getLifecycleLog(),
     });
   };
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error('[main] Bootstrap failed.', error);
+});

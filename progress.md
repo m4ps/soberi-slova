@@ -42,3 +42,23 @@ Original prompt: Найди первую невыполненную задачу
 
 ### TODO / Next
 - INIT-004: заменить `PlatformYandex` stub на реальный `YaGames.init()` + lifecycle (`LoadingAPI.ready`, `GameplayAPI.start/stop`, pause/resume).
+
+## 2026-02-24 INIT-004 (in progress)
+- Реализован `PlatformYandex` adapter с реальным lifecycle bootstrap:
+  - `YaGames.init()` через runtime-global,
+  - `LoadingAPI.ready()`,
+  - `GameplayAPI.start()` на старте,
+  - обработка `game_api_pause`/`game_api_resume` с `GameplayAPI.stop()/start()`,
+  - `dispose()` снимает подписки и останавливает gameplay.
+- Добавлен структурированный lifecycle-log внутри адаптера (`getLifecycleLog`) и подключён в `window.render_game_to_text` для наблюдаемости smoke-прогонов.
+- Добавлены контрактные тесты `tests/platform-yandex.adapter.test.ts` на bootstrap, pause/resume, dispose и поведение при отсутствии SDK.
+- Исправлен конфликт параметров `sdk-dev-proxy`: `--host` и `--path` взаимоисключающие; npm scripts обновлены на корректный вариант с `--host`.
+- README обновлен: добавлены инструкции для `dev:proxy`, `dev:proxy:prod`, draft/prod тест-режимов и кейса нестандартного порта Vite.
+- Прогон smoke через proxy выполнен на связке `vite preview (4173) + sdk-dev-proxy (8081, dev-mode=true)`:
+  - артефакты: `output/web-game-init004-proxy/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`;
+  - ошибок консоли не зафиксировано.
+- Оформлены артефакты задачи: `ADR/ADR-007-platform-bootstrap-init-004.md`, `tasks/INIT-004.md`, обновлены `BACKLOG.md`, `CHANGELOG.md`.
+
+### TODO / Next
+- INIT-005: добавить инженерный baseline `lint/typecheck/build/test` и CI pipeline по TECHSPEC gates.
+- INIT-090+: после baseline провести cleanup временных артефактов init-этапа.

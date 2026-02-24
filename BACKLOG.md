@@ -16,7 +16,7 @@ Task DOD: Есть compile-time границы (imports не нарушают с
 Task Context: Введи typed `Command/Query` контракты и единый `Result envelope` (`ok | domainError | infraError`), а также ошибку формата `{ code, message, retryable, context }`; добавь заготовки команд из TECHSPEC (`SubmitPath`, `RequestHint`, `RequestReshuffle`, `Tick`, `RestoreSession` и др.).
 Task DOD: Все application use-cases вызываются через единый bus; типы команд и ошибок покрывают обязательные команды v1; есть минимум один интеграционный smoke-test, подтверждающий корректную маршрутизацию команды.
 
-- [ ] [INIT]-[004] Реализовать platform bootstrap для YaGames SDK и локального dev-proxy
+- [x] [INIT]-[004] Реализовать platform bootstrap для YaGames SDK и локального dev-proxy
 Task Context: Подключи `YaGames.init()`, `LoadingAPI.ready()`, `GameplayAPI.start/stop`, обработчики pause/resume; организуй локальный цикл через `@yandex-games/sdk-dev-proxy --dev-mode=true` с моками SDK.
 Task DOD: В dev-режиме приложение стартует через proxy без runtime ошибок SDK; lifecycle события корректно логируются; есть инструкции запуска draft/prod-тест режима в README.
 

@@ -2,6 +2,13 @@
 
 ## 2026-02-24
 
+### [INIT]-[004] Platform bootstrap YaGames SDK + dev-proxy
+- `PlatformYandex` переведён со stub на рабочий адаптер: добавлены `YaGames.init()`, `LoadingAPI.ready()`, `GameplayAPI.start()/stop()` и обработчики `game_api_pause`/`game_api_resume`.
+- Добавлен структурированный lifecycle-log платформенного адаптера с наблюдаемостью через `window.render_game_to_text`.
+- Усилен bootstrap-контур: `RuntimeReady` теперь dispatch-ится только после успешной инициализации SDK lifecycle.
+- Добавлен контрактный тест `tests/platform-yandex.adapter.test.ts` (bootstrap, pause/resume wiring, dispose/unsubscribe, ошибка при отсутствии SDK).
+- Добавлена локальная инфраструктура запуска через `@yandex-games/sdk-dev-proxy` (`dev:proxy`, `dev:proxy:prod`) и обновлён README с инструкциями для dev/draft/prod режимов.
+
 ### [INIT]-[003] Command bus, Result Envelopes и доменные ошибки
 - В application-слое введён единый typed bus с контрактами `ApplicationCommand` и `ApplicationQuery`.
 - Добавлены обязательные команды v1 из TECHSPEC: `SubmitPath`, `RequestHint`, `RequestReshuffle`, `AcknowledgeAdResult`, `AcknowledgeWordSuccessAnimation`, `AcknowledgeLevelTransitionDone`, `Tick`, `RestoreSession`, `SyncLeaderboard`.

@@ -9,16 +9,48 @@ npm install
 npm run dev
 ```
 
-Откройте адрес из вывода Vite (по умолчанию `http://localhost:5173`).
+Для запуска в платформенном контуре Яндекс Игр используйте proxy-цикл:
+
+```bash
+# terminal 1
+npm run dev
+
+# terminal 2
+npm run dev:proxy
+```
+
+Откройте `http://localhost:8080` (SDK будет доступен как `/sdk.js` через proxy).
 
 ## Скрипты
 
 - `npm run dev` — локальный запуск в режиме разработки.
+- `npm run dev:proxy` — запуск `@yandex-games/sdk-dev-proxy` в `--dev-mode=true` (хост `localhost:5173`).
+- `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` для prod-like локального режима (хост `localhost:4173`).
 - `npm run build` — typecheck + production build.
 - `npm run preview` — локальный preview production-сборки.
 - `npm run typecheck` — проверка TypeScript типов.
 - `npm run test` — запуск smoke unit tests (Vitest).
 - `npm run test:watch` — Vitest в watch-режиме.
+
+## Draft / Prod Тест-Режимы (INIT-004)
+
+Draft/dev-mode локально:
+1. Запустите `npm run dev`.
+2. В отдельном терминале запустите `npm run dev:proxy`.
+3. Откройте `http://localhost:8080`.
+4. Если Vite занял порт отличный от `5173`, запустите proxy вручную:
+   `npx sdk-dev-proxy --host localhost:<vite-port> --port 8080 --dev-mode=true`.
+
+Prod-like локально:
+1. Выполните `npm run build`.
+2. Запустите `npm run preview` (по умолчанию `http://localhost:4173`).
+3. В отдельном терминале запустите `npm run dev:proxy:prod`.
+4. Откройте `http://localhost:8080`.
+
+Draft в Консоли Яндекс Игр:
+1. Загрузите актуальный архив сборки в черновик.
+2. Откройте черновик (обычный или debug-panel режим) из Консоли.
+3. Проверьте lifecycle-события SDK (`LoadingAPI.ready`, `GameplayAPI.start/stop`, `game_api_pause/resume`) в runtime.
 
 ## Структура
 
@@ -56,7 +88,7 @@ flowchart TD
 - `LevelGenerator` — заготовка генерации уровня (seed/grid contract).
 - `HelpEconomy` — контракт окна бесплатной помощи.
 - `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
-- `PlatformYandex` — bootstrap-контракт платформенного адаптера (stub до INIT-004).
+- `PlatformYandex` — bootstrap YaGames SDK, lifecycle hooks (`ready/start/stop/pause/resume`) и lifecycle-log адаптера.
 - `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
 - `Telemetry` — сбор application events в буфер адаптера.
 
@@ -77,3 +109,4 @@ flowchart TD
 - INIT-001: базовый bootstrap завершён.
 - INIT-002: добавлена слоистая архитектура и модульные границы.
 - INIT-003: добавлен typed command/query bus с envelopes результатов и smoke-тестом маршрутизации.
+- INIT-004: подключён `PlatformYandex` runtime bootstrap для YaGames SDK + локальный dev/prod proxy цикл.

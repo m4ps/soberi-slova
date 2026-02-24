@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:proxy": "sdk-dev-proxy --host localhost:5173 --port 8080 --dev-mode=true",
+    "dev:proxy:prod": "sdk-dev-proxy --host localhost:4173 --port 8080 --dev-mode=false",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -15,6 +17,7 @@
     "pixi.js": "^8.16.0"
   },
   "devDependencies": {
+    "@yandex-games/sdk-dev-proxy": "^0.0.2",
     "@types/node": "^24.10.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",
