@@ -88,6 +88,9 @@ Original prompt: Найди первую невыполненную задачу
   - `ADR/ADR-008-engineering-baseline-init-005.md`;
   - `tasks/INIT-005.md`;
   - обновлены `BACKLOG.md`, `CHANGELOG.md`.
+- Git:
+  - создан коммит `cf1a8f5` (`[INIT]-[005] Add engineering baseline gates and CI`);
+  - `git push origin codex/init-001-bootstrap` не выполнен: remote `origin` отсутствует в текущем workspace.
 
 ### TODO / Next
 - INIT-090: удалить временные артефакты этапа инициализации после baseline-инвентаризации.
