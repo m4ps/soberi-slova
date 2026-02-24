@@ -2,6 +2,12 @@
 
 ## 2026-02-24
 
+### [INIT]-[005] Инженерный baseline quality-gates + CI
+- Добавлены baseline quality-команды: `lint`, `lint:fix`, `format`, `format:check`, `ci:baseline`.
+- Подключены `eslint` (flat-config для TypeScript) и `prettier` с едиными настройками форматирования baseline-файлов.
+- Добавлен CI workflow `.github/workflows/ci.yml` с pre-merge последовательностью, совместимой с TECHSPEC gates: `typecheck -> test -> lint -> format:check -> build`.
+- README дополнен разделом обязательного pre-merge pipeline и обновлённым списком инженерных команд.
+
 ### [INIT]-[004] Platform bootstrap YaGames SDK + dev-proxy
 - `PlatformYandex` переведён со stub на рабочий адаптер: добавлены `YaGames.init()`, `LoadingAPI.ready()`, `GameplayAPI.start()/stop()` и обработчики `game_api_pause`/`game_api_resume`.
 - Добавлен структурированный lifecycle-log платформенного адаптера с наблюдаемостью через `window.render_game_to_text`.

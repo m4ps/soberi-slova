@@ -18,9 +18,7 @@ export interface HelpEconomyModule {
   markFreeActionConsumed: () => void;
 }
 
-export function createHelpEconomyModule(
-  windowStartTs: number = Date.now(),
-): HelpEconomyModule {
+export function createHelpEconomyModule(windowStartTs: number = Date.now()): HelpEconomyModule {
   let freeActionAvailable = true;
 
   return {

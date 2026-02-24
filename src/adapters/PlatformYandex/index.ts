@@ -170,10 +170,7 @@ async function resolveSdkFromRuntime(scriptSrc: string): Promise<YandexSdkInstan
   return resolveSdkFromGlobal();
 }
 
-function assertCommandResultOk(
-  result: ApplicationResult<CommandAck>,
-  commandType: string,
-): void {
+function assertCommandResultOk(result: ApplicationResult<CommandAck>, commandType: string): void {
   if (result.type === 'ok') {
     return;
   }
@@ -202,9 +199,11 @@ export function createPlatformYandexModule(
   const resolveSdk = options.resolveSdkInstance ?? (() => resolveSdkFromRuntime(sdkScriptSrc));
   const now = options.now ?? Date.now;
   const lifecycleLog: PlatformLifecycleLogEntry[] = [];
-  const logger = options.logger ?? ((entry: PlatformLifecycleLogEntry) => {
-    console.info(`[PlatformYandex] ${entry.type}`, entry.context);
-  });
+  const logger =
+    options.logger ??
+    ((entry: PlatformLifecycleLogEntry) => {
+      console.info(`[PlatformYandex] ${entry.type}`, entry.context);
+    });
 
   let sdkInstance: YandexSdkInstance | null = null;
   let unsubscribeApplicationEvents: (() => void) | null = null;

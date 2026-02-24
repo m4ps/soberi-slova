@@ -53,11 +53,7 @@ function collectTypeScriptFiles(directory: string): string[] {
       continue;
     }
 
-    if (
-      entry.isFile() &&
-      entry.name.endsWith('.ts') &&
-      !entry.name.endsWith('.d.ts')
-    ) {
+    if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
       files.push(entryPath);
     }
   }

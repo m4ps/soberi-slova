@@ -62,3 +62,32 @@ Original prompt: Найди первую невыполненную задачу
 ### TODO / Next
 - INIT-005: добавить инженерный baseline `lint/typecheck/build/test` и CI pipeline по TECHSPEC gates.
 - INIT-090+: после baseline провести cleanup временных артефактов init-этапа.
+
+## 2026-02-24 INIT-005
+- Первая невыполненная задача подтверждена: `[INIT]-[005]`.
+- Добавлены baseline quality scripts: `lint`, `lint:fix`, `format`, `format:check`, `ci:baseline`.
+- Подключены baseline-конфиги качества:
+  - `eslint.config.mjs` (flat config для TypeScript);
+  - `.prettierrc.json` + `.prettierignore`.
+- Добавлен CI workflow `.github/workflows/ci.yml` с pre-merge последовательностью:
+  `typecheck -> test -> lint -> format:check -> build`.
+- README обновлен: зафиксированы новые команды и обязательный pre-merge pipeline.
+- Верификация baseline:
+  - `npm run lint` — passed;
+  - `npm run format:check` — passed (после одноразового `npm run format`);
+  - `npm run typecheck` — passed;
+  - `npm run test` — passed;
+  - `npm run build` — passed;
+  - `npm run ci:baseline` — passed.
+- Playwright smoke через `develop-web-game` client выполнен с `sdk-dev-proxy`:
+  - артефакты: `output/web-game-init005-baseline/shot-0.png`, `shot-1.png`,
+    `state-0.json`, `state-1.json`;
+  - `errors-*.json` отсутствуют;
+  - визуально кадр и `render_game_to_text` консистентны (`mode=ready`, портретный viewport).
+- Оформлены проектные артефакты задачи:
+  - `ADR/ADR-008-engineering-baseline-init-005.md`;
+  - `tasks/INIT-005.md`;
+  - обновлены `BACKLOG.md`, `CHANGELOG.md`.
+
+### TODO / Next
+- INIT-090: удалить временные артефакты этапа инициализации после baseline-инвентаризации.

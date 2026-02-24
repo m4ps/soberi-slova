@@ -81,12 +81,13 @@ export interface ApplicationCommandBus {
   dispatch: (command: ApplicationCommand) => ApplicationResult<CommandAck>;
 }
 
-export type ApplicationQueryPayload<TQuery extends ApplicationQuery> =
-  TQuery extends { readonly type: 'GetCoreState' }
-    ? CoreStateSnapshot
-    : TQuery extends { readonly type: 'GetHelpWindowState' }
-      ? HelpWindowState
-      : never;
+export type ApplicationQueryPayload<TQuery extends ApplicationQuery> = TQuery extends {
+  readonly type: 'GetCoreState';
+}
+  ? CoreStateSnapshot
+  : TQuery extends { readonly type: 'GetHelpWindowState' }
+    ? HelpWindowState
+    : never;
 
 export interface ApplicationQueryBus {
   execute: <TQuery extends ApplicationQuery>(

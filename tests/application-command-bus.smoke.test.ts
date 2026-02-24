@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createApplicationLayer, type ApplicationCommand, type ApplicationEvent } from '../src/application';
+import {
+  createApplicationLayer,
+  type ApplicationCommand,
+  type ApplicationEvent,
+} from '../src/application';
 import { createCoreStateModule } from '../src/domain/CoreState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
 import { createLevelGeneratorModule } from '../src/domain/LevelGenerator';
@@ -67,9 +71,11 @@ describe('application command/query bus smoke', () => {
     }
 
     const routedCommandTypes = events
-      .filter((event): event is Extract<ApplicationEvent, { type: 'application/command-routed' }> => {
-        return event.type === 'application/command-routed';
-      })
+      .filter(
+        (event): event is Extract<ApplicationEvent, { type: 'application/command-routed' }> => {
+          return event.type === 'application/command-routed';
+        },
+      )
       .map((event) => event.commandType);
 
     expect(routedCommandTypes).toEqual(

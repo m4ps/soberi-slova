@@ -6,9 +6,7 @@ export interface InputPathModule {
   dispose: () => void;
 }
 
-export function createInputPathModule(
-  commandBus: ApplicationCommandBus,
-): InputPathModule {
+export function createInputPathModule(commandBus: ApplicationCommandBus): InputPathModule {
   let boundCanvas: HTMLCanvasElement | null = null;
   let pointerUpHandler: ((event: PointerEvent) => void) | null = null;
 

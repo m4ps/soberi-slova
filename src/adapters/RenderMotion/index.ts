@@ -26,9 +26,7 @@ export interface RenderMotionModule {
   mount: (rootElement: HTMLDivElement) => Promise<RenderMotionRuntime>;
 }
 
-export function createRenderMotionModule(
-  readModel: ApplicationReadModel,
-): RenderMotionModule {
+export function createRenderMotionModule(readModel: ApplicationReadModel): RenderMotionModule {
   return {
     moduleName: 'RenderMotion',
     mount: async (rootElement) => {

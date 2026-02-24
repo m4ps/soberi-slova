@@ -10,9 +10,7 @@ export interface CoreStateModule {
   setRuntimeMode: (runtimeMode: RuntimeMode) => void;
 }
 
-export function createCoreStateModule(
-  initialMode: RuntimeMode = 'bootstrapping',
-): CoreStateModule {
+export function createCoreStateModule(initialMode: RuntimeMode = 'bootstrapping'): CoreStateModule {
   let snapshot: CoreStateSnapshot = { runtimeMode: initialMode };
 
   return {

@@ -158,11 +158,10 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           }
         }
       } catch (error: unknown) {
-        return infraError(
-          'command.execution-failed',
-          'Command handler crashed.',
-          { commandType: command.type, reason: toErrorMessage(error) },
-        );
+        return infraError('command.execution-failed', 'Command handler crashed.', {
+          commandType: command.type,
+          reason: toErrorMessage(error),
+        });
       }
     },
   };
@@ -174,25 +173,24 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
       try {
         switch (query.type) {
           case 'GetCoreState': {
-            return ok(
-              modules.coreState.getSnapshot(),
-            ) as ApplicationResult<ApplicationQueryPayload<TQuery>>;
+            return ok(modules.coreState.getSnapshot()) as ApplicationResult<
+              ApplicationQueryPayload<TQuery>
+            >;
           }
           case 'GetHelpWindowState': {
-            return ok(
-              modules.helpEconomy.getWindowState(),
-            ) as ApplicationResult<ApplicationQueryPayload<TQuery>>;
+            return ok(modules.helpEconomy.getWindowState()) as ApplicationResult<
+              ApplicationQueryPayload<TQuery>
+            >;
           }
           default: {
             return assertNever(query);
           }
         }
       } catch (error: unknown) {
-        return infraError(
-          'query.execution-failed',
-          'Query handler crashed.',
-          { queryType: query.type, reason: toErrorMessage(error) },
-        );
+        return infraError('query.execution-failed', 'Query handler crashed.', {
+          queryType: query.type,
+          reason: toErrorMessage(error),
+        });
       }
     },
   };

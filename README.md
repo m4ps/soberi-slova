@@ -27,10 +27,29 @@ npm run dev:proxy
 - `npm run dev:proxy` — запуск `@yandex-games/sdk-dev-proxy` в `--dev-mode=true` (хост `localhost:5173`).
 - `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` для prod-like локального режима (хост `localhost:4173`).
 - `npm run build` — typecheck + production build.
+- `npm run lint` — статический анализ TypeScript-кода (ESLint).
+- `npm run lint:fix` — автоисправление lint-замечаний.
+- `npm run format` — форматирование baseline-файлов (Prettier).
+- `npm run format:check` — проверка форматирования (для CI/pre-merge).
 - `npm run preview` — локальный preview production-сборки.
 - `npm run typecheck` — проверка TypeScript типов.
 - `npm run test` — запуск smoke unit tests (Vitest).
 - `npm run test:watch` — Vitest в watch-режиме.
+- `npm run ci:baseline` — обязательный pre-merge baseline pipeline.
+
+## Pre-merge Pipeline (INIT-005)
+
+Обязательная последовательность проверок перед merge:
+
+1. `npm run typecheck`
+2. `npm run test`
+3. `npm run lint`
+4. `npm run format:check`
+5. `npm run build`
+
+В CI это реализовано в `.github/workflows/ci.yml` (baseline gate). Следующие TECHSPEC-gates
+(`integration`, `deterministic generator checks`, `Playwright smoke`, `bundle size threshold`)
+добавляются отдельными задачами следующих этапов backlog.
 
 ## Draft / Prod Тест-Режимы (INIT-004)
 
@@ -110,3 +129,4 @@ flowchart TD
 - INIT-002: добавлена слоистая архитектура и модульные границы.
 - INIT-003: добавлен typed command/query bus с envelopes результатов и smoke-тестом маршрутизации.
 - INIT-004: подключён `PlatformYandex` runtime bootstrap для YaGames SDK + локальный dev/prod proxy цикл.
+- INIT-005: настроен инженерный baseline (`lint/typecheck/build/test/format`) и CI pre-merge workflow.

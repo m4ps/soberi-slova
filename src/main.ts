@@ -39,16 +39,10 @@ async function bootstrap(): Promise<void> {
   const telemetryModule = createTelemetryModule(application.events);
   telemetryModule.start();
 
-  const persistenceModule = createPersistenceModule(
-    application.commands,
-    application.queries,
-  );
+  const persistenceModule = createPersistenceModule(application.commands, application.queries);
   await persistenceModule.restore();
 
-  const platformYandexModule = createPlatformYandexModule(
-    application.commands,
-    application.events,
-  );
+  const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
   await platformYandexModule.bootstrap();
 
   window.advanceTime = async (ms: number) => {
