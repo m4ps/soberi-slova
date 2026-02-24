@@ -6,8 +6,6 @@ import { createRenderMotionModule } from './adapters/RenderMotion';
 import { createTelemetryModule } from './adapters/Telemetry';
 import { createCoreStateModule } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
-import { createLevelGeneratorModule } from './domain/LevelGenerator';
-import { createWordValidationModule } from './domain/WordValidation';
 import './style.css';
 
 function getRootElement(): HTMLDivElement {
@@ -25,8 +23,6 @@ async function bootstrap(): Promise<void> {
 
   const application = createApplicationLayer({
     coreState: createCoreStateModule(),
-    wordValidation: createWordValidationModule(),
-    levelGenerator: createLevelGeneratorModule(),
     helpEconomy: createHelpEconomyModule(),
   });
 

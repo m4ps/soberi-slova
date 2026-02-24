@@ -1,12 +1,8 @@
 import type { CoreStateModule, CoreStateSnapshot } from '../domain/CoreState';
 import type { HelpEconomyModule, HelpKind, HelpWindowState } from '../domain/HelpEconomy';
-import type { LevelGeneratorModule } from '../domain/LevelGenerator';
-import type { WordValidationModule } from '../domain/WordValidation';
 
 export interface DomainModules {
   readonly coreState: CoreStateModule;
-  readonly wordValidation: WordValidationModule;
-  readonly levelGenerator: LevelGeneratorModule;
   readonly helpEconomy: HelpEconomyModule;
 }
 

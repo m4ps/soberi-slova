@@ -2,6 +2,14 @@
 
 ## 2026-02-24
 
+### [INIT]-[091] Удаление ненужного кода и зависимостей этапа
+- Выполнена ревизия зависимостей: `depcheck` не выявил лишних пакетов, текущий набор `dependencies/devDependencies` оставлен минимальным и обоснованным для init/v1 scope.
+- Из `Application`-контракта удалены неиспользуемые bootstrap-зависимости `WordValidation` и `LevelGenerator`, которые не участвуют в текущем command-routing.
+- Обновлён composition root `src/main.ts`: исключён неиспользуемый wiring доменных модулей, чтобы не включать мёртвый код в entry-контур.
+- Обновлён smoke-тест `tests/application-command-bus.smoke.test.ts` под новый минимальный набор обязательных зависимостей application-слоя.
+- Прогон baseline-сборки подтверждён (`typecheck/test/lint/format:check/build`), baseline-бандл не увеличен.
+- В `BACKLOG.md` добавлена follow-up задача `[TEST]-[007]` для стабилизации Playwright smoke в TLS-контуре `sdk-dev-proxy`.
+
 ### [INIT]-[090] Приборка init-этапа и удаление временных артефактов
 - Удалён временный агентский журнал `progress.md`; хранение факта выполненных работ закреплено через `CHANGELOG.md` и `tasks/*.md`.
 - `.gitignore` дополнен правилом `progress.md`, чтобы временные handoff-файлы не попадали в репозиторий.

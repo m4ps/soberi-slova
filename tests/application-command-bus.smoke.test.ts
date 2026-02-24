@@ -7,14 +7,10 @@ import {
 } from '../src/application';
 import { createCoreStateModule } from '../src/domain/CoreState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
-import { createLevelGeneratorModule } from '../src/domain/LevelGenerator';
-import { createWordValidationModule } from '../src/domain/WordValidation';
 
 function createSmokeApplication() {
   return createApplicationLayer({
     coreState: createCoreStateModule(),
-    wordValidation: createWordValidationModule(new Set(['тест'])),
-    levelGenerator: createLevelGeneratorModule(),
     helpEconomy: createHelpEconomyModule(0),
   });
 }
