@@ -23,3 +23,22 @@ Original prompt: Найди первую невыполненную задачу
 ### TODO / Next
 - INIT-003: добавить typed command bus + result envelopes (`ok/domainError/infraError`) поверх текущего application-слоя.
 - INIT-004: заменить `PlatformYandex` stub на реальный `YaGames` bootstrap + lifecycle hooks.
+
+## 2026-02-24 INIT-003
+- Первая невыполненная задача подтверждена: `[INIT]-[003]`.
+- Введены typed-контракты `ApplicationCommand`/`ApplicationQuery`, включая обязательные команды v1 из TECHSPEC.
+- Реализованы единые envelopes:
+  - `ApplicationResult<T>` с ветками `ok | domainError | infraError`.
+  - `ApplicationError` формата `{ code, message, retryable, context }`.
+- Application-layer переведён на централизованную маршрутизацию через `commands.dispatch` и `queries.execute`.
+- Адаптеры синхронизированы с новым bus-контрактом (`InputPath`, `PlatformYandex`, `Persistence`).
+- Добавлен интеграционный smoke-тест `tests/application-command-bus.smoke.test.ts` на маршрутизацию обязательных команд и `domainError` для невалидного `SubmitPath`.
+- Верификация:
+  - `npm run typecheck` — passed
+  - `npm run test` — passed
+  - `npm run build` — passed
+  - Playwright smoke (`web_game_playwright_client.js`, preview `http://127.0.0.1:4173`) — passed; проверены `shot-0.png/shot-1.png`, `state-0.json/state-1.json`, критичных console errors нет.
+- Обновлены артефакты задачи: `BACKLOG.md`, `CHANGELOG.md`, `README.md`, `tasks/INIT-003.md`, `ADR/ADR-006-command-bus-init-003.md`.
+
+### TODO / Next
+- INIT-004: заменить `PlatformYandex` stub на реальный `YaGames.init()` + lifecycle (`LoadingAPI.ready`, `GameplayAPI.start/stop`, pause/resume).

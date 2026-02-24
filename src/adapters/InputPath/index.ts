@@ -20,7 +20,7 @@ export function createInputPathModule(
       }
 
       pointerUpHandler = () => {
-        commandBus.dispatch({ type: 'bootstrap/tick', nowTs: Date.now() });
+        commandBus.dispatch({ type: 'Tick', nowTs: Date.now() });
       };
 
       boundCanvas = canvas;

@@ -21,7 +21,7 @@ export function createPlatformYandexModule(
         });
       }
 
-      commandBus.dispatch({ type: 'bootstrap/ready' });
+      commandBus.dispatch({ type: 'RuntimeReady' });
     },
     dispose: () => {
       if (unsubscribe) {

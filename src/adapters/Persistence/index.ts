@@ -1,4 +1,4 @@
-import type { ApplicationCommandBus, ApplicationReadModel } from '../../application';
+import type { ApplicationCommandBus, ApplicationQueryBus } from '../../application';
 
 export interface PersistenceSnapshot {
   readonly runtimeMode: string;
@@ -14,20 +14,24 @@ export interface PersistenceModule {
 
 export function createPersistenceModule(
   commandBus: ApplicationCommandBus,
-  readModel: ApplicationReadModel,
+  queryBus: ApplicationQueryBus,
 ): PersistenceModule {
   let lastSnapshot: PersistenceSnapshot | null = null;
 
-  const captureSnapshot = (): PersistenceSnapshot => ({
-    runtimeMode: readModel.getCoreState().runtimeMode,
-    capturedAt: Date.now(),
-  });
+  const captureSnapshot = (): PersistenceSnapshot => {
+    const stateResult = queryBus.execute({ type: 'GetCoreState' });
+
+    return {
+      runtimeMode: stateResult.type === 'ok' ? stateResult.value.runtimeMode : 'unknown',
+      capturedAt: Date.now(),
+    };
+  };
 
   return {
     moduleName: 'Persistence',
     restore: async () => {
       lastSnapshot = captureSnapshot();
-      commandBus.dispatch({ type: 'bootstrap/tick', nowTs: lastSnapshot.capturedAt });
+      commandBus.dispatch({ type: 'RestoreSession' });
     },
     flush: async () => {
       lastSnapshot = captureSnapshot();

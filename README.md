@@ -60,7 +60,20 @@ flowchart TD
 - `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
 - `Telemetry` — сбор application events в буфер адаптера.
 
+## Application Bus Contract (INIT-003)
+
+- Все use-cases application-слоя вызываются через единый typed bus:
+  - `commands.dispatch(command)`
+  - `queries.execute(query)`
+- Обязательные команды v1 реализованы как типы `ApplicationCommand` (см. `src/application/contracts.ts`).
+- Результат команд и запросов возвращается в унифицированном envelope:
+  - `ok`
+  - `domainError`
+  - `infraError`
+- Формат ошибки единый: `{ code, message, retryable, context }`.
+
 ## Текущий статус
 
 - INIT-001: базовый bootstrap завершён.
 - INIT-002: добавлена слоистая архитектура и модульные границы.
+- INIT-003: добавлен typed command/query bus с envelopes результатов и smoke-тестом маршрутизации.

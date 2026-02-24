@@ -12,7 +12,7 @@ Task DOD: Проект собирается и запускается локал
 Task Context: Реализуй strict layered dependency model `UI/Input/Render/Platform -> Application -> CoreState/Domain`; создай модули `CoreState`, `InputPath`, `WordValidation`, `LevelGenerator`, `HelpEconomy`, `RenderMotion`, `PlatformYandex`, `Persistence`, `Telemetry` с пустыми контрактами.
 Task DOD: Есть compile-time границы (imports не нарушают слой); каждый модуль имеет публичный интерфейс; добавлена диаграмма/описание архитектуры в документацию проекта.
 
-- [ ] [INIT]-[003] Подготовить command bus, envelopes результатов и доменные ошибки
+- [x] [INIT]-[003] Подготовить command bus, envelopes результатов и доменные ошибки
 Task Context: Введи typed `Command/Query` контракты и единый `Result envelope` (`ok | domainError | infraError`), а также ошибку формата `{ code, message, retryable, context }`; добавь заготовки команд из TECHSPEC (`SubmitPath`, `RequestHint`, `RequestReshuffle`, `Tick`, `RestoreSession` и др.).
 Task DOD: Все application use-cases вызываются через единый bus; типы команд и ошибок покрывают обязательные команды v1; есть минимум один интеграционный smoke-test, подтверждающий корректную маршрутизацию команды.
 

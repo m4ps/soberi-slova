@@ -41,7 +41,7 @@ async function bootstrap(): Promise<void> {
 
   const persistenceModule = createPersistenceModule(
     application.commands,
-    application.readModel,
+    application.queries,
   );
   await persistenceModule.restore();
 
@@ -59,7 +59,7 @@ async function bootstrap(): Promise<void> {
       renderMotionRuntime.stepFrame();
     }
 
-    application.commands.dispatch({ type: 'bootstrap/tick', nowTs: Date.now() });
+    application.commands.dispatch({ type: 'Tick', nowTs: Date.now() });
   };
 
   window.render_game_to_text = () => {
