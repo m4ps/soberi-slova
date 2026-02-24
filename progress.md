@@ -102,3 +102,12 @@ Original prompt: Найди первую невыполненную задачу
   - build + upload artifact + deploy через `actions/configure-pages`, `actions/upload-pages-artifact`, `actions/deploy-pages`.
 - В deploy workflow сборка выполняется с `npm run build -- --base=\"/<repo-name>/\"` для корректного пути ассетов на GitHub Pages.
 - README и CHANGELOG обновлены с инструкциями по активации Pages через GitHub Actions.
+- Создан удалённый репозиторий `https://github.com/m4ps/soberi-slova` и настроен `origin`.
+- Запушены ветки:
+  - `codex/init-001-bootstrap`;
+  - `main` (из текущего состояния ветки `codex/init-001-bootstrap`).
+- Для репозитория включён GitHub Pages режим `build_type=workflow` через API.
+- Статус GitHub Actions:
+  - `Baseline CI` для `main` и `codex/init-001-bootstrap` — success;
+  - `Deploy GitHub Pages` (workflow_dispatch после включения Pages) — success.
+- Публичный URL деплоя: `https://m4ps.github.io/soberi-slova/` (HTTP 200).
