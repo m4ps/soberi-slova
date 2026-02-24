@@ -26,15 +26,41 @@ npm run dev
 assets/         Статические ассеты игры
 data/           Входные данные (словарь)
 src/            Исходный код приложения
-  config/       Конфигурация viewport и константы bootstrap
+  adapters/     Верхний слой: Input/Render/Platform/Persistence/Telemetry
+  application/  Use-case слой и контракты команд/событий
+  config/       Конфигурация viewport и shared-константы bootstrap
+  domain/       CoreState и доменные модули/правила
   types/        Глобальные типы браузерного runtime
 tests/          Smoke unit tests
 ADR/            Архитектурные решения
 tasks/          Отчёты по выполненным задачам
 ```
 
-## Текущий статус INIT-001
+## Архитектура слоёв (INIT-002)
 
-- Поднят базовый проект на TypeScript + PixiJS v8 + Vite.
-- Реализован пустой экран в портретном viewport (single canvas).
-- Добавлены `window.render_game_to_text` и `window.advanceTime(ms)` для автоматизированного тестового цикла.
+- Базовое правило зависимостей:
+  `UI/Input/Render/Platform/Persistence/Telemetry -> Application -> CoreState/Domain`
+- Границы модулей защищены автоматическим тестом `tests/architecture-boundaries.test.ts`.
+
+```mermaid
+flowchart TD
+  ADAPTERS["Adapters: InputPath / RenderMotion / PlatformYandex / Persistence / Telemetry"] --> APP["Application Layer"]
+  APP --> DOMAIN["Domain Layer: CoreState / WordValidation / LevelGenerator / HelpEconomy"]
+```
+
+Публичные модульные интерфейсы v1 bootstrap-этапа:
+
+- `CoreState` — source of truth для runtime-mode snapshot.
+- `InputPath` — adapter ввода (привязка canvas и dispatch в application).
+- `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`).
+- `LevelGenerator` — заготовка генерации уровня (seed/grid contract).
+- `HelpEconomy` — контракт окна бесплатной помощи.
+- `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
+- `PlatformYandex` — bootstrap-контракт платформенного адаптера (stub до INIT-004).
+- `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
+- `Telemetry` — сбор application events в буфер адаптера.
+
+## Текущий статус
+
+- INIT-001: базовый bootstrap завершён.
+- INIT-002: добавлена слоистая архитектура и модульные границы.

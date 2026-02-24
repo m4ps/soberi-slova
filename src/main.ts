@@ -1,6 +1,13 @@
-import { Application, Color, Graphics } from 'pixi.js';
-
-import { GAME_VIEWPORT } from './config/viewport';
+import { createApplicationLayer } from './application';
+import { createInputPathModule } from './adapters/InputPath';
+import { createPersistenceModule } from './adapters/Persistence';
+import { createPlatformYandexModule } from './adapters/PlatformYandex';
+import { createRenderMotionModule } from './adapters/RenderMotion';
+import { createTelemetryModule } from './adapters/Telemetry';
+import { createCoreStateModule } from './domain/CoreState';
+import { createHelpEconomyModule } from './domain/HelpEconomy';
+import { createLevelGeneratorModule } from './domain/LevelGenerator';
+import { createWordValidationModule } from './domain/WordValidation';
 import './style.css';
 
 function getRootElement(): HTMLDivElement {
@@ -15,50 +22,60 @@ function getRootElement(): HTMLDivElement {
 
 async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
-  const app = new Application();
 
-  await app.init({
-    width: GAME_VIEWPORT.width,
-    height: GAME_VIEWPORT.height,
-    antialias: true,
-    backgroundColor: new Color('#0f172a').toNumber(),
-    preserveDrawingBuffer: true,
-    resizeTo: rootElement,
+  const application = createApplicationLayer({
+    coreState: createCoreStateModule(),
+    wordValidation: createWordValidationModule(),
+    levelGenerator: createLevelGeneratorModule(),
+    helpEconomy: createHelpEconomyModule(),
   });
 
-  app.canvas.style.touchAction = 'none';
-  app.canvas.setAttribute('aria-label', 'Game canvas');
-  rootElement.appendChild(app.canvas);
+  const renderMotionModule = createRenderMotionModule(application.readModel);
+  const renderMotionRuntime = await renderMotionModule.mount(rootElement);
 
-  const backdrop = new Graphics()
-    .rect(0, 0, GAME_VIEWPORT.width, GAME_VIEWPORT.height)
-    .fill({ color: 0x0f172a });
-  app.stage.addChild(backdrop);
-  app.render();
+  const inputPathModule = createInputPathModule(application.commands);
+  inputPathModule.bindToCanvas(renderMotionRuntime.canvas);
+
+  const telemetryModule = createTelemetryModule(application.events);
+  telemetryModule.start();
+
+  const persistenceModule = createPersistenceModule(
+    application.commands,
+    application.readModel,
+  );
+  await persistenceModule.restore();
+
+  const platformYandexModule = createPlatformYandexModule(
+    application.commands,
+    application.events,
+  );
+  await platformYandexModule.bootstrap();
 
   window.advanceTime = async (ms: number) => {
     const frameDuration = 1000 / 60;
     const frames = Math.max(1, Math.round(ms / frameDuration));
 
     for (let frame = 0; frame < frames; frame += 1) {
-      app.render();
+      renderMotionRuntime.stepFrame();
     }
+
+    application.commands.dispatch({ type: 'bootstrap/tick', nowTs: Date.now() });
   };
 
   window.render_game_to_text = () => {
+    const sceneSnapshot = renderMotionRuntime.toTextSnapshot();
+
     return JSON.stringify({
-      mode: 'bootstrap-empty-screen',
+      mode: sceneSnapshot.runtimeMode,
       coordinateSystem: {
         origin: 'top-left',
         xAxis: 'right',
         yAxis: 'down',
       },
-      viewport: {
-        width: Math.round(app.screen.width),
-        height: Math.round(app.screen.height),
-        isPortrait: app.screen.height >= app.screen.width,
-      },
-      stageChildren: app.stage.children.length,
+      viewport: sceneSnapshot.viewport,
+      stageChildren: sceneSnapshot.stageChildren,
+      telemetryBufferSize: telemetryModule.getBufferedEvents().length,
+      persistence: persistenceModule.getLastSnapshot(),
     });
   };
 }

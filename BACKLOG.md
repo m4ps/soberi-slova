@@ -8,7 +8,7 @@
 Task Context: Создай каркас проекта с нуля под mobile-first portrait-only single-screen игру для Яндекс Игр; подготовь `src/`, `assets/`, `tests/`, базовую точку входа, сборку и dev-режим; стек строго TypeScript + PixiJS v8, без серверной части.
 Task DOD: Проект собирается и запускается локально одной командой; отображается пустой игровой экран в портретном viewport; структура директорий и scripts зафиксированы в README.
 
-- [ ] [INIT]-[002] Внедрить архитектурные слои и модульные границы из TECHSPEC
+- [x] [INIT]-[002] Внедрить архитектурные слои и модульные границы из TECHSPEC
 Task Context: Реализуй strict layered dependency model `UI/Input/Render/Platform -> Application -> CoreState/Domain`; создай модули `CoreState`, `InputPath`, `WordValidation`, `LevelGenerator`, `HelpEconomy`, `RenderMotion`, `PlatformYandex`, `Persistence`, `Telemetry` с пустыми контрактами.
 Task DOD: Есть compile-time границы (imports не нарушают слой); каждый модуль имеет публичный интерфейс; добавлена диаграмма/описание архитектуры в документацию проекта.
 
