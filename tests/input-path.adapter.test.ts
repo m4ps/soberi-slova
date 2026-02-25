@@ -101,6 +101,24 @@ function resolvePointerForGridCell(
   };
 }
 
+function resolvePointerFromCellOffset(
+  canvas: FakeCanvasElement,
+  row: number,
+  col: number,
+  deltaColInCells: number,
+  deltaRowInCells: number,
+): { clientX: number; clientY: number } {
+  const center = resolvePointerForGridCell(canvas, row, col);
+  const bounds = canvas.getBoundingClientRect();
+  const layout = computeGameLayout(bounds.width, bounds.height);
+  const cellSize = layout.grid.width / 5;
+
+  return {
+    clientX: Math.round(center.clientX + deltaColInCells * cellSize),
+    clientY: Math.round(center.clientY + deltaRowInCells * cellSize),
+  };
+}
+
 describe('InputPath adapter', () => {
   it('maps pointer coordinates to 5x5 grid cells and ignores out-of-bounds input', () => {
     const bounds = {
@@ -197,6 +215,71 @@ describe('InputPath adapter', () => {
       },
     ]);
     expect(canvas.hasCapture(1)).toBe(false);
+  });
+
+  it('snaps off-axis movement to diagonal neighbor for noisy gestures', () => {
+    const dispatchedCommands: ApplicationCommand[] = [];
+    const commandBus: ApplicationCommandBus = {
+      dispatch: (command) => {
+        dispatchedCommands.push(command);
+        return createOkAck(command.type);
+      },
+    };
+    const inputPathModule = createInputPathModule(commandBus);
+    const canvas = new FakeCanvasElement();
+
+    inputPathModule.bindToCanvas(canvas as unknown as HTMLCanvasElement);
+
+    const cell00 = resolvePointerForGridCell(canvas, 0, 0);
+    const offAxisTowardsDiagonal = resolvePointerFromCellOffset(canvas, 0, 0, 0.42, 0.82);
+
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 1, ...cell00 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...offAxisTowardsDiagonal });
+    canvas.dispatchPointerEvent('pointerup', { pointerId: 1, ...offAxisTowardsDiagonal });
+
+    expect(dispatchedCommands).toEqual([
+      {
+        type: 'SubmitPath',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 1, col: 1 },
+        ],
+      },
+    ]);
+  });
+
+  it('interpolates sparse pointer events and preserves diagonal chain', () => {
+    const dispatchedCommands: ApplicationCommand[] = [];
+    const commandBus: ApplicationCommandBus = {
+      dispatch: (command) => {
+        dispatchedCommands.push(command);
+        return createOkAck(command.type);
+      },
+    };
+    const inputPathModule = createInputPathModule(commandBus);
+    const canvas = new FakeCanvasElement();
+
+    inputPathModule.bindToCanvas(canvas as unknown as HTMLCanvasElement);
+
+    const cell00 = resolvePointerForGridCell(canvas, 0, 0);
+    const cell44 = resolvePointerForGridCell(canvas, 4, 4);
+
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 1, ...cell00 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...cell44 });
+    canvas.dispatchPointerEvent('pointerup', { pointerId: 1, ...cell44 });
+
+    expect(dispatchedCommands).toEqual([
+      {
+        type: 'SubmitPath',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 1, col: 1 },
+          { row: 2, col: 2 },
+          { row: 3, col: 3 },
+          { row: 4, col: 4 },
+        ],
+      },
+    ]);
   });
 
   it('ignores non-active pointers and does not submit on pointercancel', () => {
