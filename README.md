@@ -125,7 +125,11 @@ flowchart TD
 
 - `CoreState` — source of truth для runtime-mode snapshot.
 - `InputPath` — adapter ввода (привязка canvas и dispatch в application).
-- `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`) + CSV pipeline словаря (`normalization + filtering + O(1) lookup index`).
+- `WordValidation` — доменная валидация submit-path:
+  - сбор слова из `grid + pathCells`,
+  - классификация `target|bonus|repeat|invalid`,
+  - apply-логика найденных слов (`foundTargets/foundBonuses`) c silent-ignore на `repeat`;
+  - CSV pipeline словаря (`normalization + filtering + O(1) lookup index`).
 - `LevelGenerator` — детерминированный word-first генератор уровня (`target`-набор, path-укладка 8 направлений, anti-repeat, rejection редких букв).
 - `HelpEconomy` — контракт окна бесплатной помощи.
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
@@ -229,3 +233,4 @@ flowchart TD
 - DATA-194: data-слой приведён к production-quality: унифицировано именование migration-утилит, магические числа вынесены в именованные константы, документация синхронизирована с текущей schema/migration логикой.
 - CODE-001: реализован `LevelGenerator` (word-first, deterministic seed, path-укладка 8 направлений, anti-repeat и rejection редких букв) с unit-тестами инвариантов/детерминизма.
 - CODE-002: реализован `InputPath` для swipe-драг ввода: path-engine с `adjacency`, `tail-undo`, ignore invalid/repeated и submit только на `pointerup`.
+- CODE-003: реализован `WordValidation` submit-path контур: сбор слова из `pathCells`, однозначная классификация `target/bonus/repeat/invalid` и apply-логика с silent-ignore без изменения state для `repeat/invalid`.

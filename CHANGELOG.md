@@ -2,6 +2,22 @@
 
 ## 2026-02-25
 
+### [CODE]-[003] Реализовать WordValidation и apply-логику target/bonus/repeat
+
+- `src/domain/WordValidation/index.ts` расширен с базовой валидации слова до submit-path контракта:
+  - добавлен `resolveWordFromPath(grid, pathCells)` для сборки и нормализации слова из пути `5x5`;
+  - добавлены `validatePathWord` и `applyPathWord` с однозначной классификацией `target|bonus|repeat|invalid`;
+  - apply-логика обновляет `foundTargets/foundBonuses` только для `target/bonus`;
+  - повторно найденные и невалидные слова возвращаются как silent-ignore (`isSilent=true`) без изменения state.
+- Классификация приведена к deterministic-порядку:
+  - dictionary lookup -> repeat check -> target check -> bonus fallback.
+- Нормализация слов и сравнение валидации сохраняют различие `ё` и `е` (без схлопывания букв).
+- Добавлен unit-suite `tests/word-validation.test.ts`:
+  - проверки всех исходов валидации;
+  - проверки сборки слова из `pathCells`, включая malformed grid/path;
+  - проверка контракта `ё != е`;
+  - проверки apply-семантики (repeat/invalid не меняют state).
+
 ### [CODE]-[002] Реализовать InputPath для swipe-драг ввода и tail-undo
 
 - `src/adapters/InputPath/index.ts` переведён со stub на рабочий gesture-driven адаптер:
