@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-02-25
+
+### [INIT]-[092] Удаление дублирования в конфигурации и bootstrap-логике
+- Вынесены дублирующиеся bootstrap-константы YaGames в единый модуль [`src/config/platform-yandex.ts`](src/config/platform-yandex.ts): `sdk.js` path, lifecycle event names, script marker и timeout.
+- `PlatformYandex` адаптер и его контрактный тест переведены на shared-константы, что устранило расхождения строковых литералов в runtime/test коде.
+- Добавлен единый конфиг портов [`config/runtime-ports.json`](config/runtime-ports.json) и общий runner [`scripts/run-sdk-dev-proxy.mjs`](scripts/run-sdk-dev-proxy.mjs) для `dev:proxy`/`dev:proxy:prod`.
+- `vite.config.ts` теперь использует тот же источник портов, что и proxy-runner, чтобы исключить конфликтующие значения dev/preview/proxy окружений.
+- В application bus сокращён шаблонный routed-command код через helper’ы `routeCommand`/`routeHelpCommand` без изменения поведения маршрутизации.
+- README синхронизирован с новым единым конфигом портов и proxy-runner.
+- Полная верификация пройдена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-init092-smoke`.
+
 ## 2026-02-24
 
 ### [INIT]-[091] Удаление ненужного кода и зависимостей этапа

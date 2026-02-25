@@ -9,8 +9,7 @@ import type {
   ApplicationResult,
   CommandAck,
 } from '../src/application';
-
-type LifecycleEventName = 'game_api_pause' | 'game_api_resume';
+import { YANDEX_LIFECYCLE_EVENTS, type YandexLifecycleEvent } from '../src/config/platform-yandex';
 
 interface MockSdkRuntime {
   readonly sdkInstance: {
@@ -23,18 +22,18 @@ interface MockSdkRuntime {
         stop: () => void;
       };
     };
-    on: (eventName: LifecycleEventName, callback: () => void) => void;
-    off: (eventName: LifecycleEventName, callback: () => void) => void;
+    on: (eventName: YandexLifecycleEvent, callback: () => void) => void;
+    off: (eventName: YandexLifecycleEvent, callback: () => void) => void;
   };
   readonly counters: {
     loadingReadyCalls: number;
     gameplayStartCalls: number;
     gameplayStopCalls: number;
   };
-  readonly onCalls: LifecycleEventName[];
-  readonly offCalls: LifecycleEventName[];
-  emit: (eventName: LifecycleEventName) => void;
-  getListenerCount: (eventName: LifecycleEventName) => number;
+  readonly onCalls: YandexLifecycleEvent[];
+  readonly offCalls: YandexLifecycleEvent[];
+  emit: (eventName: YandexLifecycleEvent) => void;
+  getListenerCount: (eventName: YandexLifecycleEvent) => number;
 }
 
 function createEventBus(): ApplicationEventBus {
@@ -81,9 +80,9 @@ function createCommandBusSpy(): {
 }
 
 function createMockSdkRuntime(): MockSdkRuntime {
-  const listeners: Record<LifecycleEventName, Set<() => void>> = {
-    game_api_pause: new Set(),
-    game_api_resume: new Set(),
+  const listeners: Record<YandexLifecycleEvent, Set<() => void>> = {
+    [YANDEX_LIFECYCLE_EVENTS.pause]: new Set(),
+    [YANDEX_LIFECYCLE_EVENTS.resume]: new Set(),
   };
 
   const counters = {
@@ -92,8 +91,8 @@ function createMockSdkRuntime(): MockSdkRuntime {
     gameplayStopCalls: 0,
   };
 
-  const onCalls: LifecycleEventName[] = [];
-  const offCalls: LifecycleEventName[] = [];
+  const onCalls: YandexLifecycleEvent[] = [];
+  const offCalls: YandexLifecycleEvent[] = [];
 
   return {
     sdkInstance: {
@@ -152,7 +151,10 @@ describe('PlatformYandex adapter', () => {
     expect(dispatchedCommands).toEqual([{ type: 'RuntimeReady' }]);
     expect(sdkRuntime.counters.loadingReadyCalls).toBe(1);
     expect(sdkRuntime.counters.gameplayStartCalls).toBe(1);
-    expect(sdkRuntime.onCalls).toEqual(['game_api_pause', 'game_api_resume']);
+    expect(sdkRuntime.onCalls).toEqual([
+      YANDEX_LIFECYCLE_EVENTS.pause,
+      YANDEX_LIFECYCLE_EVENTS.resume,
+    ]);
 
     const lifecycleTypes = platformModule.getLifecycleLog().map((entry) => entry.type);
     expect(lifecycleTypes).toEqual(
@@ -179,8 +181,8 @@ describe('PlatformYandex adapter', () => {
     });
 
     await platformModule.bootstrap();
-    sdkRuntime.emit('game_api_pause');
-    sdkRuntime.emit('game_api_resume');
+    sdkRuntime.emit(YANDEX_LIFECYCLE_EVENTS.pause);
+    sdkRuntime.emit(YANDEX_LIFECYCLE_EVENTS.resume);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -206,9 +208,12 @@ describe('PlatformYandex adapter', () => {
     platformModule.dispose();
     await Promise.resolve();
 
-    expect(sdkRuntime.getListenerCount('game_api_pause')).toBe(0);
-    expect(sdkRuntime.getListenerCount('game_api_resume')).toBe(0);
-    expect(sdkRuntime.offCalls).toEqual(['game_api_pause', 'game_api_resume']);
+    expect(sdkRuntime.getListenerCount(YANDEX_LIFECYCLE_EVENTS.pause)).toBe(0);
+    expect(sdkRuntime.getListenerCount(YANDEX_LIFECYCLE_EVENTS.resume)).toBe(0);
+    expect(sdkRuntime.offCalls).toEqual([
+      YANDEX_LIFECYCLE_EVENTS.pause,
+      YANDEX_LIFECYCLE_EVENTS.resume,
+    ]);
     expect(sdkRuntime.counters.gameplayStopCalls).toBe(1);
     expect(
       platformModule

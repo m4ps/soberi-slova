@@ -62,6 +62,8 @@ function infraError<TValue>(
 }
 
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
+  type RoutedCommandType = Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>;
+
   const eventListeners = new Set<ApplicationEventListener>();
 
   const publish = (event: ApplicationEvent): void => {
@@ -87,7 +89,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     });
 
   const publishCommandRouted = (
-    commandType: Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>,
+    commandType: RoutedCommandType,
     correlationId: string | null = null,
   ): void => {
     publish({
@@ -96,6 +98,22 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
       at: Date.now(),
       correlationId,
     });
+  };
+
+  const routeCommand = (
+    commandType: RoutedCommandType,
+    correlationId: string | null = null,
+  ): ApplicationResult<CommandAck> => {
+    publishCommandRouted(commandType, correlationId);
+    return acknowledge(commandType);
+  };
+
+  const routeHelpCommand = (
+    commandType: 'RequestHint' | 'RequestReshuffle',
+    helpKind: 'hint' | 'reshuffle',
+  ): ApplicationResult<CommandAck> => {
+    const decision = modules.helpEconomy.requestHelp(helpKind, Date.now());
+    return routeCommand(commandType, decision.operationId);
   };
 
   const commandBus = {
@@ -120,38 +138,28 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               );
             }
 
-            publishCommandRouted(command.type);
-            return acknowledge(command.type);
+            return routeCommand(command.type);
           }
           case 'RequestHint': {
-            const decision = modules.helpEconomy.requestHelp('hint', Date.now());
-            publishCommandRouted(command.type, decision.operationId);
-            return acknowledge(command.type);
+            return routeHelpCommand(command.type, 'hint');
           }
           case 'RequestReshuffle': {
-            const decision = modules.helpEconomy.requestHelp('reshuffle', Date.now());
-            publishCommandRouted(command.type, decision.operationId);
-            return acknowledge(command.type);
+            return routeHelpCommand(command.type, 'reshuffle');
           }
           case 'AcknowledgeAdResult': {
-            publishCommandRouted(command.type, command.operationId);
-            return acknowledge(command.type);
+            return routeCommand(command.type, command.operationId);
           }
           case 'AcknowledgeWordSuccessAnimation': {
-            publishCommandRouted(command.type, command.operationId);
-            return acknowledge(command.type);
+            return routeCommand(command.type, command.operationId);
           }
           case 'AcknowledgeLevelTransitionDone': {
-            publishCommandRouted(command.type, command.operationId);
-            return acknowledge(command.type);
+            return routeCommand(command.type, command.operationId);
           }
           case 'RestoreSession': {
-            publishCommandRouted(command.type);
-            return acknowledge(command.type);
+            return routeCommand(command.type);
           }
           case 'SyncLeaderboard': {
-            publishCommandRouted(command.type);
-            return acknowledge(command.type);
+            return routeCommand(command.type);
           }
           default: {
             return assertNever(command);

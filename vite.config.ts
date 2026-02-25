@@ -1,14 +1,15 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
+import runtimePorts from './config/runtime-ports.json';
 
 export default defineConfig({
   server: {
-    host: '0.0.0.0',
-    port: 5173,
+    host: runtimePorts.host,
+    port: runtimePorts.devPort,
   },
   preview: {
-    host: '0.0.0.0',
-    port: 4173,
+    host: runtimePorts.host,
+    port: runtimePorts.previewPort,
   },
   test: {
     environment: 'node',
