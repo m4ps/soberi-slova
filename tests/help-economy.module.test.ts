@@ -7,6 +7,38 @@ import {
 } from '../src/domain/HelpEconomy';
 
 describe('help economy module', () => {
+  it('restores window state and drops transient pending/cooldown locks', () => {
+    const helpEconomy = createHelpEconomyModule({
+      windowStartTs: 0,
+      freeActionAvailable: false,
+    });
+
+    const adRequest = helpEconomy.requestHelp('hint', 100);
+    if (adRequest.type !== 'await-ad') {
+      throw new Error('Expected ad-required help request.');
+    }
+
+    helpEconomy.finalizePendingRequest(adRequest.operationId, false, 120, 'error');
+    expect(helpEconomy.getWindowState(121).isLocked).toBe(true);
+
+    const restoredWindow = helpEconomy.restoreWindowState(
+      {
+        windowStartTs: 500,
+        freeActionAvailable: true,
+      },
+      550,
+    );
+
+    expect(restoredWindow).toMatchObject({
+      windowStartTs: 500,
+      freeActionAvailable: true,
+      isLocked: false,
+      pendingRequest: null,
+      cooldownUntilTs: 0,
+      cooldownReason: null,
+    });
+  });
+
   it('consumes free action only after successful help application', () => {
     const helpEconomy = createHelpEconomyModule({
       windowStartTs: 1_000,

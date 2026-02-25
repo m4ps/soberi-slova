@@ -79,10 +79,12 @@ async function cleanupBootstrapRuntime(
   renderMotionRuntime: RenderMotionRuntime | null,
   inputPathDispose: () => void,
   telemetryStop: () => void,
+  persistenceDispose: () => void,
   platformDispose: () => void,
 ): Promise<void> {
   inputPathDispose();
   telemetryStop();
+  persistenceDispose();
   platformDispose();
 
   if (renderMotionRuntime) {
@@ -116,16 +118,19 @@ async function bootstrap(): Promise<void> {
     },
   });
   const telemetryModule = createTelemetryModule(application.events);
-  const persistenceModule = createPersistenceModule(application.commands, application.queries);
   const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
+  const persistenceModule = createPersistenceModule(application.commands, application.queries, {
+    platform: platformYandexModule,
+    eventBus: application.events,
+  });
 
   try {
     renderMotionRuntime = await renderMotionModule.mount(rootElement);
     const mountedRuntime = renderMotionRuntime;
 
     telemetryModule.start();
-    await persistenceModule.restore();
     await platformYandexModule.bootstrap();
+    await persistenceModule.restore();
     inputPathModule.bindToCanvas(mountedRuntime.canvas);
 
     window.advanceTime = async (ms: number) => {
@@ -166,6 +171,7 @@ async function bootstrap(): Promise<void> {
       renderMotionRuntime,
       () => inputPathModule.dispose(),
       () => telemetryModule.stop(),
+      () => persistenceModule.dispose(),
       () => platformYandexModule.dispose(),
     ).catch((cleanupError: unknown) => {
       console.error('[main] Cleanup after bootstrap failure failed.', cleanupError);

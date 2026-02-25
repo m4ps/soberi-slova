@@ -12,6 +12,9 @@ import type {
   ApplicationResult,
   CommandAck,
   DomainModules,
+  PersistedHelpWindowSnapshot,
+  PersistedSessionSnapshot,
+  RestoreSessionPayload,
   RoutedCommandType,
 } from './contracts';
 import { toErrorMessage } from '../shared/errors';
@@ -102,6 +105,73 @@ function resolveHelpAdToastMessage(
   }
 
   return HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function normalizePersistedHelpWindow(
+  snapshot: PersistedSessionSnapshot | null | undefined,
+): PersistedHelpWindowSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const helpWindow = snapshot.helpWindow;
+  if (!isNonNegativeSafeInteger(helpWindow.windowStartTs)) {
+    return null;
+  }
+
+  return {
+    windowStartTs: helpWindow.windowStartTs,
+    freeActionAvailable: helpWindow.freeActionAvailable === true,
+  };
+}
+
+function resolveSnapshotCapturedAt(snapshot: PersistedSessionSnapshot | null | undefined): number {
+  if (!snapshot || !isNonNegativeSafeInteger(snapshot.capturedAt)) {
+    return -1;
+  }
+
+  return snapshot.capturedAt;
+}
+
+function resolveRestoreHelpWindow(
+  payload: RestoreSessionPayload | undefined,
+  source: 'local' | 'cloud' | 'none',
+): PersistedHelpWindowSnapshot | null {
+  if (!payload) {
+    return null;
+  }
+
+  if (source === 'local') {
+    return normalizePersistedHelpWindow(payload.localSnapshot);
+  }
+
+  if (source === 'cloud') {
+    return normalizePersistedHelpWindow(payload.cloudSnapshot);
+  }
+
+  const localHelpWindow = normalizePersistedHelpWindow(payload.localSnapshot);
+  const cloudHelpWindow = normalizePersistedHelpWindow(payload.cloudSnapshot);
+
+  if (localHelpWindow && !cloudHelpWindow) {
+    return localHelpWindow;
+  }
+
+  if (cloudHelpWindow && !localHelpWindow) {
+    return cloudHelpWindow;
+  }
+
+  if (localHelpWindow && cloudHelpWindow) {
+    return resolveSnapshotCapturedAt(payload.localSnapshot) >=
+      resolveSnapshotCapturedAt(payload.cloudSnapshot)
+      ? localHelpWindow
+      : cloudHelpWindow;
+  }
+
+  return null;
 }
 
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
@@ -371,12 +441,21 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'AcknowledgeWordSuccessAnimation': {
-            modules.coreState.acknowledgeWordSuccessAnimation(command.operationId);
+            const ackResult = modules.coreState.acknowledgeWordSuccessAnimation(
+              command.operationId,
+            );
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
                 createEvent('domain/word-success', correlationId, {
                   commandType: command.type,
                   wordId: command.wordId,
+                  levelClearAwarded: ackResult.levelClearAwarded,
+                  scoreDelta: {
+                    wordScore: ackResult.scoreDelta.wordScore,
+                    levelClearScore: ackResult.scoreDelta.levelClearScore,
+                    totalScore: ackResult.scoreDelta.totalScore,
+                  },
+                  allTimeScore: ackResult.allTimeScore,
                 }),
               );
             });
@@ -392,6 +471,37 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'RestoreSession': {
+            const restorePayload = command.payload;
+            const restoreTs = Date.now();
+            const restoreResult = modules.coreState.restoreSession(
+              {
+                localSnapshot: {
+                  gameStateSerialized: restorePayload?.localSnapshot?.gameStateSerialized ?? null,
+                },
+                cloudSnapshot: {
+                  gameStateSerialized: restorePayload?.cloudSnapshot?.gameStateSerialized ?? null,
+                },
+                cloudAllTimeScore: restorePayload?.cloudAllTimeScore ?? null,
+              },
+              restoreTs,
+            );
+            const restoredHelpWindow =
+              resolveRestoreHelpWindow(restorePayload, restoreResult.source) ??
+              (() => {
+                const snapshot = modules.coreState.getSnapshot().gameState.helpWindow;
+                return {
+                  windowStartTs: snapshot.windowStartTs,
+                  freeActionAvailable: snapshot.freeActionAvailable,
+                };
+              })();
+            modules.helpEconomy.restoreWindowState(
+              {
+                windowStartTs: restoredHelpWindow.windowStartTs,
+                freeActionAvailable: restoredHelpWindow.freeActionAvailable,
+              },
+              restoreTs,
+            );
+
             return routeCommand(command.type, null, (correlationId) => {
               publish(
                 createEvent('domain/persistence', correlationId, {
@@ -402,11 +512,13 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'SyncLeaderboard': {
+            const requestedScore = modules.coreState.getSnapshot().gameplay.allTimeScore;
             return routeCommand(command.type, null, (correlationId) => {
               publish(
                 createEvent('domain/leaderboard-sync', correlationId, {
                   commandType: command.type,
                   operation: 'sync-score',
+                  requestedScore,
                 }),
               );
             });
@@ -503,5 +615,8 @@ export type {
   CommandAck,
   DomainModules,
   GridCellRef,
+  PersistedHelpWindowSnapshot,
+  PersistedSessionSnapshot,
+  RestoreSessionPayload,
   RewardedAdOutcome,
 } from './contracts';

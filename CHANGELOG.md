@@ -2,6 +2,38 @@
 
 ## 2026-02-25
 
+### [CODE]-[009] Реализовать PlatformYandex, Persistence, Restore и Leaderboard end-to-end
+
+- `src/adapters/PlatformYandex/index.ts` расширен до полного integration-адаптера:
+  - добавлены persistent bridge-методы `readPersistenceState` / `writePersistenceState` (`safeStorage` + fallback `localStorage`, `player.getData/setData`, `player.getStats/setStats`);
+  - добавлена авторизация по явному действию (`auth.openAuthDialog`) для ручного `SyncLeaderboard`;
+  - добавлен leaderboard sync queue с retry/backoff (0.5s, 1.5s, 4s), без блокировки gameplay;
+  - auto-sync leaderboard теперь запускается на score-событиях (`domain/word-submitted`, `domain/word-success`).
+- `src/adapters/Persistence/index.ts` переведён со stub на рабочий snapshot-контур:
+  - введён persisted envelope (`schemaVersion`, `capturedAt`, `gameStateSerialized`, `helpWindow`);
+  - реализован restore local/cloud payload -> `RestoreSession(payload)` + post-restore flush;
+  - добавлен event-driven auto-flush по domain-событиям, влияющим на score/help/level.
+- `src/domain/CoreState/index.ts` расширен `restoreSession(...)`:
+  - LWW merge local/cloud через `resolveLwwSnapshot`;
+  - best-effort fallback на новый `active` уровень при нересторибельной level-сессии (`completed/reshuffling` или pending ops);
+  - сохранение максимального all-time score (включая cloud stats hint) и cleanup pending операций.
+- `src/domain/HelpEconomy/index.ts` получил `restoreWindowState(...)` для корректного восстановления free-action таймера и очистки transient lock/cooldown.
+- `src/application/contracts.ts` / `src/application/index.ts` синхронизированы:
+  - `RestoreSession` принимает typed payload persisted snapshots;
+  - `domain/word-success` и `domain/leaderboard-sync` теперь несут score-данные для адаптерной синхронизации.
+- `src/main.ts` обновлён под новый порядок bootstrap:
+  - `PlatformYandex.bootstrap()` выполняется до `Persistence.restore()`, чтобы restore использовал SDK bridge;
+  - добавлен `persistence.dispose()` в fail-cleanup.
+- Добавлено/обновлено тестовое покрытие:
+  - `tests/core-state.restore.test.ts`;
+  - `tests/persistence.adapter.test.ts`;
+  - `tests/help-economy.module.test.ts`;
+  - `tests/platform-yandex.adapter.test.ts`;
+  - `tests/application-command-bus.smoke.test.ts`.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code009-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[008] Реализовать RenderMotion и one-screen UI без лишних сущностей
 
 - `src/adapters/RenderMotion/index.ts` переписан в полноценный one-screen рендер:

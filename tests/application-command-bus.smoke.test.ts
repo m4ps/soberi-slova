@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createApplicationLayer,
@@ -278,19 +278,20 @@ describe('application command/query bus smoke', () => {
     expect(events).toContainEqual(
       expect.objectContaining({
         eventType: 'domain/persistence',
-        payload: {
+        payload: expect.objectContaining({
           commandType: 'RestoreSession',
           operation: 'restore-session',
-        },
+        }),
       }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({
         eventType: 'domain/leaderboard-sync',
-        payload: {
+        payload: expect.objectContaining({
           commandType: 'SyncLeaderboard',
           operation: 'sync-score',
-        },
+          requestedScore: expect.any(Number),
+        }),
       }),
     );
 
@@ -338,6 +339,75 @@ describe('application command/query bus smoke', () => {
         code: 'submit-path.empty',
         retryable: false,
       });
+    }
+  });
+
+  it('restores persisted score, level and help timer from RestoreSession payload', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+
+    try {
+      const restoredState: GameStateInput = {
+        ...createScoringFixtureState(),
+        stateVersion: 7,
+        updatedAt: 9_000,
+        allTimeScore: 123,
+        currentLevelSession: {
+          ...createScoringFixtureState().currentLevelSession,
+          levelId: 'level-restored',
+          foundTargets: ['дом'],
+          foundBonuses: ['том'],
+          status: 'active',
+        },
+        helpWindow: {
+          windowStartTs: 9_500,
+          freeActionAvailable: false,
+          pendingHelpRequest: null,
+        },
+      };
+      const application = createApplicationLayer({
+        coreState: createCoreStateModule({
+          initialGameState: createScoringFixtureState(),
+          wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон', 'том'])),
+          nowProvider: () => 10_000,
+        }),
+        helpEconomy: createHelpEconomyModule({
+          windowStartTs: 0,
+          freeActionAvailable: true,
+          nowProvider: () => 10_000,
+        }),
+      });
+
+      const restoreResult = application.commands.dispatch({
+        type: 'RestoreSession',
+        payload: {
+          localSnapshot: {
+            schemaVersion: 1,
+            capturedAt: 9_000,
+            gameStateSerialized: JSON.stringify(restoredState),
+            helpWindow: {
+              windowStartTs: 9_500,
+              freeActionAvailable: false,
+            },
+          },
+          cloudSnapshot: null,
+          cloudAllTimeScore: null,
+        },
+      });
+
+      expect(restoreResult.type).toBe('ok');
+      const restoredCoreState = application.readModel.getCoreState();
+      expect(restoredCoreState.gameplay).toMatchObject({
+        allTimeScore: 123,
+        levelId: 'level-restored',
+      });
+      expect(restoredCoreState.gameplay.foundTargets).toEqual(['дом']);
+      expect(restoredCoreState.gameplay.foundBonuses).toEqual(['том']);
+
+      const restoredHelpWindow = application.readModel.getHelpWindowState();
+      expect(restoredHelpWindow.windowStartTs).toBe(9_500);
+      expect(restoredHelpWindow.freeActionAvailable).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
     }
   });
 

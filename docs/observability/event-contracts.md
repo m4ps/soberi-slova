@@ -40,7 +40,7 @@
 - `domain/word-submitted`
   - payload: `{ commandType: 'SubmitPath', result: 'target' | 'bonus' | 'repeat' | 'invalid', normalizedWord: string | null, isSilent: boolean, levelClearAwarded: boolean, wordSuccessOperationId: string | null, scoreDelta: { wordScore: number, levelClearScore: number, totalScore: number }, progress: { foundTargets: number, totalTargets: number }, levelStatus: 'active' | 'completed' | 'reshuffling', allTimeScore: number, pathCells: GridCellRef[] }`
 - `domain/word-success`
-  - payload: `{ commandType: 'AcknowledgeWordSuccessAnimation', wordId: string }`
+  - payload: `{ commandType: 'AcknowledgeWordSuccessAnimation', wordId: string, levelClearAwarded: boolean, scoreDelta: { wordScore: number, levelClearScore: number, totalScore: number }, allTimeScore: number }`
 - `domain/level-clear`
   - payload: `{ commandType: 'AcknowledgeLevelTransitionDone' }`
 - `domain/help`
@@ -50,7 +50,7 @@
 - `domain/persistence`
   - payload: `{ commandType: 'RestoreSession', operation: 'restore-session' }`
 - `domain/leaderboard-sync`
-  - payload: `{ commandType: 'SyncLeaderboard', operation: 'sync-score' }`
+  - payload: `{ commandType: 'SyncLeaderboard', operation: 'sync-score', requestedScore: number }`
 
 ## Correlation Chain
 
@@ -64,6 +64,13 @@
 - `AcknowledgeWordSuccessAnimation`: `correlationId = operationId` команды.
 - `AcknowledgeLevelTransitionDone`: `correlationId = operationId` команды.
 - `RestoreSession` / `SyncLeaderboard`: `correlationId` генерируется в application-слое и используется и в routed, и в domain event.
+
+Дополнительно для restore persistence payload:
+
+- `RestoreSession` может принимать `payload` с persisted snapshot candidates:
+  - `localSnapshot` / `cloudSnapshot`: `{ schemaVersion, capturedAt, gameStateSerialized, helpWindow }`;
+  - `cloudAllTimeScore`: числовой score-hint из player stats;
+- application/core restore применяет LWW merge и fallback на новый уровень при нересторибельной level-сессии.
 
 Дополнительно для `AcknowledgeAdResult`:
 

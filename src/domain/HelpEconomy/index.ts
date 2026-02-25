@@ -24,6 +24,11 @@ export interface HelpWindowState {
   readonly cooldownReason: HelpAdFailureOutcome | null;
 }
 
+export interface HelpWindowRestoreInput {
+  readonly windowStartTs: number;
+  readonly freeActionAvailable: boolean;
+}
+
 export type HelpRequestDecision =
   | {
       readonly type: 'locked';
@@ -71,6 +76,7 @@ export interface HelpEconomyModuleOptions {
 export interface HelpEconomyModule {
   readonly moduleName: typeof MODULE_IDS.helpEconomy;
   getWindowState: (nowTs?: number) => HelpWindowState;
+  restoreWindowState: (input: HelpWindowRestoreInput, nowTs?: number) => HelpWindowState;
   requestHelp: (kind: HelpKind, nowTs?: number) => HelpRequestDecision;
   finalizePendingRequest: (
     operationId: string,
@@ -191,6 +197,15 @@ export function createHelpEconomyModule(
   return {
     moduleName: MODULE_IDS.helpEconomy,
     getWindowState: (nowTs = nowProvider()) => {
+      return createWindowState(nowTs);
+    },
+    restoreWindowState: (input, nowTs = nowProvider()) => {
+      windowStartTs = normalizeTimestamp(input.windowStartTs, nowProvider());
+      freeActionAvailable = input.freeActionAvailable === true;
+      pendingRequest = null;
+      cooldownUntilTs = 0;
+      cooldownReason = null;
+
       return createWindowState(nowTs);
     },
     requestHelp: (kind, nowTs = nowProvider()) => {

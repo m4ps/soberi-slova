@@ -149,8 +149,15 @@ flowchart TD
   - pseudo-liquid feedback для in-drag/tail-undo;
   - event-driven success glow + перелёт букв в progress/score;
   - auto-ack completion pipeline (`AcknowledgeWordSuccessAnimation` / `AcknowledgeLevelTransitionDone`) из Render-loop.
-- `PlatformYandex` — bootstrap YaGames SDK, lifecycle hooks (`ready/start/stop/pause/resume`), rewarded-ads orchestration (`showRewardedVideo` callbacks -> `AcknowledgeAdResult`) и lifecycle-log адаптера.
-- `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
+- `PlatformYandex` — integration-адаптер YaGames SDK:
+  - bootstrap + lifecycle hooks (`ready/start/stop/pause/resume`);
+  - rewarded-ads orchestration (`showRewardedVideo` -> `AcknowledgeAdResult`);
+  - persistence bridge (`safeStorage`/`localStorage` + `player data/stats`);
+  - leaderboard sync queue (`setScore` с retry/backoff) и auth-диалог только на manual sync.
+- `Persistence` — snapshot persistence/restore адаптер:
+  - persisted envelope `schemaVersion/capturedAt/gameStateSerialized/helpWindow`;
+  - restore local/cloud payload в `RestoreSession`;
+  - event-driven auto-flush на score/help/level событиях.
 - `Telemetry` — сбор application events в буфер адаптера.
 
 ## Application Bus Contract (INIT-003)
@@ -255,3 +262,4 @@ flowchart TD
 - CODE-006: реализован `HelpEconomy` и интеграция help-flow в application/core-state: общий `free-action` пул `hint/reshuffle` с real-time таймером, shared lock на обе help-кнопки, hint progression `2/3/4+` букв для самого лёгкого оставшегося target и manual reshuffle с полным reset текущего уровня.
 - CODE-007: интегрированы rewarded ads outcomes в help-flow: `PlatformYandex` слушает `domain/help` (ad-required), вызывает `showRewardedVideo`, маппит `reward/close/error/no-fill` в `AcknowledgeAdResult`; `HelpEconomy` применяет cooldown `3 сек` на no-reward outcomes, а telemetry фиксирует outcome + `durationMs`.
 - CODE-008: реализован `RenderMotion` one-screen контракт: mobile-first UI с приоритетом поля `5x5`, кнопками `hint/reshuffle/leaderboard`, pseudo-liquid in-drag/undo feedback, event-driven success glow и перелётом букв, плюс автоматический completion transition ack из рендер-цикла.
+- CODE-009: реализован end-to-end контур `PlatformYandex/Persistence/Restore/Leaderboard`: local+cloud snapshot restore, best-effort fallback уровня при нересторибельном состоянии, восстановление free-action timer, leaderboard sync queue с retry/backoff и manual auth dialog.

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createPlatformYandexModule } from '../src/adapters/PlatformYandex';
 import type {
@@ -9,7 +9,13 @@ import type {
   ApplicationResult,
   CommandAck,
 } from '../src/application';
-import { YANDEX_LIFECYCLE_EVENTS, type YandexLifecycleEvent } from '../src/config/platform-yandex';
+import {
+  YANDEX_LIFECYCLE_EVENTS,
+  YANDEX_PERSISTENCE_CLOUD_DATA_KEY,
+  YANDEX_PERSISTENCE_CLOUD_STATS_KEY,
+  YANDEX_PERSISTENCE_LOCAL_STORAGE_KEY,
+  type YandexLifecycleEvent,
+} from '../src/config/platform-yandex';
 
 interface MockSdkRuntime {
   readonly sdkInstance: {
@@ -49,6 +55,37 @@ interface RewardedVideoCallbacks {
   readonly onRewarded?: () => void;
   readonly onClose?: () => void;
   readonly onError?: (error: unknown) => void;
+}
+
+interface RichSdkRuntime {
+  readonly sdkInstance: MockSdkRuntime['sdkInstance'] & {
+    getPlayer: () => Promise<{
+      isAuthorized: () => boolean;
+      getData: (keys?: readonly string[]) => Promise<Record<string, unknown>>;
+      setData: (data: Record<string, unknown>) => Promise<void>;
+      getStats: (keys?: readonly string[]) => Promise<Record<string, unknown>>;
+      setStats: (stats: Record<string, number>) => Promise<void>;
+    }>;
+    getStorage: () => Promise<{
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+    }>;
+    auth: {
+      openAuthDialog: () => Promise<void>;
+    };
+    leaderboards: {
+      setScore: (leaderboardName: string, score: number) => Promise<void>;
+    };
+  };
+  readonly storage: Map<string, string>;
+  readonly playerData: Record<string, unknown>;
+  readonly playerStats: Record<string, number>;
+  readonly setScoreCalls: number[];
+  readonly setScoreFailures: {
+    remaining: number;
+  };
+  setAuthorized: (authorized: boolean) => void;
+  getAuthDialogCalls: () => number;
 }
 
 function createEventBus(): ApplicationEventBus {
@@ -178,6 +215,88 @@ function createMockSdkRuntime(options: { readonly includeAdvApi?: boolean } = {}
     emitRewardedVideoError: (error, callIndex = 0) => {
       rewardedVideoCalls[callIndex]?.onError?.(error);
     },
+  };
+}
+
+function createRichSdkRuntime(): RichSdkRuntime {
+  const baseRuntime = createMockSdkRuntime();
+  const storage = new Map<string, string>();
+  const playerData: Record<string, unknown> = {};
+  const playerStats: Record<string, number> = {};
+  const setScoreCalls: number[] = [];
+  const setScoreFailures = { remaining: 0 };
+  let authorized = true;
+  let authDialogCalls = 0;
+
+  const player = {
+    isAuthorized: () => authorized,
+    getData: async (keys?: readonly string[]) => {
+      if (!keys || keys.length === 0) {
+        return { ...playerData };
+      }
+
+      return keys.reduce<Record<string, unknown>>((accumulator, key) => {
+        if (key in playerData) {
+          accumulator[key] = playerData[key];
+        }
+        return accumulator;
+      }, {});
+    },
+    setData: async (data: Record<string, unknown>) => {
+      Object.assign(playerData, data);
+    },
+    getStats: async (keys?: readonly string[]) => {
+      if (!keys || keys.length === 0) {
+        return { ...playerStats };
+      }
+
+      return keys.reduce<Record<string, unknown>>((accumulator, key) => {
+        if (key in playerStats) {
+          accumulator[key] = playerStats[key];
+        }
+        return accumulator;
+      }, {});
+    },
+    setStats: async (stats: Record<string, number>) => {
+      Object.assign(playerStats, stats);
+    },
+  };
+
+  return {
+    sdkInstance: {
+      ...baseRuntime.sdkInstance,
+      getPlayer: async () => player,
+      getStorage: async () => ({
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          storage.set(key, value);
+        },
+      }),
+      auth: {
+        openAuthDialog: async () => {
+          authDialogCalls += 1;
+          authorized = true;
+        },
+      },
+      leaderboards: {
+        setScore: async (_leaderboardName: string, score: number) => {
+          setScoreCalls.push(score);
+          if (setScoreFailures.remaining > 0) {
+            setScoreFailures.remaining -= 1;
+            throw new Error('Leaderboard unavailable');
+          }
+        },
+      },
+    },
+    storage,
+    playerData,
+    playerStats,
+    setScoreCalls,
+    setScoreFailures,
+    setAuthorized: (nextAuthorized) => {
+      authorized = nextAuthorized;
+    },
+    getAuthDialogCalls: () => authDialogCalls,
   };
 }
 
@@ -485,5 +604,83 @@ describe('PlatformYandex adapter', () => {
       durationMs: 0,
       outcomeContext: 'Rewarded ad API is unavailable in SDK runtime.',
     });
+  });
+
+  it('reads and writes persistence state via safe storage and player mirrors', async () => {
+    const sdkRuntime = createRichSdkRuntime();
+    const { commandBus } = createCommandBusSpy();
+    const platformModule = createPlatformYandexModule(commandBus, createEventBus(), {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => 4_000,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+    const localPersisted = '{"local":true}';
+    const cloudPersisted = '{"cloud":true}';
+    sdkRuntime.storage.set(YANDEX_PERSISTENCE_LOCAL_STORAGE_KEY, localPersisted);
+    sdkRuntime.playerData[YANDEX_PERSISTENCE_CLOUD_DATA_KEY] = cloudPersisted;
+    sdkRuntime.playerStats[YANDEX_PERSISTENCE_CLOUD_STATS_KEY] = 55;
+
+    await platformModule.bootstrap();
+
+    const persistedState = await platformModule.readPersistenceState();
+    expect(persistedState).toEqual({
+      localSnapshot: localPersisted,
+      cloudSnapshot: cloudPersisted,
+      cloudAllTimeScore: 55,
+    });
+
+    await platformModule.writePersistenceState({
+      serializedSnapshot: '{"next":true}',
+      allTimeScore: 77,
+    });
+
+    expect(sdkRuntime.storage.get(YANDEX_PERSISTENCE_LOCAL_STORAGE_KEY)).toBe('{"next":true}');
+    expect(sdkRuntime.playerData[YANDEX_PERSISTENCE_CLOUD_DATA_KEY]).toBe('{"next":true}');
+    expect(sdkRuntime.playerStats[YANDEX_PERSISTENCE_CLOUD_STATS_KEY]).toBe(77);
+  });
+
+  it('opens auth on manual leaderboard sync and retries setScore with backoff', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const sdkRuntime = createRichSdkRuntime();
+      sdkRuntime.setAuthorized(false);
+      sdkRuntime.setScoreFailures.remaining = 2;
+
+      const { commandBus } = createCommandBusSpy();
+      const eventBus = createEventBus();
+      const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+        resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+        leaderboardRetryBackoffMs: [1, 1, 1],
+        now: () => 5_000,
+        logger: () => {
+          // keep test output clean
+        },
+      });
+
+      await platformModule.bootstrap();
+      eventBus.publish({
+        eventId: 'evt-sync-1',
+        eventType: 'domain/leaderboard-sync',
+        eventVersion: 1,
+        occurredAt: 5_000,
+        correlationId: 'sync-1',
+        payload: {
+          commandType: 'SyncLeaderboard',
+          operation: 'sync-score',
+          requestedScore: 42,
+        },
+      });
+
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+
+      expect(sdkRuntime.getAuthDialogCalls()).toBe(1);
+      expect(sdkRuntime.setScoreCalls).toEqual([42, 42, 42]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

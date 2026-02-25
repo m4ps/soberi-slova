@@ -13,6 +13,24 @@ export interface GridCellRef {
 
 export type RewardedAdOutcome = 'reward' | 'close' | 'error' | 'no-fill';
 
+export interface PersistedHelpWindowSnapshot {
+  readonly windowStartTs: number;
+  readonly freeActionAvailable: boolean;
+}
+
+export interface PersistedSessionSnapshot {
+  readonly schemaVersion: number;
+  readonly capturedAt: number;
+  readonly gameStateSerialized: string;
+  readonly helpWindow: PersistedHelpWindowSnapshot;
+}
+
+export interface RestoreSessionPayload {
+  readonly localSnapshot: PersistedSessionSnapshot | null;
+  readonly cloudSnapshot: PersistedSessionSnapshot | null;
+  readonly cloudAllTimeScore: number | null;
+}
+
 export type ApplicationCommand =
   | { readonly type: 'RuntimeReady' }
   | { readonly type: 'SubmitPath'; readonly pathCells: readonly GridCellRef[] }
@@ -36,7 +54,7 @@ export type ApplicationCommand =
       readonly operationId: string;
     }
   | { readonly type: 'Tick'; readonly nowTs: number }
-  | { readonly type: 'RestoreSession' }
+  | { readonly type: 'RestoreSession'; readonly payload?: RestoreSessionPayload }
   | { readonly type: 'SyncLeaderboard' };
 
 export type ApplicationQuery =
@@ -146,6 +164,13 @@ export type WordSuccessEvent = EventEnvelope<
   {
     readonly commandType: 'AcknowledgeWordSuccessAnimation';
     readonly wordId: string;
+    readonly levelClearAwarded: boolean;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly allTimeScore: number;
   }
 >;
 
@@ -195,6 +220,7 @@ export type LeaderboardSyncEvent = EventEnvelope<
   {
     readonly commandType: 'SyncLeaderboard';
     readonly operation: 'sync-score';
+    readonly requestedScore: number;
   }
 >;
 

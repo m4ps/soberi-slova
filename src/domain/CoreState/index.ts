@@ -2,12 +2,14 @@ import { MODULE_IDS } from '../../shared/module-ids';
 import type { HelpKind } from '../HelpEconomy';
 import {
   createGameState,
+  deserializeGameStateWithMigrations,
   type GameState,
   type GameStateInput,
   type LevelSession,
   type PendingOperation,
   type PendingOperationKind,
   type PendingOperationStatus,
+  resolveLwwSnapshot,
 } from '../GameState';
 import { createLevelGeneratorModule, type LevelGeneratorModule } from '../LevelGenerator';
 import {
@@ -36,8 +38,10 @@ const PENDING_OPERATION_KIND_LEVEL_TRANSITION: PendingOperationKind = 'level-tra
 const DEFAULT_LEVEL_META_SOURCE = 'default-core-state';
 const AUTO_NEXT_LEVEL_META_SOURCE = 'core-state-auto-next';
 const MANUAL_RESHUFFLE_LEVEL_META_SOURCE = 'core-state-manual-reshuffle';
+const RESTORE_FALLBACK_LEVEL_META_SOURCE = 'core-state-restore-fallback';
 const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
 const MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX = 'reshuffle';
+const RESTORE_FALLBACK_LEVEL_ID_SUFFIX = 'restore';
 const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
 const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
 const HINT_INITIAL_REVEAL_COUNT = 2;
@@ -191,6 +195,27 @@ export interface CoreStateHelpApplyResult {
   readonly effect: CoreStateHelpEffect | null;
 }
 
+export interface CoreStateRestoreSnapshotInput {
+  readonly gameStateSerialized: string | null;
+}
+
+export interface CoreStateRestorePayload {
+  readonly localSnapshot: CoreStateRestoreSnapshotInput | null;
+  readonly cloudSnapshot: CoreStateRestoreSnapshotInput | null;
+  readonly cloudAllTimeScore: number | null;
+}
+
+export type CoreStateRestoreSource = 'local' | 'cloud' | 'none';
+
+export interface CoreStateRestoreResult {
+  readonly restored: boolean;
+  readonly levelRestored: boolean;
+  readonly source: CoreStateRestoreSource;
+  readonly allTimeScore: number;
+  readonly stateVersion: number;
+  readonly levelId: string;
+}
+
 export interface CoreStateModuleOptions {
   readonly initialMode?: RuntimeMode;
   readonly initialGameState?: GameStateInput;
@@ -203,6 +228,7 @@ export interface CoreStateModule {
   readonly moduleName: typeof MODULE_IDS.coreState;
   getSnapshot: () => CoreStateSnapshot;
   setRuntimeMode: (runtimeMode: RuntimeMode) => void;
+  restoreSession: (payload: CoreStateRestorePayload, nowTs?: number) => CoreStateRestoreResult;
   submitPath: (pathCells: readonly WordPathCellRef[], nowTs?: number) => CoreStateSubmitResult;
   acknowledgeWordSuccessAnimation: (
     operationId: string,
@@ -394,6 +420,121 @@ function createNextLevelId(currentLevelId: string, fallbackSequence: number): st
 
 function createReshuffleLevelId(currentLevelId: string, fallbackSequence: number): string {
   return `${currentLevelId}-${MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
+}
+
+function createRestoreFallbackLevelId(currentLevelId: string, fallbackSequence: number): string {
+  return `${currentLevelId}-${RESTORE_FALLBACK_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
+}
+
+function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseNonNegativeSafeInteger(value: unknown): number | null {
+  if (typeof value !== 'number') {
+    return null;
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    return null;
+  }
+
+  return Math.trunc(value);
+}
+
+interface ParsedCoreStateRestoreSnapshot {
+  readonly gameState: GameState | null;
+  readonly allTimeScoreHint: number | null;
+  readonly stateVersionHint: number | null;
+  readonly seedHint: number | null;
+}
+
+function parseCoreStateRestoreSnapshot(
+  snapshot: CoreStateRestoreSnapshotInput | null,
+): ParsedCoreStateRestoreSnapshot {
+  const serialized = snapshot?.gameStateSerialized;
+  if (typeof serialized !== 'string' || serialized.trim().length === 0) {
+    return {
+      gameState: null,
+      allTimeScoreHint: null,
+      stateVersionHint: null,
+      seedHint: null,
+    };
+  }
+
+  let gameState: GameState | null = null;
+  try {
+    gameState = deserializeGameStateWithMigrations(serialized).state;
+  } catch {
+    // Invalid snapshot is handled via best-effort score/seed hints.
+  }
+
+  let allTimeScoreHint: number | null = null;
+  let stateVersionHint: number | null = null;
+  let seedHint: number | null = null;
+
+  try {
+    const parsed = JSON.parse(serialized);
+    if (isRecordLike(parsed)) {
+      allTimeScoreHint = parseNonNegativeSafeInteger(parsed.allTimeScore);
+      stateVersionHint = parseNonNegativeSafeInteger(parsed.stateVersion);
+
+      const levelSessionCandidate = parsed.currentLevelSession;
+      if (isRecordLike(levelSessionCandidate)) {
+        seedHint = parseNonNegativeSafeInteger(levelSessionCandidate.seed);
+      }
+    }
+  } catch {
+    // Best-effort hints remain null when snapshot JSON is malformed.
+  }
+
+  return {
+    gameState,
+    allTimeScoreHint,
+    stateVersionHint,
+    seedHint,
+  };
+}
+
+function isLevelSessionRestorable(state: GameState): boolean {
+  return state.currentLevelSession.status === 'active' && state.pendingOps.length === 0;
+}
+
+function normalizeRestoredScore(candidateScores: readonly (number | null)[]): number {
+  let nextScore = 0;
+
+  candidateScores.forEach((candidateScore) => {
+    if (candidateScore === null) {
+      return;
+    }
+
+    nextScore = Math.max(nextScore, candidateScore);
+  });
+
+  return nextScore;
+}
+
+function createRestoreLeaderboardSync(
+  state: GameState | null,
+  allTimeScore: number,
+): GameStateInput['leaderboardSync'] {
+  if (!state) {
+    return {
+      lastSubmittedScore: 0,
+      lastAckScore: 0,
+      lastSubmitTs: 0,
+    };
+  }
+
+  const lastSubmittedScore = Math.min(state.leaderboardSync.lastSubmittedScore, allTimeScore);
+  const lastAckScore = Math.min(state.leaderboardSync.lastAckScore, lastSubmittedScore);
+  const lastSubmitTs = lastSubmittedScore === 0 ? 0 : state.leaderboardSync.lastSubmitTs;
+
+  return {
+    lastSubmittedScore,
+    lastAckScore,
+    lastSubmitTs,
+  };
 }
 
 function compareWordsByDifficulty(left: string, right: string): number {
@@ -665,6 +806,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
   let operationSequence = 0;
   let fallbackLevelIdSequence = 0;
   let reshuffleLevelIdSequence = 0;
+  let restoreFallbackLevelIdSequence = 0;
   let recentTargetWords = trimRecentTargetWords(gameState.currentLevelSession.targetWords);
   const processedHelpOperationIds = new Set<string>();
   const processedHelpOperationQueue: string[] = [];
@@ -770,6 +912,49 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     };
   };
 
+  const createRestoreFallbackLevelSession = (
+    baseLevelSession: LevelSession | null,
+  ): GameStateInput['currentLevelSession'] => {
+    const fallbackBaseLevel = baseLevelSession ?? gameState.currentLevelSession;
+    const nextSeed = Math.max(1, fallbackBaseLevel.seed + 1);
+    const recentWordsForGeneration = trimRecentTargetWords([
+      ...recentTargetWords,
+      ...fallbackBaseLevel.targetWords,
+    ]);
+    const generatedLevel = levelGenerator.generateLevel({
+      seed: nextSeed,
+      recentTargetWords: recentWordsForGeneration,
+    });
+
+    restoreFallbackLevelIdSequence += 1;
+    recentTargetWords = trimRecentTargetWords([
+      ...recentWordsForGeneration,
+      ...generatedLevel.targetWords,
+    ]);
+
+    return {
+      levelId: createRestoreFallbackLevelId(
+        fallbackBaseLevel.levelId,
+        restoreFallbackLevelIdSequence,
+      ),
+      grid: [...generatedLevel.grid],
+      targetWords: [...generatedLevel.targetWords],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: generatedLevel.seed,
+      meta: {
+        source: RESTORE_FALLBACK_LEVEL_META_SOURCE,
+        previousLevelId: fallbackBaseLevel.levelId,
+        generationAttempts: generatedLevel.meta.generationAttempts,
+        replacements: generatedLevel.meta.replacements,
+        backtracks: generatedLevel.meta.backtracks,
+        rareLetterCount: generatedLevel.meta.rareLetterCount,
+        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
+      },
+    };
+  };
+
   const buildSnapshot = (): CoreStateSnapshot => {
     const stateCopy = cloneGameState(gameState);
 
@@ -785,6 +970,102 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     getSnapshot: () => buildSnapshot(),
     setRuntimeMode: (nextRuntimeMode) => {
       runtimeMode = nextRuntimeMode;
+    },
+    restoreSession: (payload, nowTs = nowProvider()) => {
+      const normalizedRestoreTs = Math.max(0, Math.trunc(nowTs));
+      const localSnapshot = parseCoreStateRestoreSnapshot(payload.localSnapshot);
+      const cloudSnapshot = parseCoreStateRestoreSnapshot(payload.cloudSnapshot);
+      const cloudAllTimeScore = parseNonNegativeSafeInteger(payload.cloudAllTimeScore);
+
+      let restoredSource: CoreStateRestoreSource = 'none';
+      let restoredState: GameState | null = null;
+
+      if (localSnapshot.gameState && cloudSnapshot.gameState) {
+        const resolution = resolveLwwSnapshot(localSnapshot.gameState, cloudSnapshot.gameState);
+        restoredSource = resolution.winner;
+        restoredState = cloneGameState(resolution.resolvedState);
+      } else if (localSnapshot.gameState) {
+        restoredSource = 'local';
+        restoredState = cloneGameState(localSnapshot.gameState);
+      } else if (cloudSnapshot.gameState) {
+        restoredSource = 'cloud';
+        restoredState = cloneGameState(cloudSnapshot.gameState);
+      }
+
+      const restoredScore = normalizeRestoredScore([
+        cloudAllTimeScore,
+        localSnapshot.allTimeScoreHint,
+        cloudSnapshot.allTimeScoreHint,
+        restoredState?.allTimeScore ?? null,
+      ]);
+
+      const buildFallbackState = (sourceState: GameState | null): GameState => {
+        const defaultState = createDefaultGameStateInput(normalizedRestoreTs);
+        const versionHints = [
+          gameState.stateVersion,
+          localSnapshot.stateVersionHint ?? 0,
+          cloudSnapshot.stateVersionHint ?? 0,
+          sourceState ? sourceState.stateVersion + 1 : 0,
+        ];
+        const nextStateVersion = Math.max(...versionHints);
+        const fallbackLevelSession = createRestoreFallbackLevelSession(
+          sourceState?.currentLevelSession ?? null,
+        );
+        const fallbackHelpWindow = sourceState?.helpWindow ?? defaultState.helpWindow;
+
+        return createGameState({
+          ...defaultState,
+          stateVersion: nextStateVersion,
+          updatedAt: normalizedRestoreTs,
+          allTimeScore: restoredScore,
+          currentLevelSession: fallbackLevelSession,
+          helpWindow: {
+            windowStartTs: fallbackHelpWindow.windowStartTs,
+            freeActionAvailable: fallbackHelpWindow.freeActionAvailable,
+            pendingHelpRequest: null,
+          },
+          pendingOps: [],
+          leaderboardSync: createRestoreLeaderboardSync(sourceState, restoredScore),
+        });
+      };
+
+      let levelRestored = false;
+      if (restoredState) {
+        if (restoredScore > restoredState.allTimeScore) {
+          restoredState = createGameState({
+            ...toGameStateInput(restoredState),
+            stateVersion: restoredState.stateVersion + 1,
+            updatedAt: Math.max(restoredState.updatedAt, normalizedRestoreTs),
+            allTimeScore: restoredScore,
+            leaderboardSync: createRestoreLeaderboardSync(restoredState, restoredScore),
+          });
+        }
+
+        if (isLevelSessionRestorable(restoredState)) {
+          levelRestored = true;
+          gameState = restoredState;
+        } else {
+          gameState = buildFallbackState(restoredState);
+        }
+      } else {
+        gameState = buildFallbackState(null);
+      }
+
+      recentTargetWords = trimRecentTargetWords(gameState.currentLevelSession.targetWords);
+      showEphemeralCongrats = false;
+
+      return {
+        restored:
+          restoredState !== null ||
+          restoredScore > 0 ||
+          (payload.localSnapshot?.gameStateSerialized?.trim().length ?? 0) > 0 ||
+          (payload.cloudSnapshot?.gameStateSerialized?.trim().length ?? 0) > 0,
+        levelRestored,
+        source: restoredSource,
+        allTimeScore: gameState.allTimeScore,
+        stateVersion: gameState.stateVersion,
+        levelId: gameState.currentLevelSession.levelId,
+      };
     },
     submitPath: (pathCells, nowTs = nowProvider()) => {
       const currentLevelSession = gameState.currentLevelSession;

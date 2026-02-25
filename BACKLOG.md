@@ -120,7 +120,7 @@ Task DOD: Ни один ad outcome не приводит к двойному п�
 Task Context: Реализуй liquid/pseudo-liquid feedback: in-drag линия, undo-визуал, success glow (green target / yellow bonus), перелет букв в progress/score; собери UI одного экрана (grid, progress x/N, all-time score, hint, reshuffle, leaderboard) без session score/list/tutorial.
 Task DOD: Весь UI соответствует PRD one-screen contract; анимации запускаются по domain events, а не как источник истины; на малых экранах поле 5x5 остается приоритетным элементом.
 
-- [ ] [CODE]-[009] Реализовать PlatformYandex, Persistence, Restore и Leaderboard end-to-end
+- [x] [CODE]-[009] Реализовать PlatformYandex, Persistence, Restore и Leaderboard end-to-end
 Task Context: Имплементируй адаптеры `safeStorage + player data/stats` с best-effort restore текущего уровня, гарантией сохранности all-time score и free-action timer; добавь sync leaderboard (`setScore`) для авторизованных пользователей и auth-диалог по явному действию.
 Task DOD: На рестарте восстанавливаются score/timer и по возможности уровень; при невозможности level restore создается новый уровень без потери прогресса; leaderboard sync имеет retry/backoff и не блокирует gameplay.
 
