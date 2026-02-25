@@ -21,6 +21,8 @@ const MAX_ACK_TRACKING = 128;
 const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
 const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
 const HELP_BUTTON_TOAST_LOCK_TEXT = 'Занято';
+const DEV_TARGET_WORDS_CONSOLE_LOG_ENABLED = import.meta.env.DEV;
+const DEV_TARGET_WORDS_CONSOLE_PREFIX = '[dev][target-words]';
 
 type SuccessKind = 'target' | 'bonus';
 
@@ -257,6 +259,14 @@ function compareWordDifficulty(left: string, right: string): number {
   }
 
   return 0;
+}
+
+function buildDevTargetWordsSignature(
+  levelId: string,
+  targetWords: readonly string[],
+  foundTargets: readonly string[],
+): string {
+  return JSON.stringify([levelId, targetWords, foundTargets]);
 }
 
 function findHintPath(grid: readonly string[], targetWord: string): readonly GridCellRef[] | null {
@@ -547,6 +557,7 @@ export function createRenderMotionModule(
       let toastMessage: { text: string; remainingMs: number } | null = null;
       let latestCoreState = readModel.getCoreState();
       let latestHelpState = readModel.getHelpWindowState();
+      let lastDevTargetWordsSignature: string | null = null;
 
       const pathGlowAnimations: PathGlowAnimation[] = [];
       const flyingLetterAnimations: FlyingLetterAnimation[] = [];
@@ -770,10 +781,39 @@ export function createRenderMotionModule(
         }
       };
 
+      const logDevTargetWordsToConsole = (): void => {
+        if (!DEV_TARGET_WORDS_CONSOLE_LOG_ENABLED) {
+          return;
+        }
+
+        const levelSession = latestCoreState.gameState.currentLevelSession;
+        const signature = buildDevTargetWordsSignature(
+          levelSession.levelId,
+          levelSession.targetWords,
+          levelSession.foundTargets,
+        );
+
+        if (signature === lastDevTargetWordsSignature) {
+          return;
+        }
+
+        lastDevTargetWordsSignature = signature;
+        const foundTargetSet = new Set(levelSession.foundTargets);
+
+        console.info(DEV_TARGET_WORDS_CONSOLE_PREFIX, {
+          levelId: levelSession.levelId,
+          words: levelSession.targetWords.map((word) => ({
+            word,
+            found: foundTargetSet.has(word),
+          })),
+        });
+      };
+
       const renderFrame = (deltaMs: number): void => {
         latestCoreState = readModel.getCoreState();
         latestHelpState = readModel.getHelpWindowState();
         currentLayout = computeGameLayout(app.screen.width, app.screen.height);
+        logDevTargetWordsToConsole();
 
         updatePendingAcknowledgeJobs(deltaMs);
 

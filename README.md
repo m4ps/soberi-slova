@@ -42,6 +42,7 @@ npm run dev:proxy
 ## Диагностические хуки runtime
 
 - В режиме разработки (`npm run dev`) доступны служебные хуки `window.render_game_to_text` и `window.advanceTime(ms)` для smoke/E2E-проверок.
+- В dev-сборке список целевых слов уровня выводится в консоль (`[dev][target-words]`) без изменений UI.
 - В production-сборке (`npm run build`, `npm run preview`) эти хуки не экспортируются в `window`.
 
 ## Pre-merge Pipeline (INIT-005)

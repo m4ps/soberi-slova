@@ -2,6 +2,23 @@
 
 ## 2026-02-25
 
+### [CODE]-[011] Добавить dev-only панель с целевыми словами уровня
+
+- Реализация задачи переведена в console-only debug-режим без изменений интерфейса:
+  - в `src/adapters/RenderMotion/index.ts` добавлен dev-only вывод target-слов уровня в консоль (`[dev][target-words]`);
+  - лог включает `levelId` и список слов со статусом `found: boolean`;
+  - добавлена дедупликация логов по сигнатуре (`levelId + targetWords + foundTargets`), чтобы не спамить консоль каждый кадр.
+- Debug-панель и связанные с ней UI-изменения удалены:
+  - удалён `src/adapters/RenderMotion/dev-target-panel.ts`;
+  - удалён `tests/render-dev-target-panel.test.ts`.
+- Синхронизирована документация:
+  - `README.md` (контракт console-only вывода в dev);
+  - обновлён `ADR/ADR-036-dev-target-words-console-only-code-011.md`;
+  - `BACKLOG.md`: задача `[CODE]-[011]` отмечена выполненной.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code011-console-only/shot-0.png`, `state-0.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[010] Улучшить диагональный свайп: tolerance к неточному движению
 
 - `src/adapters/InputPath/index.ts` усилен алгоритм распознавания жеста:
