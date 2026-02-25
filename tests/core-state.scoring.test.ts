@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { createCoreStateModule } from '../src/domain/CoreState';
 import type { GameStateInput } from '../src/domain/GameState';
-import { createWordValidationModule, type WordPathCellRef } from '../src/domain/WordValidation';
+import { createLevelGeneratorModule } from '../src/domain/LevelGenerator';
+import {
+  createRuntimeDictionaryResources,
+  createWordValidationModule,
+  type WordPathCellRef,
+} from '../src/domain/WordValidation';
 
 function cell(row: number, col: number): WordPathCellRef {
   return { row, col };
@@ -357,6 +362,65 @@ describe('core state scoring/progression', () => {
         totalTargets: 3,
       },
       allTimeScore: 22,
+      levelStatus: 'active',
+    });
+  });
+
+  it('credits bonus words via dedicated dictionary lookup independent from level generation pool', () => {
+    const runtimeDictionaryResources = createRuntimeDictionaryResources(
+      [
+        'id,bare,rank,type,level',
+        '1,дом,10,noun,A1',
+        '2,нос,20,noun,A1',
+        '3,сон,30,noun,A1',
+        '4,тон,40,noun,A2',
+        '5,путь,50,noun,A2',
+      ].join('\n'),
+    );
+    const generatorEntriesWithoutBonusWord =
+      runtimeDictionaryResources.levelGeneratorEntries.filter(
+        (entry) => entry.normalized !== 'тон',
+      );
+
+    const coreState = createCoreStateModule({
+      initialGameState: createScoringFixtureState(),
+      levelGenerator: createLevelGeneratorModule({
+        dictionaryEntries: generatorEntriesWithoutBonusWord,
+      }),
+      wordValidation: createWordValidationModule(runtimeDictionaryResources.bonusLookupWords),
+      nowProvider: () => 6_000,
+    });
+
+    const bonusSubmit = coreState.submitPath([cell(1, 0), cell(0, 1), cell(1, 1)], 6_001);
+    expect(bonusSubmit).toMatchObject({
+      result: 'bonus',
+      normalizedWord: 'тон',
+      isSilent: false,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 5,
+        levelClearScore: 0,
+        totalScore: 5,
+      },
+      progress: {
+        foundTargets: 0,
+        totalTargets: 3,
+      },
+      allTimeScore: 5,
+      levelStatus: 'active',
+    });
+
+    const repeatSubmit = coreState.submitPath([cell(1, 0), cell(0, 1), cell(1, 1)], 6_002);
+    expect(repeatSubmit).toMatchObject({
+      result: 'repeat',
+      normalizedWord: 'тон',
+      isSilent: true,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      allTimeScore: 5,
       levelStatus: 'active',
     });
   });

@@ -4,12 +4,32 @@ import { createPersistenceModule } from './adapters/Persistence';
 import { createPlatformYandexModule } from './adapters/PlatformYandex';
 import { createRenderMotionModule, type RenderMotionRuntime } from './adapters/RenderMotion';
 import { createTelemetryModule } from './adapters/Telemetry';
-import { createCoreStateModule } from './domain/CoreState';
+import { createCoreStateModule, type CoreStateModuleOptions } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
+import { createLevelGeneratorModule } from './domain/LevelGenerator';
+import {
+  createRuntimeDictionaryResources,
+  createWordValidationModule,
+} from './domain/WordValidation';
 import { toErrorMessage } from './shared/errors';
+import dictionaryCsv from '../data/dictionary.csv?raw';
 import './style.css';
 
 const DIAGNOSTIC_HOOKS_ENABLED = import.meta.env.DEV;
+
+function createCoreStateDictionaryDependencies(): Pick<
+  CoreStateModuleOptions,
+  'wordValidation' | 'levelGenerator'
+> {
+  const resources = createRuntimeDictionaryResources(dictionaryCsv);
+
+  return {
+    wordValidation: createWordValidationModule(resources.bonusLookupWords),
+    levelGenerator: createLevelGeneratorModule({
+      dictionaryEntries: resources.levelGeneratorEntries,
+    }),
+  };
+}
 
 function getRootElement(): HTMLDivElement {
   const rootElement = document.querySelector<HTMLDivElement>('#app');
@@ -108,7 +128,7 @@ async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
   clearDiagnosticHooks();
 
-  const coreStateModule = createCoreStateModule();
+  const coreStateModule = createCoreStateModule(createCoreStateDictionaryDependencies());
   const initialHelpWindow = coreStateModule.getSnapshot().gameState.helpWindow;
   const helpEconomyModule = createHelpEconomyModule({
     windowStartTs: initialHelpWindow.windowStartTs,

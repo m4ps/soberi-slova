@@ -251,3 +251,7 @@ export {
   type DictionaryPipelineStats,
   type DictionaryRowRejectReason,
 } from './dictionary-pipeline';
+export {
+  createRuntimeDictionaryResources,
+  type RuntimeDictionaryResources,
+} from './runtime-dictionary';

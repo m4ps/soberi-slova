@@ -2,6 +2,22 @@
 
 ## 2026-02-25
 
+### [CODE]-[013] Независимый bonus-алгоритм через отдельный dictionary lookup
+
+- Введён отдельный runtime-ресурс словаря для bonus-валидации:
+  - добавлен `src/domain/WordValidation/runtime-dictionary.ts` с `createRuntimeDictionaryResources(csvContent)`;
+  - ресурс строит независимый `bonusLookupWords` и `levelGeneratorEntries` из `data/dictionary.csv`.
+- Обновлён bootstrap приложения:
+  - `src/main.ts` теперь создаёт `CoreState` с явным wiring:
+    - `WordValidation` получает отдельный lookup (`createWordValidationModule(resources.bonusLookupWords)`);
+    - `LevelGenerator` получает собственный набор `dictionaryEntries` (`createLevelGeneratorModule(...)`).
+- Расширено тестовое покрытие:
+  - новый suite `tests/word-validation.runtime-dictionary.test.ts` (индекс/lookup + bonus-классификация вне target-набора);
+  - `tests/core-state.scoring.test.ts` дополнен сценарием, где bonus-зачёт работает при раздельных словарных пулах генерации и валидации.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code013-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [TEST]-[012] Browser E2E-зачёт target-слов через реальную разгадку
 
 - Добавлен детерминированный browser E2E-сценарий:
