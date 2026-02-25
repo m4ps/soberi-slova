@@ -6,13 +6,73 @@ import {
   type ApplicationEvent,
 } from '../src/application';
 import { createCoreStateModule } from '../src/domain/CoreState';
+import type { GameStateInput } from '../src/domain/GameState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
+import { createWordValidationModule } from '../src/domain/WordValidation';
 
 function createSmokeApplication() {
   return createApplicationLayer({
     coreState: createCoreStateModule(),
     helpEconomy: createHelpEconomyModule(0),
   });
+}
+
+function createScoringFixtureState(): GameStateInput {
+  return {
+    schemaVersion: 2,
+    stateVersion: 0,
+    updatedAt: 1_000,
+    allTimeScore: 0,
+    currentLevelSession: {
+      levelId: 'level-command-bus',
+      grid: [
+        'д',
+        'о',
+        'м',
+        'к',
+        'о',
+        'т',
+        'н',
+        'о',
+        'с',
+        'а',
+        'л',
+        'и',
+        'м',
+        'р',
+        'е',
+        'п',
+        'у',
+        'т',
+        'ь',
+        'я',
+        'б',
+        'в',
+        'г',
+        'ё',
+        'ж',
+      ],
+      targetWords: ['дом', 'нос', 'сон'],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: 9,
+      meta: {
+        source: 'command-bus-test',
+      },
+    },
+    helpWindow: {
+      windowStartTs: 1_000,
+      freeActionAvailable: true,
+      pendingHelpRequest: null,
+    },
+    pendingOps: [],
+    leaderboardSync: {
+      lastSubmittedScore: 0,
+      lastAckScore: 0,
+      lastSubmitTs: 0,
+    },
+  };
 }
 
 describe('application command/query bus smoke', () => {
@@ -236,5 +296,53 @@ describe('application command/query bus smoke', () => {
         retryable: false,
       });
     }
+  });
+
+  it('commits SubmitPath scoring before command-routed event (state-first)', () => {
+    const application = createApplicationLayer({
+      coreState: createCoreStateModule({
+        initialGameState: createScoringFixtureState(),
+        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+        nowProvider: () => 3_000,
+      }),
+      helpEconomy: createHelpEconomyModule(0),
+    });
+
+    let scoreObservedAtRoute = -1;
+    application.events.subscribe((event) => {
+      if (event.eventType !== 'application/command-routed') {
+        return;
+      }
+
+      if (event.payload.commandType !== 'SubmitPath') {
+        return;
+      }
+
+      scoreObservedAtRoute = application.readModel.getCoreState().gameplay.allTimeScore;
+    });
+
+    const result = application.commands.dispatch({
+      type: 'SubmitPath',
+      pathCells: [
+        { row: 0, col: 0 },
+        { row: 0, col: 1 },
+        { row: 0, col: 2 },
+      ],
+    });
+
+    expect(result.type).toBe('ok');
+    expect(scoreObservedAtRoute).toBe(16);
+
+    const coreState = application.readModel.getCoreState();
+    expect(coreState.gameplay).toMatchObject({
+      allTimeScore: 16,
+      stateVersion: 1,
+      progress: {
+        foundTargets: 1,
+        totalTargets: 3,
+      },
+      levelStatus: 'active',
+    });
+    expect(coreState.gameplay.foundTargets).toEqual(['дом']);
   });
 });

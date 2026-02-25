@@ -2,6 +2,28 @@
 
 ## 2026-02-25
 
+### [CODE]-[004] Реализовать CoreState scoring/progression в state-first порядке
+
+- `src/domain/CoreState/index.ts` переведён со stub-модуля на stateful доменный контур:
+  - snapshot `CoreState` теперь включает `runtimeMode + gameState + gameplay` (score/progress/status/found sets);
+  - добавлен `submitPath(pathCells)` с state-first apply через `WordValidation`;
+  - реализованы формулы PRD:
+    - `target: 10 + 2 * len`;
+    - `bonus: 2 + len`;
+    - `level clear: 30 + 5 * N`;
+  - реализована идемпотентность начислений:
+    - `repeat/invalid` — silent no-op;
+    - `level clear` начисляется ровно один раз при последнем `target`;
+    - после `levelStatus=completed` bonus/target submit не начисляют очки (anti-farm guard).
+- `src/application/index.ts` (`SubmitPath`) переведён на state-first порядок:
+  - commit доменного состояния выполняется до публикации `application/command-routed`, чтобы animation/event-цепочка работала поверх уже зафиксированного score/progress.
+- Добавлены тесты:
+  - `tests/core-state.scoring.test.ts` — формулы очков, `x/N` progression, idempotency repeat, запрет bonus после completion;
+  - `tests/application-command-bus.smoke.test.ts` — integration-check, что score уже обновлён в момент `command-routed` для `SubmitPath`.
+- Полная верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code004-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[003] Реализовать WordValidation и apply-логику target/bonus/repeat
 
 - `src/domain/WordValidation/index.ts` расширен с базовой валидации слова до submit-path контракта:

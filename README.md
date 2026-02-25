@@ -123,7 +123,10 @@ flowchart TD
 
 Публичные модульные интерфейсы v1 bootstrap-этапа:
 
-- `CoreState` — source of truth для runtime-mode snapshot.
+- `CoreState` — source of truth для runtime-mode и игрового snapshot:
+  - state-first `submitPath` c apply через `WordValidation`;
+  - scoring/progression контракт (`target`, `bonus`, `level clear`) и idempotency начислений;
+  - блокировка bonus/target начислений после `levelStatus=completed`.
 - `InputPath` — adapter ввода (привязка canvas и dispatch в application).
 - `WordValidation` — доменная валидация submit-path:
   - сбор слова из `grid + pathCells`,
@@ -234,3 +237,4 @@ flowchart TD
 - CODE-001: реализован `LevelGenerator` (word-first, deterministic seed, path-укладка 8 направлений, anti-repeat и rejection редких букв) с unit-тестами инвариантов/детерминизма.
 - CODE-002: реализован `InputPath` для swipe-драг ввода: path-engine с `adjacency`, `tail-undo`, ignore invalid/repeated и submit только на `pointerup`.
 - CODE-003: реализован `WordValidation` submit-path контур: сбор слова из `pathCells`, однозначная классификация `target/bonus/repeat/invalid` и apply-логика с silent-ignore без изменения state для `repeat/invalid`.
+- CODE-004: реализован `CoreState` scoring/progression в state-first порядке: формулы PRD (`target: 10+2*len`, `bonus: 2+len`, `level clear: 30+5*N`), progress `x/N`, idempotent начисления и запрет bonus accrual после completion.

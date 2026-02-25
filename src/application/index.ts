@@ -205,6 +205,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               );
             }
 
+            modules.coreState.submitPath(command.pathCells);
             return routeCommand(command.type);
           }
           case 'RequestHint': {
