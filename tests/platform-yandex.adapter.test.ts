@@ -22,6 +22,9 @@ interface MockSdkRuntime {
         stop: () => void;
       };
     };
+    readonly adv?: {
+      showRewardedVideo: (options: { readonly callbacks?: RewardedVideoCallbacks }) => void;
+    };
     on: (eventName: YandexLifecycleEvent, callback: () => void) => void;
     off: (eventName: YandexLifecycleEvent, callback: () => void) => void;
   };
@@ -32,8 +35,20 @@ interface MockSdkRuntime {
   };
   readonly onCalls: YandexLifecycleEvent[];
   readonly offCalls: YandexLifecycleEvent[];
+  readonly rewardedVideoCalls: readonly RewardedVideoCallbacks[];
   emit: (eventName: YandexLifecycleEvent) => void;
   getListenerCount: (eventName: YandexLifecycleEvent) => number;
+  emitRewardedVideoOpen: (callIndex?: number) => void;
+  emitRewardedVideoRewarded: (callIndex?: number) => void;
+  emitRewardedVideoClose: (callIndex?: number) => void;
+  emitRewardedVideoError: (error: unknown, callIndex?: number) => void;
+}
+
+interface RewardedVideoCallbacks {
+  readonly onOpen?: () => void;
+  readonly onRewarded?: () => void;
+  readonly onClose?: () => void;
+  readonly onError?: (error: unknown) => void;
 }
 
 function createEventBus(): ApplicationEventBus {
@@ -87,11 +102,13 @@ function createCommandBusSpy(options?: {
   };
 }
 
-function createMockSdkRuntime(): MockSdkRuntime {
+function createMockSdkRuntime(options: { readonly includeAdvApi?: boolean } = {}): MockSdkRuntime {
   const listeners: Record<YandexLifecycleEvent, Set<() => void>> = {
     [YANDEX_LIFECYCLE_EVENTS.pause]: new Set(),
     [YANDEX_LIFECYCLE_EVENTS.resume]: new Set(),
   };
+  const includeAdvApi = options.includeAdvApi ?? true;
+  const rewardedVideoCalls: RewardedVideoCallbacks[] = [];
 
   const counters = {
     loadingReadyCalls: 0,
@@ -119,6 +136,15 @@ function createMockSdkRuntime(): MockSdkRuntime {
           },
         },
       },
+      ...(includeAdvApi
+        ? {
+            adv: {
+              showRewardedVideo: (options: { readonly callbacks?: RewardedVideoCallbacks }) => {
+                rewardedVideoCalls.push(options.callbacks ?? {});
+              },
+            },
+          }
+        : {}),
       on: (eventName, callback) => {
         onCalls.push(eventName);
         listeners[eventName].add(callback);
@@ -131,6 +157,7 @@ function createMockSdkRuntime(): MockSdkRuntime {
     counters,
     onCalls,
     offCalls,
+    rewardedVideoCalls,
     emit: (eventName) => {
       listeners[eventName].forEach((callback) => {
         callback();
@@ -138,6 +165,41 @@ function createMockSdkRuntime(): MockSdkRuntime {
     },
     getListenerCount: (eventName) => {
       return listeners[eventName].size;
+    },
+    emitRewardedVideoOpen: (callIndex = 0) => {
+      rewardedVideoCalls[callIndex]?.onOpen?.();
+    },
+    emitRewardedVideoRewarded: (callIndex = 0) => {
+      rewardedVideoCalls[callIndex]?.onRewarded?.();
+    },
+    emitRewardedVideoClose: (callIndex = 0) => {
+      rewardedVideoCalls[callIndex]?.onClose?.();
+    },
+    emitRewardedVideoError: (error, callIndex = 0) => {
+      rewardedVideoCalls[callIndex]?.onError?.(error);
+    },
+  };
+}
+
+function createAdRequiredHelpEvent(
+  operationId: string,
+  helpKind: 'hint' | 'reshuffle',
+  occurredAt: number,
+): ApplicationEvent {
+  return {
+    eventId: `evt-help-${operationId}`,
+    eventType: 'domain/help',
+    eventVersion: 1,
+    occurredAt,
+    correlationId: operationId,
+    payload: {
+      phase: 'requested',
+      commandType: helpKind === 'hint' ? 'RequestHint' : 'RequestReshuffle',
+      operationId,
+      helpKind,
+      isFreeAction: false,
+      requiresAd: true,
+      applied: false,
     },
   };
 }
@@ -303,5 +365,125 @@ describe('PlatformYandex adapter', () => {
         .map((entry) => entry.type)
         .includes('bootstrap-failed'),
     ).toBe(true);
+  });
+
+  it('runs rewarded ad flow from help events and dispatches reward outcome once', async () => {
+    const sdkRuntime = createMockSdkRuntime();
+    const eventBus = createEventBus();
+    const { commandBus, dispatchedCommands } = createCommandBusSpy();
+    let nowTs = 1_000;
+    const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => nowTs,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await platformModule.bootstrap();
+    eventBus.publish(createAdRequiredHelpEvent('op-help-1', 'hint', nowTs));
+    expect(sdkRuntime.rewardedVideoCalls).toHaveLength(1);
+
+    nowTs = 1_050;
+    sdkRuntime.emitRewardedVideoOpen();
+    nowTs = 1_240;
+    sdkRuntime.emitRewardedVideoRewarded();
+    sdkRuntime.emitRewardedVideoClose();
+    await Promise.resolve();
+
+    const adResultCommands = dispatchedCommands.filter(
+      (
+        command,
+      ): command is Extract<ApplicationCommand, { readonly type: 'AcknowledgeAdResult' }> => {
+        return command.type === 'AcknowledgeAdResult';
+      },
+    );
+
+    expect(adResultCommands).toHaveLength(1);
+    expect(adResultCommands[0]).toMatchObject({
+      type: 'AcknowledgeAdResult',
+      helpType: 'hint',
+      operationId: 'op-help-1',
+      outcome: 'reward',
+      durationMs: 240,
+      outcomeContext: null,
+    });
+    expect(sdkRuntime.counters.gameplayStopCalls).toBe(1);
+    expect(sdkRuntime.counters.gameplayStartCalls).toBe(2);
+  });
+
+  it('maps rewarded ad no-fill errors into no-fill outcome', async () => {
+    const sdkRuntime = createMockSdkRuntime();
+    const eventBus = createEventBus();
+    const { commandBus, dispatchedCommands } = createCommandBusSpy();
+    let nowTs = 2_000;
+    const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => nowTs,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await platformModule.bootstrap();
+    eventBus.publish(createAdRequiredHelpEvent('op-help-2', 'reshuffle', nowTs));
+    expect(sdkRuntime.rewardedVideoCalls).toHaveLength(1);
+
+    nowTs = 2_045;
+    sdkRuntime.emitRewardedVideoError({ code: 'NO_FILL', message: 'No fill available' });
+    await Promise.resolve();
+
+    const adResultCommands = dispatchedCommands.filter(
+      (
+        command,
+      ): command is Extract<ApplicationCommand, { readonly type: 'AcknowledgeAdResult' }> => {
+        return command.type === 'AcknowledgeAdResult';
+      },
+    );
+
+    expect(adResultCommands).toHaveLength(1);
+    expect(adResultCommands[0]).toMatchObject({
+      type: 'AcknowledgeAdResult',
+      helpType: 'reshuffle',
+      operationId: 'op-help-2',
+      outcome: 'no-fill',
+      durationMs: 45,
+      outcomeContext: '[object Object]',
+    });
+  });
+
+  it('dispatches ad error outcome when SDK runtime has no rewarded ad API', async () => {
+    const sdkRuntime = createMockSdkRuntime({ includeAdvApi: false });
+    const eventBus = createEventBus();
+    const { commandBus, dispatchedCommands } = createCommandBusSpy();
+    const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => 3_000,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await platformModule.bootstrap();
+    eventBus.publish(createAdRequiredHelpEvent('op-help-3', 'hint', 3_000));
+    await Promise.resolve();
+
+    const adResultCommands = dispatchedCommands.filter(
+      (
+        command,
+      ): command is Extract<ApplicationCommand, { readonly type: 'AcknowledgeAdResult' }> => {
+        return command.type === 'AcknowledgeAdResult';
+      },
+    );
+
+    expect(adResultCommands).toHaveLength(1);
+    expect(adResultCommands[0]).toMatchObject({
+      type: 'AcknowledgeAdResult',
+      helpType: 'hint',
+      operationId: 'op-help-3',
+      outcome: 'error',
+      durationMs: 0,
+      outcomeContext: 'Rewarded ad API is unavailable in SDK runtime.',
+    });
   });
 });

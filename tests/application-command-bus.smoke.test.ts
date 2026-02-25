@@ -220,6 +220,11 @@ describe('application command/query bus smoke', () => {
         helpKind: 'hint',
         outcome: 'reward',
         applied: false,
+        durationMs: null,
+        outcomeContext: null,
+        cooldownApplied: false,
+        cooldownDurationMs: 0,
+        toastMessage: null,
       },
     });
 
@@ -505,9 +510,17 @@ describe('application command/query bus smoke', () => {
     const unlockedWindow = application.queries.execute({ type: 'GetHelpWindowState' });
     expect(unlockedWindow.type).toBe('ok');
     if (unlockedWindow.type === 'ok') {
-      expect(unlockedWindow.value.isLocked).toBe(false);
+      expect(unlockedWindow.value.isLocked).toBe(true);
       expect(unlockedWindow.value.pendingRequest).toBeNull();
       expect(unlockedWindow.value.freeActionAvailable).toBe(false);
+      expect(unlockedWindow.value.cooldownMsRemaining).toBeGreaterThan(0);
+      expect(unlockedWindow.value.cooldownReason).toBe('close');
+    }
+
+    const blockedByCooldown = application.commands.dispatch({ type: 'RequestHint' });
+    expect(blockedByCooldown.type).toBe('domainError');
+    if (blockedByCooldown.type === 'domainError') {
+      expect(blockedByCooldown.error.code).toBe('help.request.cooldown');
     }
   });
 });

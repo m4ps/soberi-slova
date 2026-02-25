@@ -112,7 +112,7 @@ Task DOD: Level clear начисляется ровно один раз; во в
 Task Context: Реализуй общий пул free-action (`hint`/`reshuffle`) с real-time таймером и shared lock на две кнопки; hint раскрывает 2/3/4+ букв одного слова (самое легкое оставшееся), reshuffle полностью сбрасывает текущий уровень.
 Task DOD: Бесплатное действие списывается только после успешного применения помощи; при закрытии вкладки таймер корректно восстанавливается; операции помощи re-entrant-safe.
 
-- [ ] [CODE]-[007] Интегрировать Rewarded Ads outcomes в help flows
+- [x] [CODE]-[007] Интегрировать Rewarded Ads outcomes в help flows
 Task Context: Добавь вызов `showRewardedVideo` и корректную обработку `reward/close/error/no-fill`: выдача помощи только при reward, toast при no-fill/error, временный cooldown кнопок 2-5 сек, lock обеих кнопок на время операции.
 Task DOD: Ни один ad outcome не приводит к двойному применению help; ad-fail не ломает игровой state; telemetry фиксирует outcome и длительность.
 

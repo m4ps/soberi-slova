@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { HELP_WINDOW_DURATION_MS, createHelpEconomyModule } from '../src/domain/HelpEconomy';
+import {
+  HELP_AD_FAILURE_COOLDOWN_MS,
+  HELP_WINDOW_DURATION_MS,
+  createHelpEconomyModule,
+} from '../src/domain/HelpEconomy';
 
 describe('help economy module', () => {
   it('consumes free action only after successful help application', () => {
@@ -109,5 +113,50 @@ describe('help economy module', () => {
     const finalize = helpEconomy.finalizePendingRequest(firstRequest.operationId, false, 2_300);
     expect(finalize.finalized).toBe(true);
     expect(helpEconomy.getWindowState(2_300).isLocked).toBe(false);
+  });
+
+  it('applies cooldown after ad failure outcomes and unlocks after cooldown window', () => {
+    const helpEconomy = createHelpEconomyModule({
+      windowStartTs: 1_000,
+      freeActionAvailable: false,
+    });
+
+    const firstRequest = helpEconomy.requestHelp('hint', 1_100);
+    expect(firstRequest.type).toBe('await-ad');
+    if (firstRequest.type !== 'await-ad') {
+      throw new Error('Expected ad-required request.');
+    }
+
+    const finalize = helpEconomy.finalizePendingRequest(
+      firstRequest.operationId,
+      false,
+      1_120,
+      'no-fill',
+    );
+    expect(finalize).toMatchObject({
+      finalized: true,
+      applied: false,
+      cooldownApplied: true,
+      cooldownDurationMs: HELP_AD_FAILURE_COOLDOWN_MS,
+    });
+    expect(finalize.windowState.isLocked).toBe(true);
+    expect(finalize.windowState.cooldownReason).toBe('no-fill');
+
+    const blockedByCooldown = helpEconomy.requestHelp('reshuffle', 1_200);
+    expect(blockedByCooldown).toMatchObject({
+      type: 'cooldown',
+      kind: 'reshuffle',
+      cooldownReason: 'no-fill',
+    });
+    if (blockedByCooldown.type !== 'cooldown') {
+      throw new Error('Expected cooldown lock.');
+    }
+    expect(blockedByCooldown.cooldownMsRemaining).toBeGreaterThan(0);
+
+    const afterCooldownRequest = helpEconomy.requestHelp(
+      'reshuffle',
+      1_120 + HELP_AD_FAILURE_COOLDOWN_MS + 1,
+    );
+    expect(afterCooldownRequest.type).toBe('await-ad');
   });
 });

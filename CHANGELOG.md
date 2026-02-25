@@ -2,6 +2,28 @@
 
 ## 2026-02-25
 
+### [CODE]-[007] Интегрировать Rewarded Ads outcomes в help flows
+
+- `src/adapters/PlatformYandex/index.ts` расширен ad-flow оркестрацией:
+  - добавлен вызов `ysdk.adv.showRewardedVideo` по событию `domain/help` (`phase=requested`, `requiresAd=true`);
+  - callback outcomes `onRewarded/onClose/onError` маппятся в команду `AcknowledgeAdResult` с `durationMs` и `outcomeContext`;
+  - добавлена дедупликация ad-callback цепочки (single dispatch на одну `operationId`);
+  - добавлены lifecycle-события адаптера для ad-наблюдаемости (`rewarded-ad-requested/open/rewarded/close/error/no-fill/ack-*`).
+- `src/domain/HelpEconomy/index.ts` усилен контрактом временного cooldown:
+  - введён `HELP_AD_FAILURE_COOLDOWN_MS = 3000` и состояние cooldown в `HelpWindowState`;
+  - после `close/error/no-fill` для ad-required операций включается shared lock обеих help-кнопок на 3 секунды;
+  - `requestHelp` поддерживает решение `cooldown`, возвращающее время до разблокировки и причину.
+- `src/application/index.ts` и `src/application/contracts.ts` синхронизированы с ad outcomes:
+  - `RequestHint/RequestReshuffle` при активном cooldown возвращают `domainError` `help.request.cooldown`;
+  - событие `domain/help` (`phase=ad-result`) теперь несёт `durationMs`, `outcomeContext`, `cooldownApplied`, `cooldownDurationMs`, `toastMessage`.
+- Расширены тесты:
+  - `tests/help-economy.module.test.ts`: новый сценарий cooldown после `no-fill`;
+  - `tests/application-command-bus.smoke.test.ts`: проверка блокировки help-запроса в cooldown и расширенного payload `domain/help`;
+  - `tests/platform-yandex.adapter.test.ts`: проверка rewarded-flow, no-fill mapping и fallback без `adv` API.
+- Синхронизирована документация:
+  - `docs/observability/event-contracts.md`;
+  - `README.md`.
+
 ### [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint progression, manual reshuffle
 
 - `src/domain/HelpEconomy/index.ts` переведён с заглушки на stateful help-economy модуль:

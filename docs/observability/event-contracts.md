@@ -44,7 +44,7 @@
 - `domain/help`
   - payload:
     - `{ phase: 'requested', commandType: 'RequestHint' | 'RequestReshuffle', operationId: string, helpKind: 'hint' | 'reshuffle', isFreeAction: boolean, requiresAd: boolean, applied: boolean }`
-    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill', applied: boolean }`
+    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill', applied: boolean, durationMs: number | null, outcomeContext: string | null, cooldownApplied: boolean, cooldownDurationMs: number, toastMessage: string | null }`
 - `domain/persistence`
   - payload: `{ commandType: 'RestoreSession', operation: 'restore-session' }`
 - `domain/leaderboard-sync`
@@ -61,6 +61,13 @@
 - `AcknowledgeWordSuccessAnimation`: `correlationId = operationId` команды.
 - `AcknowledgeLevelTransitionDone`: `correlationId = operationId` команды.
 - `RestoreSession` / `SyncLeaderboard`: `correlationId` генерируется в application-слое и используется и в routed, и в domain event.
+
+Дополнительно для `AcknowledgeAdResult`:
+
+- `durationMs` фиксирует время ad-flow от запуска rewarded запроса до финального callback outcome;
+- `outcomeContext` переносит технический reason при `error/no-fill`;
+- `cooldownApplied/cooldownDurationMs` фиксируют применение временной блокировки help-кнопок;
+- `toastMessage` формирует UI-сигнал для no-reward исходов (`close/error/no-fill`).
 
 Дополнительно:
 

@@ -23,6 +23,8 @@ export type ApplicationCommand =
       readonly helpType: HelpKind;
       readonly outcome: RewardedAdOutcome;
       readonly operationId: string;
+      readonly durationMs?: number;
+      readonly outcomeContext?: string | null;
     }
   | {
       readonly type: 'AcknowledgeWordSuccessAnimation';
@@ -148,6 +150,11 @@ export type HelpEvent = EventEnvelope<
       readonly helpKind: HelpKind;
       readonly outcome: RewardedAdOutcome;
       readonly applied: boolean;
+      readonly durationMs: number | null;
+      readonly outcomeContext: string | null;
+      readonly cooldownApplied: boolean;
+      readonly cooldownDurationMs: number;
+      readonly toastMessage: string | null;
     }
 >;
 

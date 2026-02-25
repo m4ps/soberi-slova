@@ -2,6 +2,9 @@ import { MODULE_IDS } from '../../shared/module-ids';
 
 export type HelpKind = 'hint' | 'reshuffle';
 export const HELP_WINDOW_DURATION_MS = 5 * 60 * 1000;
+export const HELP_AD_FAILURE_COOLDOWN_MS = 3 * 1_000;
+export type HelpAdOutcome = 'reward' | 'close' | 'error' | 'no-fill';
+export type HelpAdFailureOutcome = Exclude<HelpAdOutcome, 'reward'>;
 
 export interface HelpPendingRequestState {
   readonly operationId: string;
@@ -16,6 +19,9 @@ export interface HelpWindowState {
   readonly msUntilNextFreeAction: number;
   readonly isLocked: boolean;
   readonly pendingRequest: HelpPendingRequestState | null;
+  readonly cooldownUntilTs: number;
+  readonly cooldownMsRemaining: number;
+  readonly cooldownReason: HelpAdFailureOutcome | null;
 }
 
 export type HelpRequestDecision =
@@ -23,6 +29,13 @@ export type HelpRequestDecision =
       readonly type: 'locked';
       readonly kind: HelpKind;
       readonly pendingOperationId: string;
+    }
+  | {
+      readonly type: 'cooldown';
+      readonly kind: HelpKind;
+      readonly cooldownUntilTs: number;
+      readonly cooldownMsRemaining: number;
+      readonly cooldownReason: HelpAdFailureOutcome;
     }
   | {
       readonly type: 'apply-now';
@@ -43,12 +56,15 @@ export interface HelpFinalizeResult {
   readonly finalized: boolean;
   readonly applied: boolean;
   readonly freeActionConsumed: boolean;
+  readonly cooldownApplied: boolean;
+  readonly cooldownDurationMs: number;
   readonly windowState: HelpWindowState;
 }
 
 export interface HelpEconomyModuleOptions {
   readonly windowStartTs?: number;
   readonly freeActionAvailable?: boolean;
+  readonly adFailureCooldownMs?: number;
   readonly nowProvider?: () => number;
 }
 
@@ -60,6 +76,7 @@ export interface HelpEconomyModule {
     operationId: string,
     applied: boolean,
     nowTs?: number,
+    adOutcome?: HelpAdOutcome,
   ) => HelpFinalizeResult;
 }
 
@@ -73,6 +90,18 @@ function normalizeTimestamp(candidateTs: number, fallbackTs: number): number {
 
 function trimOperationId(operationId: string): string {
   return operationId.trim();
+}
+
+function normalizeCooldownDuration(candidateMs: number, fallbackMs: number): number {
+  if (!Number.isFinite(candidateMs)) {
+    return Math.max(0, Math.trunc(fallbackMs));
+  }
+
+  return Math.max(0, Math.trunc(candidateMs));
+}
+
+function isAdFailureOutcome(outcome: HelpAdOutcome | undefined): outcome is HelpAdFailureOutcome {
+  return outcome === 'close' || outcome === 'error' || outcome === 'no-fill';
 }
 
 function resolveOptions(
@@ -92,9 +121,15 @@ export function createHelpEconomyModule(
 ): HelpEconomyModule {
   const options = resolveOptions(optionsOrWindowStartTs);
   const nowProvider = options.nowProvider ?? (() => Date.now());
+  const adFailureCooldownMs = normalizeCooldownDuration(
+    options.adFailureCooldownMs ?? HELP_AD_FAILURE_COOLDOWN_MS,
+    HELP_AD_FAILURE_COOLDOWN_MS,
+  );
   let windowStartTs = normalizeTimestamp(options.windowStartTs ?? nowProvider(), nowProvider());
   let freeActionAvailable = options.freeActionAvailable ?? true;
   let pendingRequest: HelpPendingRequestState | null = null;
+  let cooldownUntilTs = 0;
+  let cooldownReason: HelpAdFailureOutcome | null = null;
   let operationSequence = 0;
 
   const alignWindowState = (nowTs: number): number => {
@@ -106,12 +141,22 @@ export function createHelpEconomyModule(
 
     const elapsedMs = normalizedNowTs - windowStartTs;
     if (elapsedMs < HELP_WINDOW_DURATION_MS) {
+      if (normalizedNowTs >= cooldownUntilTs) {
+        cooldownUntilTs = 0;
+        cooldownReason = null;
+      }
+
       return normalizedNowTs;
     }
 
     const elapsedWindows = Math.floor(elapsedMs / HELP_WINDOW_DURATION_MS);
     windowStartTs += elapsedWindows * HELP_WINDOW_DURATION_MS;
     freeActionAvailable = true;
+
+    if (normalizedNowTs >= cooldownUntilTs) {
+      cooldownUntilTs = 0;
+      cooldownReason = null;
+    }
 
     return normalizedNowTs;
   };
@@ -122,14 +167,19 @@ export function createHelpEconomyModule(
     const msUntilNextFreeAction = freeActionAvailable
       ? 0
       : Math.max(0, nextFreeActionAt - normalizedNowTs);
+    const cooldownMsRemaining = Math.max(0, cooldownUntilTs - normalizedNowTs);
+    const isCooldownActive = cooldownMsRemaining > 0;
 
     return {
       windowStartTs,
       freeActionAvailable,
       nextFreeActionAt,
       msUntilNextFreeAction,
-      isLocked: pendingRequest !== null,
+      isLocked: pendingRequest !== null || isCooldownActive,
       pendingRequest,
+      cooldownUntilTs,
+      cooldownMsRemaining,
+      cooldownReason: isCooldownActive ? cooldownReason : null,
     };
   };
 
@@ -150,6 +200,16 @@ export function createHelpEconomyModule(
           type: 'locked',
           kind,
           pendingOperationId: windowState.pendingRequest.operationId,
+        };
+      }
+
+      if (windowState.cooldownMsRemaining > 0) {
+        return {
+          type: 'cooldown',
+          kind,
+          cooldownUntilTs: windowState.cooldownUntilTs,
+          cooldownMsRemaining: windowState.cooldownMsRemaining,
+          cooldownReason: windowState.cooldownReason ?? 'error',
         };
       }
 
@@ -182,7 +242,7 @@ export function createHelpEconomyModule(
         isFreeAction: false,
       };
     },
-    finalizePendingRequest: (operationId, applied, nowTs = nowProvider()) => {
+    finalizePendingRequest: (operationId, applied, nowTs = nowProvider(), adOutcome) => {
       const normalizedOperationId = trimOperationId(operationId);
       if (!pendingRequest || pendingRequest.operationId !== normalizedOperationId) {
         return {
@@ -191,16 +251,29 @@ export function createHelpEconomyModule(
           finalized: false,
           applied: false,
           freeActionConsumed: false,
+          cooldownApplied: false,
+          cooldownDurationMs: 0,
           windowState: createWindowState(nowTs),
         };
       }
 
+      const finalizedRequest = pendingRequest;
       const freeActionConsumed = pendingRequest.isFreeAction && applied;
       const finalizedKind = pendingRequest.kind;
+      let cooldownApplied = false;
       pendingRequest = null;
 
       if (freeActionConsumed) {
         freeActionAvailable = false;
+      }
+
+      if (!applied && !finalizedRequest.isFreeAction && isAdFailureOutcome(adOutcome)) {
+        cooldownUntilTs = normalizeTimestamp(nowTs, nowProvider()) + adFailureCooldownMs;
+        cooldownReason = adOutcome;
+        cooldownApplied = true;
+      } else if (normalizeTimestamp(nowTs, nowProvider()) >= cooldownUntilTs) {
+        cooldownUntilTs = 0;
+        cooldownReason = null;
       }
 
       return {
@@ -209,6 +282,8 @@ export function createHelpEconomyModule(
         finalized: true,
         applied,
         freeActionConsumed,
+        cooldownApplied,
+        cooldownDurationMs: cooldownApplied ? adFailureCooldownMs : 0,
         windowState: createWindowState(nowTs),
       };
     },

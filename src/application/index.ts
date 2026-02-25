@@ -65,6 +65,43 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'domain/persistence': 1,
   'domain/leaderboard-sync': 1,
 };
+const HELP_NO_FILL_TOAST_MESSAGE = 'Реклама сейчас недоступна';
+const HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE = 'Не удалось показать рекламу';
+
+function normalizeDurationMs(durationMs: number | undefined): number | null {
+  if (durationMs === undefined) {
+    return null;
+  }
+
+  if (!Number.isFinite(durationMs)) {
+    return null;
+  }
+
+  return Math.max(0, Math.trunc(durationMs));
+}
+
+function normalizeOutcomeContext(outcomeContext: string | null | undefined): string | null {
+  if (typeof outcomeContext !== 'string') {
+    return null;
+  }
+
+  const normalized = outcomeContext.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function resolveHelpAdToastMessage(
+  outcome: 'reward' | 'close' | 'error' | 'no-fill',
+): string | null {
+  if (outcome === 'reward') {
+    return null;
+  }
+
+  if (outcome === 'no-fill') {
+    return HELP_NO_FILL_TOAST_MESSAGE;
+  }
+
+  return HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE;
+}
 
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
   type EventType = ApplicationEvent['eventType'];
@@ -174,6 +211,20 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
       );
     }
 
+    if (decision.type === 'cooldown') {
+      return domainError(
+        'help.request.cooldown',
+        'Help request is temporarily blocked during ad cooldown.',
+        {
+          commandType,
+          helpKind,
+          cooldownUntilTs: decision.cooldownUntilTs,
+          cooldownMsRemaining: decision.cooldownMsRemaining,
+          cooldownReason: decision.cooldownReason,
+        },
+      );
+    }
+
     let applied = false;
     const requiresAd = decision.type === 'await-ad';
 
@@ -260,12 +311,18 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               ? modules.coreState.applyHelp(command.helpType, command.operationId, acknowledgedAt)
               : null;
             const applied = helpApplyResult?.applied ?? false;
-
-            modules.helpEconomy.finalizePendingRequest(
+            const durationMs = normalizeDurationMs(command.durationMs);
+            const outcomeContext = normalizeOutcomeContext(command.outcomeContext);
+            const finalizeResult = modules.helpEconomy.finalizePendingRequest(
               command.operationId,
               applied,
               acknowledgedAt,
+              command.outcome,
             );
+            const toastMessage =
+              finalizeResult.finalized && !applied
+                ? resolveHelpAdToastMessage(command.outcome)
+                : null;
 
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
@@ -276,6 +333,11 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                   helpKind: command.helpType,
                   outcome: command.outcome,
                   applied,
+                  durationMs,
+                  outcomeContext,
+                  cooldownApplied: finalizeResult.cooldownApplied,
+                  cooldownDurationMs: finalizeResult.cooldownDurationMs,
+                  toastMessage,
                 }),
               );
             });

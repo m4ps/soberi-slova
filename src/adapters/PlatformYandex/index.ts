@@ -1,8 +1,10 @@
 import type {
   ApplicationCommandBus,
+  ApplicationEvent,
   ApplicationEventBus,
   ApplicationResult,
   CommandAck,
+  RewardedAdOutcome,
 } from '../../application';
 import {
   YANDEX_LIFECYCLE_EVENTS,
@@ -28,8 +30,22 @@ interface YandexSdkFeatures {
   readonly GameplayAPI?: YandexGameplayAPI;
 }
 
+interface YandexRewardedVideoCallbacks {
+  readonly onOpen?: () => void;
+  readonly onRewarded?: () => void;
+  readonly onClose?: () => void;
+  readonly onError?: (error: unknown) => void;
+}
+
+interface YandexAdvApi {
+  showRewardedVideo: (options: {
+    readonly callbacks?: YandexRewardedVideoCallbacks;
+  }) => void | Promise<void>;
+}
+
 interface YandexSdkInstance {
   readonly features?: YandexSdkFeatures;
+  readonly adv?: YandexAdvApi;
   on?: (eventName: YandexLifecycleEvent, callback: () => void) => void;
   off?: (eventName: YandexLifecycleEvent, callback: () => void) => void;
 }
@@ -53,7 +69,16 @@ type PlatformLifecycleEventType =
   | 'bootstrap-skipped'
   | 'dispose'
   | 'gameplay-start-error'
-  | 'gameplay-stop-error';
+  | 'gameplay-stop-error'
+  | 'rewarded-ad-requested'
+  | 'rewarded-ad-request-ignored'
+  | 'rewarded-ad-open'
+  | 'rewarded-ad-rewarded'
+  | 'rewarded-ad-close'
+  | 'rewarded-ad-error'
+  | 'rewarded-ad-no-fill'
+  | 'rewarded-ad-ack-dispatched'
+  | 'rewarded-ad-ack-dispatch-error';
 
 export interface PlatformLifecycleLogEntry {
   readonly type: PlatformLifecycleEventType;
@@ -255,6 +280,37 @@ async function invokeLifecycleMethod(
   await method();
 }
 
+function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
+const NO_FILL_ERROR_MARKERS = ['no fill', 'no-fill', 'nofill', 'no_fill', 'limit reached'];
+
+function resolveRewardedAdOutcome(error: unknown): RewardedAdOutcome {
+  if (!isRecordLike(error)) {
+    const message = toErrorMessage(error).toLowerCase();
+    return NO_FILL_ERROR_MARKERS.some((marker) => message.includes(marker)) ? 'no-fill' : 'error';
+  }
+
+  const messageParts: string[] = [];
+  const codeCandidate = error.code;
+  const messageCandidate = error.message;
+  const nameCandidate = error.name;
+
+  if (typeof codeCandidate === 'string') {
+    messageParts.push(codeCandidate.toLowerCase());
+  }
+  if (typeof messageCandidate === 'string') {
+    messageParts.push(messageCandidate.toLowerCase());
+  }
+  if (typeof nameCandidate === 'string') {
+    messageParts.push(nameCandidate.toLowerCase());
+  }
+
+  const normalized = messageParts.join(' ');
+  return NO_FILL_ERROR_MARKERS.some((marker) => normalized.includes(marker)) ? 'no-fill' : 'error';
+}
+
 export function createPlatformYandexModule(
   commandBus: ApplicationCommandBus,
   eventBus: ApplicationEventBus,
@@ -275,6 +331,7 @@ export function createPlatformYandexModule(
   let unsubscribeLifecycleEvents: (() => void) | null = null;
   let bootstrapped = false;
   let gameplayStarted = false;
+  let activeRewardedOperationId: string | null = null;
 
   const record = (
     type: PlatformLifecycleEventType,
@@ -290,7 +347,7 @@ export function createPlatformYandexModule(
     logger(entry);
   };
 
-  const startGameplay = async (source: 'bootstrap' | 'resume'): Promise<void> => {
+  const startGameplay = async (source: 'bootstrap' | 'resume' | 'rewarded-ad'): Promise<void> => {
     await invokeLifecycleMethod(sdkInstance?.features?.GameplayAPI?.start);
     gameplayStarted = true;
     record('gameplay-start', {
@@ -299,7 +356,9 @@ export function createPlatformYandexModule(
     });
   };
 
-  const stopGameplay = async (source: 'pause' | 'dispose' | 'bootstrap-failure'): Promise<void> => {
+  const stopGameplay = async (
+    source: 'pause' | 'dispose' | 'bootstrap-failure' | 'rewarded-ad',
+  ): Promise<void> => {
     await invokeLifecycleMethod(sdkInstance?.features?.GameplayAPI?.stop);
     gameplayStarted = false;
     record('gameplay-stop', {
@@ -328,6 +387,199 @@ export function createPlatformYandexModule(
     });
   };
 
+  const dispatchRewardedAdResult = (
+    operationId: string,
+    helpType: 'hint' | 'reshuffle',
+    outcome: RewardedAdOutcome,
+    durationMs: number,
+    outcomeContext: string | null,
+  ): void => {
+    const dispatchResult = commandBus.dispatch({
+      type: 'AcknowledgeAdResult',
+      helpType,
+      outcome,
+      operationId,
+      durationMs,
+      outcomeContext,
+    });
+
+    if (dispatchResult.type !== 'ok') {
+      record('rewarded-ad-ack-dispatch-error', {
+        operationId,
+        helpType,
+        outcome,
+        durationMs,
+        code: dispatchResult.error.code,
+      });
+      return;
+    }
+
+    record('rewarded-ad-ack-dispatched', {
+      operationId,
+      helpType,
+      outcome,
+      durationMs,
+    });
+  };
+
+  const processRewardedAdRequest = (operationId: string, helpType: 'hint' | 'reshuffle'): void => {
+    if (activeRewardedOperationId) {
+      record('rewarded-ad-request-ignored', {
+        reason: 'operation-already-running',
+        operationId,
+        activeRewardedOperationId,
+      });
+      return;
+    }
+
+    activeRewardedOperationId = operationId;
+    const requestedAt = now();
+    const showRewardedVideo = sdkInstance?.adv?.showRewardedVideo;
+    let resolved = false;
+    let gameplayStoppedForAd = false;
+
+    const finalize = (outcome: RewardedAdOutcome, outcomeContext: string | null = null): void => {
+      if (resolved) {
+        return;
+      }
+
+      resolved = true;
+      const durationMs = Math.max(0, now() - requestedAt);
+      dispatchRewardedAdResult(operationId, helpType, outcome, durationMs, outcomeContext);
+      activeRewardedOperationId = null;
+
+      if (gameplayStoppedForAd) {
+        void startGameplay('rewarded-ad').catch((error: unknown) => {
+          record('gameplay-start-error', {
+            source: 'rewarded-ad',
+            reason: toErrorMessage(error),
+          });
+        });
+      }
+    };
+
+    record('rewarded-ad-requested', {
+      operationId,
+      helpType,
+      hasAdvApi: Boolean(showRewardedVideo),
+    });
+
+    if (!showRewardedVideo) {
+      finalize('error', 'Rewarded ad API is unavailable in SDK runtime.');
+      return;
+    }
+
+    const stopGameplayForRewardedAd = (): void => {
+      if (!gameplayStarted || gameplayStoppedForAd) {
+        return;
+      }
+
+      gameplayStoppedForAd = true;
+      void stopGameplay('rewarded-ad').catch((error: unknown) => {
+        gameplayStoppedForAd = false;
+        record('gameplay-stop-error', {
+          source: 'rewarded-ad',
+          reason: toErrorMessage(error),
+        });
+      });
+    };
+
+    try {
+      void Promise.resolve(
+        showRewardedVideo({
+          callbacks: {
+            onOpen: () => {
+              if (resolved) {
+                return;
+              }
+
+              record('rewarded-ad-open', {
+                operationId,
+              });
+              stopGameplayForRewardedAd();
+            },
+            onRewarded: () => {
+              if (resolved) {
+                return;
+              }
+
+              record('rewarded-ad-rewarded', {
+                operationId,
+              });
+              finalize('reward');
+            },
+            onClose: () => {
+              if (resolved) {
+                return;
+              }
+
+              record('rewarded-ad-close', {
+                operationId,
+              });
+              finalize('close');
+            },
+            onError: (error: unknown) => {
+              if (resolved) {
+                return;
+              }
+
+              const outcome = resolveRewardedAdOutcome(error);
+              const reason = toErrorMessage(error);
+              record(outcome === 'no-fill' ? 'rewarded-ad-no-fill' : 'rewarded-ad-error', {
+                operationId,
+                reason,
+              });
+              finalize(outcome, reason);
+            },
+          },
+        }),
+      ).catch((error: unknown) => {
+        if (resolved) {
+          return;
+        }
+
+        const outcome = resolveRewardedAdOutcome(error);
+        const reason = toErrorMessage(error);
+        record(outcome === 'no-fill' ? 'rewarded-ad-no-fill' : 'rewarded-ad-error', {
+          operationId,
+          reason,
+        });
+        finalize(outcome, reason);
+      });
+    } catch (error: unknown) {
+      if (resolved) {
+        return;
+      }
+
+      const outcome = resolveRewardedAdOutcome(error);
+      const reason = toErrorMessage(error);
+      record(outcome === 'no-fill' ? 'rewarded-ad-no-fill' : 'rewarded-ad-error', {
+        operationId,
+        reason,
+      });
+      finalize(outcome, reason);
+    }
+  };
+
+  const handleApplicationEvent = (event: ApplicationEvent): void => {
+    if (event.eventType === 'application/runtime-ready') {
+      record('application-runtime-ready-observed', {
+        at: event.occurredAt,
+      });
+      return;
+    }
+
+    if (event.eventType !== 'domain/help') {
+      return;
+    }
+
+    if (event.payload.phase !== 'requested' || !event.payload.requiresAd) {
+      return;
+    }
+
+    processRewardedAdRequest(event.payload.operationId, event.payload.helpKind);
+  };
+
   return {
     moduleName: MODULE_IDS.platformYandex,
     bootstrap: async () => {
@@ -339,13 +591,7 @@ export function createPlatformYandexModule(
       }
 
       if (!unsubscribeApplicationEvents) {
-        unsubscribeApplicationEvents = eventBus.subscribe((event) => {
-          if (event.eventType === 'application/runtime-ready') {
-            record('application-runtime-ready-observed', {
-              at: event.occurredAt,
-            });
-          }
-        });
+        unsubscribeApplicationEvents = eventBus.subscribe(handleApplicationEvent);
       }
 
       try {
@@ -405,6 +651,7 @@ export function createPlatformYandexModule(
         sdkInstance = null;
         gameplayStarted = false;
         bootstrapped = false;
+        activeRewardedOperationId = null;
 
         throw error;
       }
@@ -428,6 +675,7 @@ export function createPlatformYandexModule(
       sdkInstance = null;
       gameplayStarted = false;
       bootstrapped = false;
+      activeRewardedOperationId = null;
 
       record('dispose');
     },
