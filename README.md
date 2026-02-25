@@ -126,7 +126,7 @@ flowchart TD
 - `CoreState` — source of truth для runtime-mode snapshot.
 - `InputPath` — adapter ввода (привязка canvas и dispatch в application).
 - `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`) + CSV pipeline словаря (`normalization + filtering + O(1) lookup index`).
-- `LevelGenerator` — заготовка генерации уровня (seed/grid contract).
+- `LevelGenerator` — детерминированный word-first генератор уровня (`target`-набор, path-укладка 8 направлений, anti-repeat, rejection редких букв).
 - `HelpEconomy` — контракт окна бесплатной помощи.
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
 - `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
@@ -182,6 +182,21 @@ flowchart TD
   - `docs/observability/event-contracts.md`
 - Для приборки локальных data-артефактов используйте `npm run clean:data`.
 
+## Level Generation (CODE-001)
+
+- `src/domain/LevelGenerator/index.ts` реализует deterministic `seed`-driven генерацию уровня.
+- Генерация соблюдает PRD-контракт:
+  - `targetWords` в диапазоне `3..7`;
+  - обязательный mix `short (3..4) + medium (5..6) + long (>=7)`;
+  - минимум одно длинное слово в каждом уровне.
+- Выбор слов использует `length + rank` и anti-repeat приоритет по `recentTargetWords` (с fallback на словарь при нехватке свежих кандидатов).
+- Укладка слов в `5x5` выполняется word-first через path search по 8 направлениям с разрешёнными пересечениями одинаковых букв.
+- При неудачной укладке используется partial retry:
+  - сначала замена только проблемного слова;
+  - затем локальный backtracking, без полного сброса всего target-набора.
+- Пустые клетки заполняются частотным пулом кириллицы; применяется rejection по редким буквам (`ъ/ы/ь/й/щ`) на уровне target-набора и финального поля.
+- Результат генерации включает `grid`, `targetWords`, `placements` (пути для каждого target-слова) и telemetry-friendly `meta` (`generationAttempts/replacements/backtracks`).
+
 ## Security Checklist (INIT-093)
 
 - Для init-слоя зафиксирован security-checklist:
@@ -212,3 +227,4 @@ flowchart TD
 - DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
 - DATA-193: выполнен security-review data-слоя; добавлены guard-проверки от malformed/overflow payload, зафиксированы consistency-инварианты для snapshot/transition и усилен CSV-pipeline от повреждённых входов.
 - DATA-194: data-слой приведён к production-quality: унифицировано именование migration-утилит, магические числа вынесены в именованные константы, документация синхронизирована с текущей schema/migration логикой.
+- CODE-001: реализован `LevelGenerator` (word-first, deterministic seed, path-укладка 8 направлений, anti-repeat и rejection редких букв) с unit-тестами инвариантов/детерминизма.

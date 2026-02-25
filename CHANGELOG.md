@@ -2,6 +2,24 @@
 
 ## 2026-02-25
 
+### [CODE]-[001] Реализовать LevelGenerator (word-first, 5x5, anti-repeat, rejection rules)
+
+- `src/domain/LevelGenerator/index.ts` переведён со stub на рабочий deterministic генератор уровней:
+  - генерация управляется `seed` и воспроизводима при фиксированном входе;
+  - target-набор формируется в диапазоне `3..7` с обязательным присутствием `short (3..4)`, `medium (5..6)` и минимум одного `long (>=7)` слова;
+  - подбор слов учитывает `rank` и anti-repeat по `recentTargetWords` (с fallback при нехватке новых слов);
+  - реализована word-first укладка слов в `5x5` по 8 направлениям с разрешёнными пересечениями одинаковых букв;
+  - добавлены частичные retry-механики без полного сброса набора: замена проблемного слова и локальный backtracking;
+  - добавлены rejection rules по редким буквам (`ъ/ы/ь/й/щ`) для target-набора и итогового grid.
+- Публичный контракт `LevelGenerator` расширен выходными данными:
+  - `grid`, `targetWords`, `placements` (пути слов) и `meta` (`generationAttempts`, `replacements`, `backtracks`, метрики редких букв).
+- Добавлен unit-suite `tests/level-generator.test.ts`:
+  - инварианты генерации и валидность путей;
+  - детерминизм по фиксированному seed;
+  - anti-repeat поведение;
+  - negative-сценарии (`invalid seed`, неполный словарь без обязательных категорий).
+- `README.md` синхронизирован с новым контрактом генератора и текущим статусом закрытия `CODE-001`.
+
 ### [DATA]-[194] Приведение data-слоя к production-quality
 
 - `src/domain/GameState/index.ts` приведён к единому стилю migration/state-констант:

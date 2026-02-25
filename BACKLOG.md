@@ -88,7 +88,7 @@ Task DOD: Data-layer проходит lint/typecheck/tests; документац
 
 ## Этап 3: Кодирование
 
-- [ ] [CODE]-[001] Реализовать LevelGenerator (word-first, 5x5, anti-repeat, rejection rules)
+- [x] [CODE]-[001] Реализовать LevelGenerator (word-first, 5x5, anti-repeat, rejection rules)
 Task Context: Собери генератор уровней: выбор target-набора 3..7 слов по длине/rank, укладка путями по 8 направлениям с пересечениями, заполнение пустых клеток, fallback-ретраи без полного сброса набора, anti-repeat по недавним уровням и rejection редких букв.
 Task DOD: Каждый сгенерированный уровень валиден по инвариантам; минимум один длинный target присутствует; генератор детерминирован при фиксированном seed.
 
