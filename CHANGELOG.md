@@ -2,6 +2,19 @@
 
 ## 2026-02-25
 
+### [CODE]-[002] Реализовать InputPath для swipe-драг ввода и tail-undo
+
+- `src/adapters/InputPath/index.ts` переведён со stub на рабочий gesture-driven адаптер:
+  - добавлен `InputPathEngine` с правилами `8-way adjacency`, запретом повторного использования клетки и `tail-undo` только на предыдущую клетку;
+  - невалидные клетки и повторы мягко игнорируются без штрафов и без сброса пути;
+  - submit слова переведён на `pointerup` через dispatch `SubmitPath(pathCells)`; `pointercancel` завершает жест без submit;
+  - добавлена привязка к `pointerId` активного жеста, чтобы исключить конфликт multi-touch во время одного ввода.
+- Добавлен helper `resolveGridCellFromPointer` для детерминированного маппинга координат указателя в `5x5` grid.
+- Добавлен unit-suite `tests/input-path.adapter.test.ts`:
+  - проверки маппинга координат в сетку;
+  - проверки path-инвариантов (`adjacency`, `tail-undo`, ignore repeated/non-adjacent);
+  - проверки submit-контракта (`only on pointerup`, `no submit on pointercancel`, `dispose` отписывает listeners).
+
 ### [CODE]-[001] Реализовать LevelGenerator (word-first, 5x5, anti-repeat, rejection rules)
 
 - `src/domain/LevelGenerator/index.ts` переведён со stub на рабочий deterministic генератор уровней:

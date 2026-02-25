@@ -228,3 +228,4 @@ flowchart TD
 - DATA-193: выполнен security-review data-слоя; добавлены guard-проверки от malformed/overflow payload, зафиксированы consistency-инварианты для snapshot/transition и усилен CSV-pipeline от повреждённых входов.
 - DATA-194: data-слой приведён к production-quality: унифицировано именование migration-утилит, магические числа вынесены в именованные константы, документация синхронизирована с текущей schema/migration логикой.
 - CODE-001: реализован `LevelGenerator` (word-first, deterministic seed, path-укладка 8 направлений, anti-repeat и rejection редких букв) с unit-тестами инвариантов/детерминизма.
+- CODE-002: реализован `InputPath` для swipe-драг ввода: path-engine с `adjacency`, `tail-undo`, ignore invalid/repeated и submit только на `pointerup`.
