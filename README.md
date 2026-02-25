@@ -193,7 +193,7 @@ flowchart TD
 - Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
-- Текущая `schemaVersion=2`: из snapshot-модели удалены legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и deprecated `pendingHelpRequest.requestedAt`.
+- Текущая `schemaVersion=2`: переход `v1 -> v2` нормализует версию snapshot, а strict runtime-конструкторы `GameState` игнорируют неизвестные legacy поля (включая поля из out-of-scope cut-list), сохраняя только v1-контракт схемы.
 - Версии схемы/миграций и default-сентинелы (`v0/v1/v2`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
@@ -255,7 +255,7 @@ flowchart TD
 - DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).
 - CODE-008: добавлен domain event `domain/word-submitted` для event-driven визуализации submit-path (`result`, `scoreDelta`, `progress`, `pathCells`).
 - DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.
-- DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.
+- DATA-191: state schema закреплена в v1 scope; миграции расширены до `v1 -> v2`, а неизвестные legacy поля отбрасываются на границе runtime-конструкторов.
 - DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
 - DATA-193: выполнен security-review data-слоя; добавлены guard-проверки от malformed/overflow payload, зафиксированы consistency-инварианты для snapshot/transition и усилен CSV-pipeline от повреждённых входов.
 - DATA-194: data-слой приведён к production-quality: унифицировано именование migration-утилит, магические числа вынесены в именованные константы, документация синхронизирована с текущей schema/migration логикой.

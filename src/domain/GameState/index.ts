@@ -190,38 +190,6 @@ const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
 const LEVEL_TARGET_WORDS_MIN = 3;
 const LEVEL_TARGET_WORDS_MAX = 7;
 const MAX_PENDING_OPERATIONS = 128;
-const DEPRECATED_GAME_STATE_FIELDS_V2 = [
-  'sessionScore',
-  'achievements',
-  'dailyQuests',
-  'tutorialTrace',
-  'tutorialTraces',
-] as const;
-const DEPRECATED_LEVEL_SESSION_FIELDS_V2 = [
-  'sessionScore',
-  'achievements',
-  'dailyQuests',
-  'tutorialTrace',
-  'tutorialTraces',
-] as const;
-const DEPRECATED_PENDING_HELP_REQUEST_FIELDS_V2 = ['requestedAt'] as const;
-
-function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function omitFields(
-  source: Readonly<Record<string, unknown>>,
-  fields: readonly string[],
-): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...source };
-
-  for (const field of fields) {
-    delete result[field];
-  }
-
-  return result;
-}
 
 // Migration chain must stay deterministic and stepwise: vN -> vN+1 only.
 const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
@@ -248,32 +216,10 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
   {
     fromVersion: SNAPSHOT_SCHEMA_VERSION_V1,
     toVersion: SNAPSHOT_SCHEMA_VERSION_V2,
-    migrate: (snapshot) => {
-      const nextSnapshot = omitFields(snapshot, DEPRECATED_GAME_STATE_FIELDS_V2);
-      nextSnapshot.schemaVersion = SNAPSHOT_SCHEMA_VERSION_V2;
-
-      if (isRecordLike(nextSnapshot.currentLevelSession)) {
-        nextSnapshot.currentLevelSession = omitFields(
-          nextSnapshot.currentLevelSession,
-          DEPRECATED_LEVEL_SESSION_FIELDS_V2,
-        );
-      }
-
-      if (isRecordLike(nextSnapshot.helpWindow)) {
-        const helpWindow = { ...nextSnapshot.helpWindow };
-
-        if (isRecordLike(helpWindow.pendingHelpRequest)) {
-          helpWindow.pendingHelpRequest = omitFields(
-            helpWindow.pendingHelpRequest,
-            DEPRECATED_PENDING_HELP_REQUEST_FIELDS_V2,
-          );
-        }
-
-        nextSnapshot.helpWindow = helpWindow;
-      }
-
-      return nextSnapshot;
-    },
+    migrate: (snapshot) => ({
+      ...snapshot,
+      schemaVersion: SNAPSHOT_SCHEMA_VERSION_V2,
+    }),
   },
 ];
 

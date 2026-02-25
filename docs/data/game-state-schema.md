@@ -122,7 +122,7 @@
 - Migration utilities используют единый stepwise-подход: ожидается только следующий номер версии (`+1`) для каждого шага.
 - Текущая цепочка:
   - `v0 -> v1`: выставляет `schemaVersion=1`, заполняет `stateVersion=0` при отсутствии, нормализует `pendingOps=[]` при отсутствии.
-  - `v1 -> v2`: удаляет legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и очищает `pendingHelpRequest` от deprecated `requestedAt`.
+  - `v1 -> v2`: нормализует `schemaVersion=2`; неизвестные legacy поля отсекаются strict runtime-конструкторами при `createGameState(...)`, поэтому out-of-scope сущности не сохраняются в актуальной модели.
 - Snapshot с `schemaVersion > 2` отклоняется как unsupported future schema.
 - `resolveLwwSnapshot` выбирает winner по контракту TECHSPEC:
   1. Больше `stateVersion` выигрывает.

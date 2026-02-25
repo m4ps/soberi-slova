@@ -2,6 +2,23 @@
 
 ## 2026-02-25
 
+### [CODE]-[291] Удаление ненужных реализаций вне v1 scope
+
+- `src/domain/GameState/index.ts`: упрощён миграционный шаг `v1 -> v2`:
+  - удалена специальная очистка legacy полей из cut-list (`sessionScore`, `achievements`, `dailyQuests`, `tutorial*`, `pendingHelpRequest.requestedAt`);
+  - миграция теперь нормализует только `schemaVersion=2`.
+- Зафиксирован строгий v1 подход к snapshot-модели:
+  - неизвестные legacy поля отбрасываются на границе runtime-конструкторов (`createGameState`, `createLevelSession`, `createHelpWindow`) и не попадают в актуальную state-схему.
+- Синхронизирована документация:
+  - `README.md`;
+  - `docs/data/game-state-schema.md`.
+- Обновлены артефакты проекта:
+  - `BACKLOG.md`: задача `[CODE]-[291]` отмечена как выполненная;
+  - добавлены `ADR/ADR-034-v1-scope-legacy-migration-pruning-code-291.md` и `tasks/CODE-291.md`.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code291-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[290] Приборка этапа кодирования
 
 - Убраны debug-only runtime-артефакты из production-контура:
