@@ -66,6 +66,7 @@ npm run dev:proxy
 ## Draft / Prod Тест-Режимы (INIT-004)
 
 Draft/dev-mode локально:
+
 1. Запустите `npm run dev`.
 2. В отдельном терминале запустите `npm run dev:proxy`.
 3. Откройте `http://localhost:8080`.
@@ -73,6 +74,7 @@ Draft/dev-mode локально:
    `npx sdk-dev-proxy --host localhost:<vite-port> --port 8080 --dev-mode=true`.
 
 Prod-like локально:
+
 1. Выполните `npm run build`.
 2. Запустите `npm run preview` (по умолчанию `http://localhost:4173`).
 3. В отдельном терминале запустите `npm run dev:proxy:prod`.
@@ -81,6 +83,7 @@ Prod-like локально:
 Порты dev/preview/proxy заданы в одном месте: `config/runtime-ports.json`.
 
 Draft в Консоли Яндекс Игр:
+
 1. Загрузите актуальный архив сборки в черновик.
 2. Откройте черновик (обычный или debug-panel режим) из Консоли.
 3. Проверьте lifecycle-события SDK (`LoadingAPI.ready`, `GameplayAPI.start/stop`, `game_api_pause/resume`) в runtime.
@@ -141,8 +144,11 @@ flowchart TD
   - `domainError`
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
+- События приложения публикуются в versioned envelope:
+  - `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }`
+  - `correlationId` обязателен для всех событий и используется для сквозной трассировки операций.
 
-## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004)
+## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004 / DATA-005)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
@@ -160,6 +166,8 @@ flowchart TD
   - `docs/data/game-state-schema.md`
 - Документация по контракту dictionary pipeline:
   - `docs/data/dictionary-pipeline.md`
+- Документация по observability event schema:
+  - `docs/observability/event-contracts.md`
 
 ## Security Checklist (INIT-093)
 
@@ -184,3 +192,5 @@ flowchart TD
 - DATA-001: реализована доменная state-модель с runtime-конструкторами и snapshot serialization/deserialization.
 - DATA-002: закреплены runtime-инварианты состояния и unit-тесты на каждое критичное правило (включая однонаправленные переходы статуса уровня).
 - DATA-003: добавлен CSV pipeline словаря с нормализацией/фильтрацией, O(1) индексом lookup и статистикой reject-строк для telemetry/log.
+- DATA-004: добавлены schema migrations snapshot (`vN -> vN+1`) и LWW resolver (`stateVersion -> updatedAt -> local priority`) для local/cloud restore.
+- DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).

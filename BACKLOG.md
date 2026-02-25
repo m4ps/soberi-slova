@@ -62,7 +62,7 @@ Task DOD: Pipeline генерирует валидный in-memory индекс 
 Task Context: Добавь `schemaVersion`-ориентированную deterministic migration chain `vN -> vN+1`; реализуй merge local/cloud по правилам LWW (`stateVersion`, затем `updatedAt`, затем local priority при равенстве).
 Task DOD: Восстановление состояния воспроизводимо и детерминировано; миграции покрыты тестами; конфликт local/cloud решается строго по контракту TECHSPEC.
 
-- [ ] [DATA]-[005] Формализовать контракты событий и correlationId для наблюдаемости
+- [x] [DATA]-[005] Формализовать контракты событий и correlationId для наблюдаемости
 Task Context: Определи event envelope `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }` и минимальные domain events для word success, level clear, help, persistence, leaderboard sync.
 Task DOD: Все ключевые операции публикуют типизированные события; correlationId проходит через цепочку operation end-to-end; схема событий документирована.
 

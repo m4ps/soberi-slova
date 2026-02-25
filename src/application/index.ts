@@ -12,6 +12,7 @@ import type {
   ApplicationResult,
   CommandAck,
   DomainModules,
+  RoutedCommandType,
 } from './contracts';
 import { toErrorMessage } from '../shared/errors';
 
@@ -54,10 +55,24 @@ function infraError<TValue>(
   };
 }
 
+const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = {
+  'application/runtime-ready': 1,
+  'application/tick': 1,
+  'application/command-routed': 1,
+  'domain/word-success': 1,
+  'domain/level-clear': 1,
+  'domain/help': 1,
+  'domain/persistence': 1,
+  'domain/leaderboard-sync': 1,
+};
+
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
-  type RoutedCommandType = Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>;
+  type EventType = ApplicationEvent['eventType'];
+  type EventByType<TType extends EventType> = Extract<ApplicationEvent, { eventType: TType }>;
 
   const eventListeners = new Set<ApplicationEventListener>();
+  let eventSequence = 0;
+  let correlationSequence = 0;
 
   const publish = (event: ApplicationEvent): void => {
     eventListeners.forEach((listener) => {
@@ -75,30 +90,69 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     },
   };
 
-  const acknowledge = (commandType: ApplicationCommand['type']): ApplicationResult<CommandAck> =>
+  const createCorrelationId = (commandType: ApplicationCommand['type']): string => {
+    correlationSequence += 1;
+    return `${commandType}-${Date.now()}-${correlationSequence}`;
+  };
+
+  const resolveCorrelationId = (
+    commandType: ApplicationCommand['type'],
+    correlationId: string | null | undefined,
+  ): string => {
+    if (typeof correlationId === 'string') {
+      const normalizedCorrelationId = correlationId.trim();
+      if (normalizedCorrelationId.length > 0) {
+        return normalizedCorrelationId;
+      }
+    }
+
+    return createCorrelationId(commandType);
+  };
+
+  const createEvent = <TType extends EventType>(
+    eventType: TType,
+    correlationId: string,
+    payload: EventByType<TType>['payload'],
+    occurredAt: number = Date.now(),
+  ): EventByType<TType> => {
+    eventSequence += 1;
+    return {
+      eventId: `evt-${occurredAt}-${eventSequence}`,
+      eventType,
+      eventVersion: EVENT_VERSIONS[eventType],
+      occurredAt,
+      correlationId,
+      payload,
+    } as EventByType<TType>;
+  };
+
+  const acknowledge = (
+    commandType: ApplicationCommand['type'],
+    correlationId: string,
+  ): ApplicationResult<CommandAck> =>
     ok({
       commandType,
       handledAt: Date.now(),
-    });
-
-  const publishCommandRouted = (
-    commandType: RoutedCommandType,
-    correlationId: string | null = null,
-  ): void => {
-    publish({
-      type: 'application/command-routed',
-      commandType,
-      at: Date.now(),
       correlationId,
     });
+
+  const publishCommandRouted = (commandType: RoutedCommandType, correlationId: string): void => {
+    publish(
+      createEvent('application/command-routed', correlationId, {
+        commandType,
+      }),
+    );
   };
 
   const routeCommand = (
     commandType: RoutedCommandType,
     correlationId: string | null = null,
+    emitDomainEvents?: (resolvedCorrelationId: string) => void,
   ): ApplicationResult<CommandAck> => {
-    publishCommandRouted(commandType, correlationId);
-    return acknowledge(commandType);
+    const resolvedCorrelationId = resolveCorrelationId(commandType, correlationId);
+    publishCommandRouted(commandType, resolvedCorrelationId);
+    emitDomainEvents?.(resolvedCorrelationId);
+    return acknowledge(commandType, resolvedCorrelationId);
   };
 
   const routeHelpCommand = (
@@ -106,7 +160,16 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     helpKind: 'hint' | 'reshuffle',
   ): ApplicationResult<CommandAck> => {
     const decision = modules.helpEconomy.requestHelp(helpKind, Date.now());
-    return routeCommand(commandType, decision.operationId);
+    return routeCommand(commandType, decision.operationId, (correlationId) => {
+      publish(
+        createEvent('domain/help', correlationId, {
+          phase: 'requested',
+          commandType,
+          helpKind: decision.kind,
+          isFreeAction: decision.isFreeAction,
+        }),
+      );
+    });
   };
 
   const commandBus = {
@@ -115,12 +178,23 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
         switch (command.type) {
           case 'RuntimeReady': {
             modules.coreState.setRuntimeMode('ready');
-            publish({ type: 'application/runtime-ready', at: Date.now() });
-            return acknowledge(command.type);
+            const correlationId = createCorrelationId(command.type);
+            publish(createEvent('application/runtime-ready', correlationId, {}));
+            return acknowledge(command.type, correlationId);
           }
           case 'Tick': {
-            publish({ type: 'application/tick', at: command.nowTs });
-            return acknowledge(command.type);
+            const correlationId = createCorrelationId(command.type);
+            publish(
+              createEvent(
+                'application/tick',
+                correlationId,
+                {
+                  nowTs: command.nowTs,
+                },
+                command.nowTs,
+              ),
+            );
+            return acknowledge(command.type, correlationId);
           }
           case 'SubmitPath': {
             if (command.pathCells.length === 0) {
@@ -140,19 +214,55 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             return routeHelpCommand(command.type, 'reshuffle');
           }
           case 'AcknowledgeAdResult': {
-            return routeCommand(command.type, command.operationId);
+            return routeCommand(command.type, command.operationId, (correlationId) => {
+              publish(
+                createEvent('domain/help', correlationId, {
+                  phase: 'ad-result',
+                  commandType: command.type,
+                  helpKind: command.helpType,
+                  outcome: command.outcome,
+                }),
+              );
+            });
           }
           case 'AcknowledgeWordSuccessAnimation': {
-            return routeCommand(command.type, command.operationId);
+            return routeCommand(command.type, command.operationId, (correlationId) => {
+              publish(
+                createEvent('domain/word-success', correlationId, {
+                  commandType: command.type,
+                  wordId: command.wordId,
+                }),
+              );
+            });
           }
           case 'AcknowledgeLevelTransitionDone': {
-            return routeCommand(command.type, command.operationId);
+            return routeCommand(command.type, command.operationId, (correlationId) => {
+              publish(
+                createEvent('domain/level-clear', correlationId, {
+                  commandType: command.type,
+                }),
+              );
+            });
           }
           case 'RestoreSession': {
-            return routeCommand(command.type);
+            return routeCommand(command.type, null, (correlationId) => {
+              publish(
+                createEvent('domain/persistence', correlationId, {
+                  commandType: command.type,
+                  operation: 'restore-session',
+                }),
+              );
+            });
           }
           case 'SyncLeaderboard': {
-            return routeCommand(command.type);
+            return routeCommand(command.type, null, (correlationId) => {
+              publish(
+                createEvent('domain/leaderboard-sync', correlationId, {
+                  commandType: command.type,
+                  operation: 'sync-score',
+                }),
+              );
+            });
           }
           default: {
             return assertNever(command);

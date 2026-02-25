@@ -75,6 +75,7 @@ function createCommandBusSpy(options?: {
         value: {
           commandType: command.type,
           handledAt: 1,
+          correlationId: `${command.type}-test-correlation`,
         },
       };
     },

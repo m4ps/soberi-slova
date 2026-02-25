@@ -340,9 +340,9 @@ export function createPlatformYandexModule(
 
       if (!unsubscribeApplicationEvents) {
         unsubscribeApplicationEvents = eventBus.subscribe((event) => {
-          if (event.type === 'application/runtime-ready') {
+          if (event.eventType === 'application/runtime-ready') {
             record('application-runtime-ready-observed', {
-              at: event.at,
+              at: event.occurredAt,
             });
           }
         });

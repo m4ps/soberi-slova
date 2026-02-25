@@ -71,6 +71,7 @@ export type ApplicationResult<TValue> =
 export interface CommandAck {
   readonly commandType: ApplicationCommand['type'];
   readonly handledAt: number;
+  readonly correlationId: string;
 }
 
 export interface ApplicationCommandBus {
@@ -96,15 +97,80 @@ export interface ApplicationReadModel {
   getHelpWindowState: () => HelpWindowState;
 }
 
-export type ApplicationEvent =
-  | { readonly type: 'application/runtime-ready'; readonly at: number }
-  | { readonly type: 'application/tick'; readonly at: number }
+export type RoutedCommandType = Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>;
+
+export interface EventEnvelope<TEventType extends string, TPayload> {
+  readonly eventId: string;
+  readonly eventType: TEventType;
+  readonly eventVersion: number;
+  readonly occurredAt: number;
+  readonly correlationId: string;
+  readonly payload: TPayload;
+}
+
+export type RuntimeReadyEvent = EventEnvelope<'application/runtime-ready', Record<string, never>>;
+export type TickEvent = EventEnvelope<'application/tick', { readonly nowTs: number }>;
+export type CommandRoutedEvent = EventEnvelope<
+  'application/command-routed',
+  { readonly commandType: RoutedCommandType }
+>;
+
+export type WordSuccessEvent = EventEnvelope<
+  'domain/word-success',
+  {
+    readonly commandType: 'AcknowledgeWordSuccessAnimation';
+    readonly wordId: string;
+  }
+>;
+
+export type LevelClearEvent = EventEnvelope<
+  'domain/level-clear',
+  {
+    readonly commandType: 'AcknowledgeLevelTransitionDone';
+  }
+>;
+
+export type HelpEvent = EventEnvelope<
+  'domain/help',
   | {
-      readonly type: 'application/command-routed';
-      readonly commandType: Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>;
-      readonly at: number;
-      readonly correlationId: string | null;
-    };
+      readonly phase: 'requested';
+      readonly commandType: 'RequestHint' | 'RequestReshuffle';
+      readonly helpKind: HelpKind;
+      readonly isFreeAction: boolean;
+    }
+  | {
+      readonly phase: 'ad-result';
+      readonly commandType: 'AcknowledgeAdResult';
+      readonly helpKind: HelpKind;
+      readonly outcome: RewardedAdOutcome;
+    }
+>;
+
+export type PersistenceEvent = EventEnvelope<
+  'domain/persistence',
+  {
+    readonly commandType: 'RestoreSession';
+    readonly operation: 'restore-session';
+  }
+>;
+
+export type LeaderboardSyncEvent = EventEnvelope<
+  'domain/leaderboard-sync',
+  {
+    readonly commandType: 'SyncLeaderboard';
+    readonly operation: 'sync-score';
+  }
+>;
+
+export type ApplicationEvent =
+  | RuntimeReadyEvent
+  | TickEvent
+  | CommandRoutedEvent
+  | WordSuccessEvent
+  | LevelClearEvent
+  | HelpEvent
+  | PersistenceEvent
+  | LeaderboardSyncEvent;
 
 export type ApplicationEventListener = (event: ApplicationEvent) => void;
 

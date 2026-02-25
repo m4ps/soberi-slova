@@ -2,7 +2,25 @@
 
 ## 2026-02-25
 
+### [DATA]-[005] Контракты событий и сквозной correlationId для наблюдаемости
+
+- `src/application/contracts.ts` переведён на versioned event envelope:
+  - добавлен `EventEnvelope` с полями `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }`;
+  - добавлены типизированные domain events: `domain/word-success`, `domain/level-clear`, `domain/help`, `domain/persistence`, `domain/leaderboard-sync`;
+  - `CommandAck` расширен обязательным `correlationId`.
+- `src/application/index.ts` обновлён на единый publish-path событий:
+  - добавлены генерация `eventId` и fallback-генерация `correlationId`;
+  - `application/command-routed` публикуется с обязательным `correlationId`;
+  - для ключевых операций публикуются domain events с тем же `correlationId` (сквозная цепочка маршрутизации).
+- Обновлена интеграция и тесты:
+  - `src/adapters/PlatformYandex/index.ts` переведён на envelope-поля `eventType`/`occurredAt`;
+  - `tests/application-command-bus.smoke.test.ts` расширен проверками event-schema, минимальных domain events и correlation chain;
+  - `tests/platform-yandex.adapter.test.ts` синхронизирован с новым `CommandAck`.
+- Добавлена документация observability-схемы: `docs/observability/event-contracts.md`.
+- README синхронизирован с DATA-005 и новой event schema.
+
 ### [DATA]-[004] Snapshot schema-versioning, миграции и LWW conflict resolver
+
 - В `src/domain/GameState/index.ts` реализована migration-aware обработка snapshot:
   - добавлен детерминированный migration chain `vN -> vN+1` (`v0 -> v1`);
   - добавлены API `migrateGameStateSnapshot` и `deserializeGameStateWithMigrations`;
@@ -24,6 +42,7 @@
   - `README.md` (раздел Data Model & Dictionary Schema).
 
 ### [DATA]-[003] Pipeline словаря из CSV (normalization + filtering)
+
 - Добавлен модуль [`src/domain/WordValidation/dictionary-pipeline.ts`](src/domain/WordValidation/dictionary-pipeline.ts):
   - реализован `buildDictionaryIndexFromCsv` для загрузки словаря из CSV в in-memory индекс;
   - реализована нормализация `trim + lowercase` с сохранением различий `ё` и `е`;
@@ -39,6 +58,7 @@
 - README синхронизирован с новым dictionary data-контрактом.
 
 ### [DATA]-[002] Инварианты и валидаторы состояния
+
 - В `src/domain/GameState/index.ts` добавлена доменная ошибка `GameStateDomainError` (`code/message/retryable/context`) и type-guard `isGameStateDomainError`.
 - Реализована runtime-валидация инвариантов `LevelSession`:
   - grid строго `5x5` (`25` ячеек);
@@ -62,6 +82,7 @@
   - Playwright smoke (`$WEB_GAME_CLIENT`) — green, артефакты в `output/web-game-data002-smoke`, `errors-*.json` отсутствуют.
 
 ### [DATA]-[001] Доменные сущности состояния игры
+
 - Добавлен модуль [`src/domain/GameState/index.ts`](src/domain/GameState/index.ts) как единый source of truth для state-модели:
   - `GameState`, `LevelSession`, `HelpWindow`, `PendingHelpRequest`, `PendingOperation`, `LeaderboardSyncState`, `WordEntry`.
 - Реализованы runtime-конструкторы всех сущностей с fail-fast проверками типов и безопасными default-полями snapshot (`schemaVersion`, `stateVersion`, `pendingOps`).
@@ -77,6 +98,7 @@
 - Полная верификация выполнена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-data001-smoke` и без `errors-*.json`.
 
 ### [INIT]-[094] Приведение кода этапа к единому стандарту
+
 - Введён единый shared-слой init-стандарта: добавлены `src/shared/errors.ts` (единый `toErrorMessage`) и `src/shared/module-ids.ts` (единый реестр идентификаторов модулей).
 - Устранены дубли утилиты обработки ошибок в `main`, `application` и `PlatformYandex`; все три контура используют общий helper из `src/shared/errors.ts`.
 - Все init-модули (`CoreState`, `HelpEconomy`, `LevelGenerator`, `WordValidation`, `InputPath`, `Persistence`, `RenderMotion`, `PlatformYandex`, `Telemetry`) переведены на единый источник `moduleName` через `MODULE_IDS`, что исключает рассинхронизацию строковых литералов.
@@ -84,6 +106,7 @@
 - Полная верификация пройдена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-init094-smoke-clean`.
 
 ### [INIT]-[093] Анализ безопасности этапа инициализации
+
 - Проведён security-review bootstrap-поверхности init-слоя и зафиксирован чеклист в [`docs/security/init-bootstrap-checklist.md`](docs/security/init-bootstrap-checklist.md).
 - В `PlatformYandex` добавлен hardening загрузки SDK: runtime loader принимает только trusted same-origin источник `/sdk.js`.
 - Усилено fail-closed поведение bootstrap: при ошибке фиксируется `bootstrap-failed`, выполняется rollback lifecycle-подписок и остановка gameplay (если был запущен).
@@ -94,6 +117,7 @@
 - Проверка на hardcoded secrets выполнена по init-контуру (`src/`, `config/`, `scripts/`, `tests/`, `.github/workflows`) — секреты не обнаружены.
 
 ### [INIT]-[092] Удаление дублирования в конфигурации и bootstrap-логике
+
 - Вынесены дублирующиеся bootstrap-константы YaGames в единый модуль [`src/config/platform-yandex.ts`](src/config/platform-yandex.ts): `sdk.js` path, lifecycle event names, script marker и timeout.
 - `PlatformYandex` адаптер и его контрактный тест переведены на shared-константы, что устранило расхождения строковых литералов в runtime/test коде.
 - Добавлен единый конфиг портов [`config/runtime-ports.json`](config/runtime-ports.json) и общий runner [`scripts/run-sdk-dev-proxy.mjs`](scripts/run-sdk-dev-proxy.mjs) для `dev:proxy`/`dev:proxy:prod`.
@@ -105,6 +129,7 @@
 ## 2026-02-24
 
 ### [INIT]-[091] Удаление ненужного кода и зависимостей этапа
+
 - Выполнена ревизия зависимостей: `depcheck` не выявил лишних пакетов, текущий набор `dependencies/devDependencies` оставлен минимальным и обоснованным для init/v1 scope.
 - Из `Application`-контракта удалены неиспользуемые bootstrap-зависимости `WordValidation` и `LevelGenerator`, которые не участвуют в текущем command-routing.
 - Обновлён composition root `src/main.ts`: исключён неиспользуемый wiring доменных модулей, чтобы не включать мёртвый код в entry-контур.
@@ -113,24 +138,28 @@
 - В `BACKLOG.md` добавлена follow-up задача `[TEST]-[007]` для стабилизации Playwright smoke в TLS-контуре `sdk-dev-proxy`.
 
 ### [INIT]-[090] Приборка init-этапа и удаление временных артефактов
+
 - Удалён временный агентский журнал `progress.md`; хранение факта выполненных работ закреплено через `CHANGELOG.md` и `tasks/*.md`.
 - `.gitignore` дополнен правилом `progress.md`, чтобы временные handoff-файлы не попадали в репозиторий.
 - Добавлен скрипт `npm run clean:init` для воспроизводимой локальной приборки init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
 - README обновлён: добавлена команда `clean:init` в список инженерных скриптов.
 
 ### [OPS] GitHub Actions deploy workflow для GitHub Pages
+
 - Добавлен workflow `.github/workflows/deploy-pages.yml` для автоматического деплоя в GitHub Pages при `push` в `main` и вручную (`workflow_dispatch`).
 - В deploy-пайплайн добавлены обязательные baseline quality-gates (`npm run ci:baseline`) перед публикацией артефакта.
 - Для корректной работы на `https://<owner>.github.io/<repo>/` добавлена сборка Vite с `--base="/<repo-name>/"` внутри deploy workflow.
 - README дополнен инструкциями по GitHub Actions и требованием включить `Build and deployment: GitHub Actions` в настройках Pages.
 
 ### [INIT]-[005] Инженерный baseline quality-gates + CI
+
 - Добавлены baseline quality-команды: `lint`, `lint:fix`, `format`, `format:check`, `ci:baseline`.
 - Подключены `eslint` (flat-config для TypeScript) и `prettier` с едиными настройками форматирования baseline-файлов.
 - Добавлен CI workflow `.github/workflows/ci.yml` с pre-merge последовательностью, совместимой с TECHSPEC gates: `typecheck -> test -> lint -> format:check -> build`.
 - README дополнен разделом обязательного pre-merge pipeline и обновлённым списком инженерных команд.
 
 ### [INIT]-[004] Platform bootstrap YaGames SDK + dev-proxy
+
 - `PlatformYandex` переведён со stub на рабочий адаптер: добавлены `YaGames.init()`, `LoadingAPI.ready()`, `GameplayAPI.start()/stop()` и обработчики `game_api_pause`/`game_api_resume`.
 - Добавлен структурированный lifecycle-log платформенного адаптера с наблюдаемостью через `window.render_game_to_text`.
 - Усилен bootstrap-контур: `RuntimeReady` теперь dispatch-ится только после успешной инициализации SDK lifecycle.
@@ -138,6 +167,7 @@
 - Добавлена локальная инфраструктура запуска через `@yandex-games/sdk-dev-proxy` (`dev:proxy`, `dev:proxy:prod`) и обновлён README с инструкциями для dev/draft/prod режимов.
 
 ### [INIT]-[003] Command bus, Result Envelopes и доменные ошибки
+
 - В application-слое введён единый typed bus с контрактами `ApplicationCommand` и `ApplicationQuery`.
 - Добавлены обязательные команды v1 из TECHSPEC: `SubmitPath`, `RequestHint`, `RequestReshuffle`, `AcknowledgeAdResult`, `AcknowledgeWordSuccessAnimation`, `AcknowledgeLevelTransitionDone`, `Tick`, `RestoreSession`, `SyncLeaderboard`.
 - Реализован единый `Result envelope` формата `ok | domainError | infraError` и унифицированный `Error envelope` `{ code, message, retryable, context }`.
@@ -146,6 +176,7 @@
 - Добавлен интеграционный smoke-тест `tests/application-command-bus.smoke.test.ts`, проверяющий маршрутизацию обязательных команд и корректность error envelope.
 
 ### [INIT]-[002] Архитектурные слои и модульные границы
+
 - Внедрена слоистая структура `src/domain`, `src/application`, `src/adapters` по правилу зависимостей `Adapters -> Application -> Domain`.
 - Добавлены публичные контракты-заглушки модулей: `CoreState`, `InputPath`, `WordValidation`, `LevelGenerator`, `HelpEconomy`, `RenderMotion`, `PlatformYandex`, `Persistence`, `Telemetry`.
 - `src/main.ts` переведён в роль composition root: wiring модулей выполняется через application-слой без прямых зависимостей верхнего слоя на domain.
@@ -154,6 +185,7 @@
 - Для typecheck тестов добавлена зависимость `@types/node`.
 
 ### [INIT]-[001] Bootstrap проекта
+
 - Создан стартовый каркас проекта на TypeScript + PixiJS v8 + Vite.
 - Добавлены базовые директории `src/`, `assets/`, `tests/`, а также `ADR/` и `tasks/` для проектного контура.
 - Реализована точка входа с пустым игровым экраном в portrait-only viewport и единым canvas.
