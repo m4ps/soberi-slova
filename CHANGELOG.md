@@ -2,6 +2,27 @@
 
 ## 2026-02-25
 
+### [CODE]-[008] Реализовать RenderMotion и one-screen UI без лишних сущностей
+
+- `src/adapters/RenderMotion/index.ts` переписан в полноценный one-screen рендер:
+  - всегда видимые `grid 5x5`, `progress x/N`, `all-time score`, кнопки `hint/reshuffle/leaderboard`;
+  - pseudo-liquid in-drag/tail-undo feedback;
+  - success feedback: green/yellow glow + перелёт букв в HUD;
+  - auto-ack completion pipeline (`AcknowledgeWordSuccessAnimation` и `AcknowledgeLevelTransitionDone`) с отложенными jobs.
+- `src/application/contracts.ts` и `src/application/index.ts` расширены новым доменным событием `domain/word-submitted`:
+  - событие публикуется на `SubmitPath` и включает `result`, `scoreDelta`, `progress`, `pathCells`, `wordSuccessOperationId`;
+  - success-анимации в `RenderMotion` запускаются от domain event, а не от state mutation в UI.
+- Добавлен единый layout helper `src/shared/game-layout.ts` и синхронизирован `InputPath`:
+  - `src/adapters/InputPath/index.ts` теперь разрешает path input только в пределах grid-области;
+  - path snapshots прокидываются в рендер для drag-visual feedback.
+- Расширены тесты:
+  - `tests/application-command-bus.smoke.test.ts` (payload `domain/word-submitted`);
+  - `tests/input-path.adapter.test.ts` (layout-aware pointer + path snapshot callback);
+  - `tests/render-layout.test.ts` (инварианты one-screen layout и приоритет grid на малых экранах).
+- Обновлены документация и артефакты:
+  - `docs/observability/event-contracts.md`;
+  - `README.md`.
+
 ### [CODE]-[007] Интегрировать Rewarded Ads outcomes в help flows
 
 - `src/adapters/PlatformYandex/index.ts` расширен ad-flow оркестрацией:

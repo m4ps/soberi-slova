@@ -144,7 +144,11 @@ flowchart TD
   - списание бесплатного действия только после успешного применения эффекта;
   - cooldown `3 сек` после ad no-reward outcome (`close/error/no-fill`) для временной блокировки обеих help-кнопок.
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
-- `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
+- `RenderMotion` — рендер-адаптер Pixi с one-screen UI:
+  - всегда видимые `grid 5x5`, `progress x/N`, `all-time score`, `hint/reshuffle/leaderboard`;
+  - pseudo-liquid feedback для in-drag/tail-undo;
+  - event-driven success glow + перелёт букв в progress/score;
+  - auto-ack completion pipeline (`AcknowledgeWordSuccessAnimation` / `AcknowledgeLevelTransitionDone`) из Render-loop.
 - `PlatformYandex` — bootstrap YaGames SDK, lifecycle hooks (`ready/start/stop/pause/resume`), rewarded-ads orchestration (`showRewardedVideo` callbacks -> `AcknowledgeAdResult`) и lifecycle-log адаптера.
 - `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
 - `Telemetry` — сбор application events в буфер адаптера.
@@ -237,6 +241,7 @@ flowchart TD
 - DATA-003: добавлен CSV pipeline словаря с нормализацией/фильтрацией, O(1) индексом lookup и статистикой reject-строк для telemetry/log.
 - DATA-004: добавлены schema migrations snapshot (`vN -> vN+1`) и LWW resolver (`stateVersion -> updatedAt -> local priority`) для local/cloud restore.
 - DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).
+- CODE-008: добавлен domain event `domain/word-submitted` для event-driven визуализации submit-path (`result`, `scoreDelta`, `progress`, `pathCells`).
 - DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.
 - DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.
 - DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
@@ -249,3 +254,4 @@ flowchart TD
 - CODE-005: реализован completion pipeline финального target и авто-переход уровня: `level clear` начисляется только по `AcknowledgeWordSuccessAnimation`, ввод блокируется на `completed/reshuffling`, `AcknowledgeLevelTransitionDone` запускает deterministic auto-next уровень без потери `allTimeScore`.
 - CODE-006: реализован `HelpEconomy` и интеграция help-flow в application/core-state: общий `free-action` пул `hint/reshuffle` с real-time таймером, shared lock на обе help-кнопки, hint progression `2/3/4+` букв для самого лёгкого оставшегося target и manual reshuffle с полным reset текущего уровня.
 - CODE-007: интегрированы rewarded ads outcomes в help-flow: `PlatformYandex` слушает `domain/help` (ad-required), вызывает `showRewardedVideo`, маппит `reward/close/error/no-fill` в `AcknowledgeAdResult`; `HelpEconomy` применяет cooldown `3 сек` на no-reward outcomes, а telemetry фиксирует outcome + `durationMs`.
+- CODE-008: реализован `RenderMotion` one-screen контракт: mobile-first UI с приоритетом поля `5x5`, кнопками `hint/reshuffle/leaderboard`, pseudo-liquid in-drag/undo feedback, event-driven success glow и перелётом букв, плюс автоматический completion transition ack из рендер-цикла.

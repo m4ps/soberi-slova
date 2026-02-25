@@ -1,4 +1,5 @@
 import type { ApplicationCommandBus, GridCellRef } from '../../application';
+import { computeGameLayout } from '../../shared/game-layout';
 import { MODULE_IDS } from '../../shared/module-ids';
 
 const GRID_SIZE = 5;
@@ -9,6 +10,10 @@ export interface InputPathModule {
   readonly moduleName: typeof MODULE_IDS.inputPath;
   bindToCanvas: (canvas: HTMLCanvasElement) => void;
   dispose: () => void;
+}
+
+export interface InputPathModuleOptions {
+  readonly onPathChanged?: (path: readonly GridCellRef[]) => void;
 }
 
 interface PointerPoint {
@@ -148,7 +153,22 @@ export function resolveGridCellFromPointer(
   return { row, col };
 }
 
-export function createInputPathModule(commandBus: ApplicationCommandBus): InputPathModule {
+function resolveGridBoundsFromCanvas(canvas: HTMLCanvasElement): BoundsLike {
+  const canvasBounds = canvas.getBoundingClientRect();
+  const layout = computeGameLayout(canvasBounds.width, canvasBounds.height);
+
+  return {
+    left: canvasBounds.left + layout.grid.x,
+    top: canvasBounds.top + layout.grid.y,
+    width: layout.grid.width,
+    height: layout.grid.height,
+  };
+}
+
+export function createInputPathModule(
+  commandBus: ApplicationCommandBus,
+  options: InputPathModuleOptions = {},
+): InputPathModule {
   let boundCanvas: HTMLCanvasElement | null = null;
   let activePointerId: number | null = null;
   const pathEngine = createInputPathEngine();
@@ -162,7 +182,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
       return null;
     }
 
-    return resolveGridCellFromPointer(event, boundCanvas.getBoundingClientRect());
+    return resolveGridCellFromPointer(event, resolveGridBoundsFromCanvas(boundCanvas));
   };
 
   const releaseCapture = (pointerId: number): void => {
@@ -171,6 +191,10 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
     }
 
     boundCanvas.releasePointerCapture?.(pointerId);
+  };
+
+  const publishPathSnapshot = (): void => {
+    options.onPathChanged?.(pathEngine.getPathSnapshot());
   };
 
   return {
@@ -188,6 +212,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         boundCanvas.removeEventListener('pointerup', pointerUpHandler);
         boundCanvas.removeEventListener('pointercancel', pointerCancelHandler);
       }
+      options.onPathChanged?.([]);
 
       pointerDownHandler = (event) => {
         if (activePointerId !== null) {
@@ -198,6 +223,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         boundCanvas = canvas;
         boundCanvas.setPointerCapture?.(event.pointerId);
         pathEngine.startGesture(resolveCell(event));
+        publishPathSnapshot();
       };
 
       pointerMoveHandler = (event) => {
@@ -206,6 +232,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         }
 
         pathEngine.updateGesture(resolveCell(event));
+        publishPathSnapshot();
       };
 
       pointerUpHandler = (event) => {
@@ -217,6 +244,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         const submittedPath = pathEngine.finishGesture();
         activePointerId = null;
         releaseCapture(event.pointerId);
+        publishPathSnapshot();
 
         if (submittedPath && submittedPath.length > 0) {
           commandBus.dispatch({
@@ -234,6 +262,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         pathEngine.cancelGesture();
         activePointerId = null;
         releaseCapture(event.pointerId);
+        publishPathSnapshot();
       };
 
       boundCanvas = canvas;
@@ -256,6 +285,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
         }
 
         pathEngine.cancelGesture();
+        options.onPathChanged?.([]);
         activePointerId = null;
         boundCanvas.removeEventListener('pointerdown', pointerDownHandler);
         boundCanvas.removeEventListener('pointermove', pointerMoveHandler);

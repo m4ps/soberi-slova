@@ -59,6 +59,7 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'application/runtime-ready': 1,
   'application/tick': 1,
   'application/command-routed': 1,
+  'domain/word-submitted': 1,
   'domain/word-success': 1,
   'domain/level-clear': 1,
   'domain/help': 1,
@@ -291,7 +292,34 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             }
 
             const submitResult = modules.coreState.submitPath(command.pathCells);
-            return routeCommand(command.type, submitResult.wordSuccessOperationId);
+            return routeCommand(
+              command.type,
+              submitResult.wordSuccessOperationId,
+              (correlationId) => {
+                publish(
+                  createEvent('domain/word-submitted', correlationId, {
+                    commandType: command.type,
+                    result: submitResult.result,
+                    normalizedWord: submitResult.normalizedWord,
+                    isSilent: submitResult.isSilent,
+                    levelClearAwarded: submitResult.levelClearAwarded,
+                    wordSuccessOperationId: submitResult.wordSuccessOperationId,
+                    scoreDelta: {
+                      wordScore: submitResult.scoreDelta.wordScore,
+                      levelClearScore: submitResult.scoreDelta.levelClearScore,
+                      totalScore: submitResult.scoreDelta.totalScore,
+                    },
+                    progress: {
+                      foundTargets: submitResult.progress.foundTargets,
+                      totalTargets: submitResult.progress.totalTargets,
+                    },
+                    levelStatus: submitResult.levelStatus,
+                    allTimeScore: submitResult.allTimeScore,
+                    pathCells: command.pathCells.map((cell) => ({ ...cell })),
+                  }),
+                );
+              },
+            );
           }
           case 'RequestHint': {
             return routeHelpCommand(command.type, 'hint');

@@ -75,6 +75,27 @@ function createScoringFixtureState(): GameStateInput {
   };
 }
 
+interface CapturedWordSubmittedEvent {
+  readonly eventType: 'domain/word-submitted';
+  readonly payload: {
+    readonly commandType: 'SubmitPath';
+    readonly result: 'target' | 'bonus' | 'repeat' | 'invalid';
+    readonly normalizedWord: string | null;
+    readonly isSilent: boolean;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly allTimeScore: number;
+    readonly pathCells: ReadonlyArray<{ readonly row: number; readonly col: number }>;
+  };
+}
+
 describe('application command/query bus smoke', () => {
   it('routes required v1 commands through a single command bus', () => {
     const application = createSmokeApplication();
@@ -230,6 +251,17 @@ describe('application command/query bus smoke', () => {
 
     expect(events).toContainEqual(
       expect.objectContaining({
+        eventType: 'domain/word-submitted',
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          result: 'invalid',
+          isSilent: true,
+          pathCells: [{ row: 0, col: 0 }],
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
         eventType: 'domain/word-success',
         correlationId: 'op-word',
         payload: expect.objectContaining({
@@ -319,17 +351,18 @@ describe('application command/query bus smoke', () => {
       helpEconomy: createHelpEconomyModule(0),
     });
 
+    const events: ApplicationEvent[] = [];
     let scoreObservedAtRoute = -1;
     application.events.subscribe((event) => {
+      events.push(event);
+
       if (event.eventType !== 'application/command-routed') {
         return;
       }
 
-      if (event.payload.commandType !== 'SubmitPath') {
-        return;
+      if (event.payload.commandType === 'SubmitPath') {
+        scoreObservedAtRoute = application.readModel.getCoreState().gameplay.allTimeScore;
       }
-
-      scoreObservedAtRoute = application.readModel.getCoreState().gameplay.allTimeScore;
     });
 
     const result = application.commands.dispatch({
@@ -343,6 +376,36 @@ describe('application command/query bus smoke', () => {
 
     expect(result.type).toBe('ok');
     expect(scoreObservedAtRoute).toBe(16);
+    const submitEvent = events.find((event) => {
+      return (event as { eventType: string }).eventType === 'domain/word-submitted';
+    }) as CapturedWordSubmittedEvent | undefined;
+
+    expect(submitEvent).toBeDefined();
+    if (!submitEvent) {
+      throw new Error('Expected domain/word-submitted event.');
+    }
+
+    expect(submitEvent.payload).toMatchObject({
+      commandType: 'SubmitPath',
+      result: 'target',
+      normalizedWord: 'дом',
+      isSilent: false,
+      scoreDelta: {
+        wordScore: 16,
+        levelClearScore: 0,
+        totalScore: 16,
+      },
+      progress: {
+        foundTargets: 1,
+        totalTargets: 3,
+      },
+      allTimeScore: 16,
+    });
+    expect(submitEvent.payload.pathCells).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+    ]);
 
     const coreState = application.readModel.getCoreState();
     expect(coreState.gameplay).toMatchObject({

@@ -117,6 +117,30 @@ export type CommandRoutedEvent = EventEnvelope<
   { readonly commandType: RoutedCommandType }
 >;
 
+export type WordSubmittedEvent = EventEnvelope<
+  'domain/word-submitted',
+  {
+    readonly commandType: 'SubmitPath';
+    readonly result: 'target' | 'bonus' | 'repeat' | 'invalid';
+    readonly normalizedWord: string | null;
+    readonly isSilent: boolean;
+    readonly levelClearAwarded: boolean;
+    readonly wordSuccessOperationId: string | null;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly levelStatus: 'active' | 'completed' | 'reshuffling';
+    readonly allTimeScore: number;
+    readonly pathCells: readonly GridCellRef[];
+  }
+>;
+
 export type WordSuccessEvent = EventEnvelope<
   'domain/word-success',
   {
@@ -178,6 +202,7 @@ export type ApplicationEvent =
   | RuntimeReadyEvent
   | TickEvent
   | CommandRoutedEvent
+  | WordSubmittedEvent
   | WordSuccessEvent
   | LevelClearEvent
   | HelpEvent

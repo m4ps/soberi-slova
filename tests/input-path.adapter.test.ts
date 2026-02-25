@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ApplicationCommand, ApplicationCommandBus, CommandAck } from '../src/application';
+import type {
+  ApplicationCommand,
+  ApplicationCommandBus,
+  CommandAck,
+  GridCellRef,
+} from '../src/application';
 import {
   createInputPathEngine,
   createInputPathModule,
   resolveGridCellFromPointer,
 } from '../src/adapters/InputPath';
+import { computeGameLayout } from '../src/shared/game-layout';
 
 type PointerListener = (event: PointerEvent) => void;
 
@@ -77,6 +83,21 @@ function createOkAck(commandType: ApplicationCommand['type']): { type: 'ok'; val
       handledAt: 0,
       correlationId: `${commandType}-corr`,
     },
+  };
+}
+
+function resolvePointerForGridCell(
+  canvas: FakeCanvasElement,
+  row: number,
+  col: number,
+): { clientX: number; clientY: number } {
+  const bounds = canvas.getBoundingClientRect();
+  const layout = computeGameLayout(bounds.width, bounds.height);
+  const cellSize = layout.grid.width / 5;
+
+  return {
+    clientX: Math.round(bounds.left + layout.grid.x + cellSize * (col + 0.5)),
+    clientY: Math.round(bounds.top + layout.grid.y + cellSize * (row + 0.5)),
   };
 }
 
@@ -155,13 +176,17 @@ describe('InputPath adapter', () => {
     expect(canvas.style.touchAction).toBe('none');
     expect(dispatchedCommands).toHaveLength(0);
 
-    canvas.dispatchPointerEvent('pointerdown', { pointerId: 1, clientX: 150, clientY: 100 });
-    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, clientX: 250, clientY: 100 });
-    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, clientX: 350, clientY: 100 });
-    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, clientX: 250, clientY: 100 });
+    const cell00 = resolvePointerForGridCell(canvas, 0, 0);
+    const cell01 = resolvePointerForGridCell(canvas, 0, 1);
+    const cell02 = resolvePointerForGridCell(canvas, 0, 2);
+
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 1, ...cell00 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...cell01 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...cell02 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...cell01 });
     expect(dispatchedCommands).toHaveLength(0);
 
-    canvas.dispatchPointerEvent('pointerup', { pointerId: 1, clientX: 250, clientY: 100 });
+    canvas.dispatchPointerEvent('pointerup', { pointerId: 1, ...cell01 });
     expect(dispatchedCommands).toEqual([
       {
         type: 'SubmitPath',
@@ -187,14 +212,47 @@ describe('InputPath adapter', () => {
 
     inputPathModule.bindToCanvas(canvas as unknown as HTMLCanvasElement);
 
-    canvas.dispatchPointerEvent('pointerdown', { pointerId: 10, clientX: 150, clientY: 100 });
-    canvas.dispatchPointerEvent('pointerdown', { pointerId: 11, clientX: 250, clientY: 100 });
-    canvas.dispatchPointerEvent('pointermove', { pointerId: 11, clientX: 350, clientY: 100 });
-    canvas.dispatchPointerEvent('pointercancel', { pointerId: 10, clientX: 150, clientY: 100 });
+    const cell00 = resolvePointerForGridCell(canvas, 0, 0);
+    const cell01 = resolvePointerForGridCell(canvas, 0, 1);
+    const cell02 = resolvePointerForGridCell(canvas, 0, 2);
+
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 10, ...cell00 });
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 11, ...cell01 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 11, ...cell02 });
+    canvas.dispatchPointerEvent('pointercancel', { pointerId: 10, ...cell00 });
     expect(dispatchedCommands).toHaveLength(0);
 
-    canvas.dispatchPointerEvent('pointerup', { pointerId: 11, clientX: 350, clientY: 100 });
+    canvas.dispatchPointerEvent('pointerup', { pointerId: 11, ...cell02 });
     expect(dispatchedCommands).toHaveLength(0);
+  });
+
+  it('emits path snapshots for drag visual feedback', () => {
+    const dispatchedCommands: ApplicationCommand[] = [];
+    const observedPaths: GridCellRef[][] = [];
+    const commandBus: ApplicationCommandBus = {
+      dispatch: (command) => {
+        dispatchedCommands.push(command);
+        return createOkAck(command.type);
+      },
+    };
+    const inputPathModule = createInputPathModule(commandBus, {
+      onPathChanged: (path) => {
+        observedPaths.push([...path]);
+      },
+    });
+    const canvas = new FakeCanvasElement();
+    const cell00 = resolvePointerForGridCell(canvas, 0, 0);
+    const cell01 = resolvePointerForGridCell(canvas, 0, 1);
+
+    inputPathModule.bindToCanvas(canvas as unknown as HTMLCanvasElement);
+    canvas.dispatchPointerEvent('pointerdown', { pointerId: 1, ...cell00 });
+    canvas.dispatchPointerEvent('pointermove', { pointerId: 1, ...cell01 });
+    canvas.dispatchPointerEvent('pointerup', { pointerId: 1, ...cell01 });
+
+    expect(observedPaths[0]).toEqual([]);
+    expect(observedPaths.some((path) => path.length === 2)).toBe(true);
+    expect(observedPaths.at(-1)).toEqual([]);
+    expect(dispatchedCommands).toHaveLength(1);
   });
 
   it('removes listeners on dispose', () => {

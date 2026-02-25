@@ -37,6 +37,8 @@
 
 ### Domain events (минимальный набор DATA-005)
 
+- `domain/word-submitted`
+  - payload: `{ commandType: 'SubmitPath', result: 'target' | 'bonus' | 'repeat' | 'invalid', normalizedWord: string | null, isSilent: boolean, levelClearAwarded: boolean, wordSuccessOperationId: string | null, scoreDelta: { wordScore: number, levelClearScore: number, totalScore: number }, progress: { foundTargets: number, totalTargets: number }, levelStatus: 'active' | 'completed' | 'reshuffling', allTimeScore: number, pathCells: GridCellRef[] }`
 - `domain/word-success`
   - payload: `{ commandType: 'AcknowledgeWordSuccessAnimation', wordId: string }`
 - `domain/level-clear`
@@ -56,6 +58,7 @@
 
 Текущее покрытие:
 
+- `SubmitPath`: `correlationId = wordSuccessOperationId` для финального target, иначе генерируется в application-слое.
 - `RequestHint` / `RequestReshuffle`: `correlationId = HelpEconomy.operationId`.
 - `AcknowledgeAdResult`: `correlationId = operationId` команды.
 - `AcknowledgeWordSuccessAnimation`: `correlationId = operationId` команды.

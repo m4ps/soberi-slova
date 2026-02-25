@@ -104,12 +104,20 @@ async function bootstrap(): Promise<void> {
     helpEconomy: helpEconomyModule,
   });
 
-  const renderMotionModule = createRenderMotionModule(application.readModel);
-  const inputPathModule = createInputPathModule(application.commands);
+  const renderMotionModule = createRenderMotionModule(
+    application.readModel,
+    application.commands,
+    application.events,
+  );
+  let renderMotionRuntime: RenderMotionRuntime | null = null;
+  const inputPathModule = createInputPathModule(application.commands, {
+    onPathChanged: (path) => {
+      renderMotionRuntime?.setInputPath(path);
+    },
+  });
   const telemetryModule = createTelemetryModule(application.events);
   const persistenceModule = createPersistenceModule(application.commands, application.queries);
   const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
-  let renderMotionRuntime: RenderMotionRuntime | null = null;
 
   try {
     renderMotionRuntime = await renderMotionModule.mount(rootElement);
@@ -143,6 +151,9 @@ async function bootstrap(): Promise<void> {
         },
         viewport: sceneSnapshot.viewport,
         stageChildren: sceneSnapshot.stageChildren,
+        gameplay: sceneSnapshot.gameplay,
+        help: sceneSnapshot.help,
+        ui: sceneSnapshot.ui,
         telemetryBufferSize: telemetryModule.getBufferedEvents().length,
         persistence: persistenceModule.getLastSnapshot(),
         platformLifecycle: platformYandexModule.getLifecycleLog(),
