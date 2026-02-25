@@ -7,8 +7,11 @@ import {
   createLevelSession,
   createWordEntry,
   deserializeGameState,
+  deserializeGameStateWithMigrations,
   deserializeWordEntry,
   isGameStateDomainError,
+  migrateGameStateSnapshot,
+  resolveLwwSnapshot,
   serializeGameState,
   serializeWordEntry,
   type GameStateInput,
@@ -97,6 +100,17 @@ function createFixtureGameStateInput(): GameStateInput {
   };
 }
 
+function createLegacySnapshotV0WithoutStateVersion(): Record<string, unknown> {
+  const legacySnapshot: Record<string, unknown> = {
+    ...createFixtureGameStateInput(),
+    schemaVersion: 0,
+  };
+
+  delete legacySnapshot.pendingOps;
+
+  return legacySnapshot;
+}
+
 function expectDomainErrorWithCode(action: () => unknown, expectedCode: string): void {
   try {
     action();
@@ -147,7 +161,7 @@ describe('game state model', () => {
     const input = createFixtureGameStateInput();
     const state = createGameState({
       ...input,
-      schemaVersion: 3,
+      schemaVersion: GAME_STATE_SCHEMA_VERSION,
       stateVersion: 17,
     });
 
@@ -176,6 +190,107 @@ describe('game state model', () => {
     expect(() => deserializeGameState(JSON.stringify({ schemaVersion: 1 }))).toThrow(
       '[game-state] gameState.stateVersion must be a finite number.',
     );
+  });
+
+  it('migrates legacy v0 snapshots to current schema deterministically', () => {
+    const legacySnapshot = createLegacySnapshotV0WithoutStateVersion();
+
+    const firstMigration = migrateGameStateSnapshot(legacySnapshot);
+    const secondMigration = migrateGameStateSnapshot(legacySnapshot);
+    const migratedFromSerialized = deserializeGameStateWithMigrations(
+      JSON.stringify(legacySnapshot),
+    );
+
+    expect(firstMigration).toEqual(secondMigration);
+    expect(firstMigration).toEqual(migratedFromSerialized);
+    expect(firstMigration.schemaVersionBefore).toBe(0);
+    expect(firstMigration.schemaVersionAfter).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(firstMigration.appliedMigrations).toEqual([{ fromVersion: 0, toVersion: 1 }]);
+    expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(firstMigration.state.stateVersion).toBe(0);
+    expect(firstMigration.state.pendingOps).toEqual([]);
+  });
+
+  it('rejects snapshots from unsupported future schema versions', () => {
+    const baseInput = createFixtureGameStateInput();
+    const futureSnapshot = {
+      ...baseInput,
+      schemaVersion: GAME_STATE_SCHEMA_VERSION + 1,
+      stateVersion: 1,
+    };
+
+    expectDomainErrorWithCode(
+      () => migrateGameStateSnapshot(futureSnapshot),
+      'game-state.migration.unsupported-schema-version',
+    );
+  });
+
+  it('resolves LWW conflict by stateVersion first', () => {
+    const baseInput = createFixtureGameStateInput();
+    const localSnapshot = createGameState({
+      ...baseInput,
+      stateVersion: 5,
+      updatedAt: 10,
+      allTimeScore: 500,
+    });
+    const cloudSnapshot = createGameState({
+      ...baseInput,
+      stateVersion: 4,
+      updatedAt: 100,
+      allTimeScore: 700,
+    });
+
+    const resolution = resolveLwwSnapshot(localSnapshot, cloudSnapshot);
+
+    expect(resolution.winner).toBe('local');
+    expect(resolution.reason).toBe('stateVersion');
+    expect(resolution.resolvedState).toEqual(localSnapshot);
+  });
+
+  it('resolves LWW conflict by updatedAt when stateVersion is equal', () => {
+    const baseInput = createFixtureGameStateInput();
+    const localSnapshot = createGameState({
+      ...baseInput,
+      stateVersion: 5,
+      updatedAt: 99,
+    });
+    const cloudSnapshot = createGameState({
+      ...baseInput,
+      stateVersion: 5,
+      updatedAt: 100,
+    });
+
+    const resolution = resolveLwwSnapshot(localSnapshot, cloudSnapshot);
+
+    expect(resolution.winner).toBe('cloud');
+    expect(resolution.reason).toBe('updatedAt');
+    expect(resolution.resolvedState).toEqual(cloudSnapshot);
+  });
+
+  it('keeps local snapshot on full LWW tie and supports serialized inputs', () => {
+    const baseInput = createFixtureGameStateInput();
+    const localSnapshot = {
+      ...createLegacySnapshotV0WithoutStateVersion(),
+      updatedAt: 120,
+      allTimeScore: 111,
+    };
+    const cloudSnapshot = createGameState({
+      ...baseInput,
+      stateVersion: 0,
+      updatedAt: 120,
+      allTimeScore: 999,
+    });
+
+    const resolution = resolveLwwSnapshot(
+      JSON.stringify(localSnapshot),
+      serializeGameState(cloudSnapshot),
+    );
+
+    expect(resolution.winner).toBe('local');
+    expect(resolution.reason).toBe('local-priority');
+    expect(resolution.resolvedState.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(resolution.resolvedState.stateVersion).toBe(0);
+    expect(resolution.resolvedState.allTimeScore).toBe(111);
   });
 
   it('rejects level session with grid that is not 5x5', () => {

@@ -58,7 +58,7 @@ Task DOD: Попытки создать невалидное состояние 
 Task Context: Реализуй загрузку CSV и нормализацию словаря согласно PRD: lower-case, только кириллица, `ё != е`, без дефисов/пробелов/спецсимволов, только `type=noun`; невалидные строки игнорируй.
 Task DOD: Pipeline генерирует валидный in-memory индекс слов; статистика отбракованных строк доступна в telemetry/log; lookup работает O(1) по normalized word.
 
-- [ ] [DATA]-[004] Реализовать snapshot schema-versioning, миграции и LWW conflict resolver
+- [x] [DATA]-[004] Реализовать snapshot schema-versioning, миграции и LWW conflict resolver
 Task Context: Добавь `schemaVersion`-ориентированную deterministic migration chain `vN -> vN+1`; реализуй merge local/cloud по правилам LWW (`stateVersion`, затем `updatedAt`, затем local priority при равенстве).
 Task DOD: Восстановление состояния воспроизводимо и детерминировано; миграции покрыты тестами; конфликт local/cloud решается строго по контракту TECHSPEC.
 

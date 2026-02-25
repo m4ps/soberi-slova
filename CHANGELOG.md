@@ -2,6 +2,27 @@
 
 ## 2026-02-25
 
+### [DATA]-[004] Snapshot schema-versioning, миграции и LWW conflict resolver
+- В `src/domain/GameState/index.ts` реализована migration-aware обработка snapshot:
+  - добавлен детерминированный migration chain `vN -> vN+1` (`v0 -> v1`);
+  - добавлены API `migrateGameStateSnapshot` и `deserializeGameStateWithMigrations`;
+  - `deserializeGameState` переведён на миграционный путь восстановления.
+- Добавлен LWW resolver `resolveLwwSnapshot(local, cloud)` по контракту TECHSPEC:
+  - primary key: `stateVersion`;
+  - tie-break: `updatedAt`;
+  - полный tie: приоритет `local` snapshot.
+- Усилен data-контракт ошибок:
+  - snapshot с будущей `schemaVersion` отклоняется как unsupported;
+  - invalid local/cloud snapshot в merge-контуре отклоняется контролируемой `GameStateDomainError`.
+- Обновлён unit-test suite `tests/game-state.model.test.ts`:
+  - миграция legacy snapshot `v0 -> v1` и её детерминированность;
+  - reject future schema;
+  - LWW разрешение конфликтов по всем tie-break этапам;
+  - поддержка serialized snapshot входов в resolver.
+- Обновлена документация snapshot-контракта:
+  - `docs/data/game-state-schema.md`;
+  - `README.md` (раздел Data Model & Dictionary Schema).
+
 ### [DATA]-[003] Pipeline словаря из CSV (normalization + filtering)
 - Добавлен модуль [`src/domain/WordValidation/dictionary-pipeline.ts`](src/domain/WordValidation/dictionary-pipeline.ts):
   - реализован `buildDictionaryIndexFromCsv` для загрузки словаря из CSV в in-memory индекс;

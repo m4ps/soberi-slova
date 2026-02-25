@@ -142,11 +142,14 @@ flowchart TD
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
 
-## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003)
+## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
 - Для state-модели добавлены runtime-инварианты (`grid 5x5`, кириллица с отдельной `ё`, `targetWords 3..7`, запрет дублей/пересечений, однонаправленные status transitions) с доменной ошибкой `GameStateDomainError`.
+- Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
+  - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
+  - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);

@@ -1,3 +1,4 @@
+import { toErrorMessage } from '../../shared/errors';
 import type { HelpKind } from '../HelpEconomy';
 
 export const GAME_STATE_SCHEMA_VERSION = 1;
@@ -134,6 +135,33 @@ export interface GameStateCreationOptions {
   readonly previousState?: GameState;
 }
 
+export type SnapshotSource = 'local' | 'cloud';
+export type SnapshotLwwWinnerReason = 'stateVersion' | 'updatedAt' | 'local-priority';
+
+export interface AppliedSnapshotMigration {
+  readonly fromVersion: number;
+  readonly toVersion: number;
+}
+
+export interface MigrateSnapshotResult {
+  readonly state: GameState;
+  readonly schemaVersionBefore: number;
+  readonly schemaVersionAfter: number;
+  readonly appliedMigrations: readonly AppliedSnapshotMigration[];
+}
+
+export interface LwwSnapshotResolutionResult {
+  readonly winner: SnapshotSource;
+  readonly reason: SnapshotLwwWinnerReason;
+  readonly resolvedState: GameState;
+}
+
+interface SnapshotMigrationStep {
+  readonly fromVersion: number;
+  readonly toVersion: number;
+  migrate: (snapshot: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+}
+
 export class GameStateDomainError extends Error {
   readonly code: string;
   readonly retryable: false;
@@ -181,6 +209,30 @@ const LEVEL_TARGET_WORDS_MIN = 3;
 const LEVEL_TARGET_WORDS_MAX = 7;
 const CYRILLIC_WORD_PATTERN = /^[а-яё]+$/u;
 const CYRILLIC_GRID_CELL_PATTERN = /^[а-яё]$/u;
+const LEGACY_GAME_STATE_SCHEMA_VERSION = 0;
+
+const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
+  {
+    fromVersion: 0,
+    toVersion: 1,
+    migrate: (snapshot) => {
+      const nextSnapshot: Record<string, unknown> = {
+        ...snapshot,
+        schemaVersion: 1,
+      };
+
+      if (nextSnapshot.stateVersion === undefined || nextSnapshot.stateVersion === null) {
+        nextSnapshot.stateVersion = 0;
+      }
+
+      if (nextSnapshot.pendingOps === undefined || nextSnapshot.pendingOps === null) {
+        nextSnapshot.pendingOps = [];
+      }
+
+      return nextSnapshot;
+    },
+  },
+];
 
 const SAME_LEVEL_STATUS_TRANSITIONS: Readonly<
   Record<LevelSessionStatus, readonly LevelSessionStatus[]>
@@ -196,6 +248,23 @@ function parseError(
   context: Readonly<Record<string, unknown>> = {},
 ): GameStateDomainError {
   return new GameStateDomainError(code, message, context);
+}
+
+function assertNonNegativeInteger(value: unknown, fieldName: string): number {
+  const parsed = assertNonNegativeNumber(value, fieldName);
+
+  if (!Number.isInteger(parsed)) {
+    throw parseError(
+      `${fieldName} must be a non-negative integer.`,
+      'game-state.migration.integer',
+      {
+        fieldName,
+        value,
+      },
+    );
+  }
+
+  return parsed;
 }
 
 function assertRecord(value: unknown, fieldName: string): Record<string, unknown> {
@@ -677,6 +746,119 @@ function toGameStateInput(value: unknown): GameStateInput {
   };
 }
 
+function getSnapshotSchemaVersion(snapshot: Readonly<Record<string, unknown>>): number {
+  if (snapshot.schemaVersion === undefined || snapshot.schemaVersion === null) {
+    return LEGACY_GAME_STATE_SCHEMA_VERSION;
+  }
+
+  return assertNonNegativeInteger(snapshot.schemaVersion, 'gameState.schemaVersion');
+}
+
+function findSnapshotMigrationStep(fromVersion: number): SnapshotMigrationStep | undefined {
+  return SNAPSHOT_MIGRATION_STEPS.find((step) => step.fromVersion === fromVersion);
+}
+
+function applySnapshotMigrations(
+  snapshot: Readonly<Record<string, unknown>>,
+): MigrateSnapshotResult {
+  const schemaVersionBefore = getSnapshotSchemaVersion(snapshot);
+
+  if (schemaVersionBefore > GAME_STATE_SCHEMA_VERSION) {
+    throw parseError(
+      `Snapshot schema version ${schemaVersionBefore} is newer than supported version ${GAME_STATE_SCHEMA_VERSION}.`,
+      'game-state.migration.unsupported-schema-version',
+      {
+        schemaVersionBefore,
+        supportedSchemaVersion: GAME_STATE_SCHEMA_VERSION,
+      },
+    );
+  }
+
+  if (schemaVersionBefore < LEGACY_GAME_STATE_SCHEMA_VERSION) {
+    throw parseError(
+      `Snapshot schema version ${schemaVersionBefore} is below supported minimum ${LEGACY_GAME_STATE_SCHEMA_VERSION}.`,
+      'game-state.migration.unsupported-legacy-version',
+      {
+        schemaVersionBefore,
+        minSupportedSchemaVersion: LEGACY_GAME_STATE_SCHEMA_VERSION,
+      },
+    );
+  }
+
+  let currentVersion = schemaVersionBefore;
+  let currentSnapshot: Record<string, unknown> = { ...snapshot };
+  const appliedMigrations: AppliedSnapshotMigration[] = [];
+
+  while (currentVersion < GAME_STATE_SCHEMA_VERSION) {
+    const migrationStep = findSnapshotMigrationStep(currentVersion);
+
+    if (!migrationStep || migrationStep.toVersion !== currentVersion + 1) {
+      throw parseError(
+        `Missing deterministic snapshot migration step ${currentVersion} -> ${currentVersion + 1}.`,
+        'game-state.migration.missing-step',
+        {
+          currentVersion,
+          expectedNextVersion: currentVersion + 1,
+        },
+      );
+    }
+
+    currentSnapshot = migrationStep.migrate(currentSnapshot);
+    const migratedVersion = getSnapshotSchemaVersion(currentSnapshot);
+
+    if (migratedVersion !== migrationStep.toVersion) {
+      throw parseError(
+        `Snapshot migration ${migrationStep.fromVersion} -> ${migrationStep.toVersion} produced schema version ${migratedVersion}.`,
+        'game-state.migration.invalid-step-result',
+        {
+          fromVersion: migrationStep.fromVersion,
+          toVersion: migrationStep.toVersion,
+          actualVersion: migratedVersion,
+        },
+      );
+    }
+
+    appliedMigrations.push({
+      fromVersion: migrationStep.fromVersion,
+      toVersion: migrationStep.toVersion,
+    });
+    currentVersion = migratedVersion;
+  }
+
+  const state = createGameState(toGameStateInput(currentSnapshot));
+
+  return {
+    state,
+    schemaVersionBefore,
+    schemaVersionAfter: state.schemaVersion,
+    appliedMigrations,
+  };
+}
+
+function resolveSnapshotCandidate(snapshot: GameState | string, source: SnapshotSource): GameState {
+  if (typeof snapshot === 'string') {
+    try {
+      return deserializeGameState(snapshot);
+    } catch (error: unknown) {
+      throw parseError(
+        `Failed to deserialize ${source} snapshot: ${toErrorMessage(error)}.`,
+        'game-state.merge.invalid-snapshot',
+        { source },
+      );
+    }
+  }
+
+  try {
+    return createGameState(toGameStateInput(snapshot));
+  } catch (error: unknown) {
+    throw parseError(
+      `Failed to normalize ${source} snapshot: ${toErrorMessage(error)}.`,
+      'game-state.merge.invalid-snapshot',
+      { source },
+    );
+  }
+}
+
 export function serializeWordEntry(entry: WordEntry): string {
   return JSON.stringify(createWordEntry(toWordEntryInput(entry)));
 }
@@ -685,7 +867,7 @@ export function deserializeWordEntry(serialized: string): WordEntry {
   try {
     return createWordEntry(toWordEntryInput(JSON.parse(serialized) as unknown));
   } catch (error: unknown) {
-    throw parseError(`Failed to deserialize WordEntry: ${(error as Error).message}`);
+    throw parseError(`Failed to deserialize WordEntry: ${toErrorMessage(error)}`);
   }
 }
 
@@ -693,7 +875,13 @@ export function serializeGameState(state: GameState): string {
   return JSON.stringify(createGameState(toGameStateInput(state)));
 }
 
-export function deserializeGameState(serialized: string): GameState {
+export function migrateGameStateSnapshot(snapshot: unknown): MigrateSnapshotResult {
+  const source = assertRecord(snapshot, 'gameState');
+
+  return applySnapshotMigrations(source);
+}
+
+export function deserializeGameStateWithMigrations(serialized: string): MigrateSnapshotResult {
   let parsed: unknown;
 
   try {
@@ -702,5 +890,55 @@ export function deserializeGameState(serialized: string): GameState {
     throw parseError('Invalid JSON snapshot.', 'game-state.invalid-json');
   }
 
-  return createGameState(toGameStateInput(parsed));
+  return migrateGameStateSnapshot(parsed);
+}
+
+export function deserializeGameState(serialized: string): GameState {
+  return deserializeGameStateWithMigrations(serialized).state;
+}
+
+export function resolveLwwSnapshot(
+  localSnapshot: GameState | string,
+  cloudSnapshot: GameState | string,
+): LwwSnapshotResolutionResult {
+  const localState = resolveSnapshotCandidate(localSnapshot, 'local');
+  const cloudState = resolveSnapshotCandidate(cloudSnapshot, 'cloud');
+
+  if (localState.stateVersion > cloudState.stateVersion) {
+    return {
+      winner: 'local',
+      reason: 'stateVersion',
+      resolvedState: localState,
+    };
+  }
+
+  if (cloudState.stateVersion > localState.stateVersion) {
+    return {
+      winner: 'cloud',
+      reason: 'stateVersion',
+      resolvedState: cloudState,
+    };
+  }
+
+  if (localState.updatedAt > cloudState.updatedAt) {
+    return {
+      winner: 'local',
+      reason: 'updatedAt',
+      resolvedState: localState,
+    };
+  }
+
+  if (cloudState.updatedAt > localState.updatedAt) {
+    return {
+      winner: 'cloud',
+      reason: 'updatedAt',
+      resolvedState: cloudState,
+    };
+  }
+
+  return {
+    winner: 'local',
+    reason: 'local-priority',
+    resolvedState: localState,
+  };
 }
