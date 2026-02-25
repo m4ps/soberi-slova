@@ -2,6 +2,22 @@
 
 ## 2026-02-25
 
+### [CODE]-[290] Приборка этапа кодирования
+
+- Убраны debug-only runtime-артефакты из production-контура:
+  - `src/main.ts`: диагностические хуки `window.render_game_to_text` и `window.advanceTime` теперь публикуются только в dev-режиме (`import.meta.env.DEV`);
+  - добавлена очистка этих хуков из `window` в production-path, включая bootstrap fail-state.
+- `src/types/global.d.ts` синхронизирован с новым контрактом: диагностические глобальные API сделаны опциональными.
+- `README.md` дополнен отдельным разделом про диагностические хуки:
+  - в dev-режиме hooks доступны для smoke/E2E;
+  - в production-сборке hooks не экспортируются.
+- Обновлены артефакты проекта:
+  - `BACKLOG.md`: задача `[CODE]-[290]` отмечена как выполненная;
+  - добавлены `ADR/ADR-033-runtime-diagnostics-dev-only-code-290.md` и `tasks/CODE-290.md`.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code290-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[009] Реализовать PlatformYandex, Persistence, Restore и Leaderboard end-to-end
 
 - `src/adapters/PlatformYandex/index.ts` расширен до полного integration-адаптера:

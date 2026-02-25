@@ -39,6 +39,11 @@ npm run dev:proxy
 - `npm run test:watch` — Vitest в watch-режиме.
 - `npm run ci:baseline` — обязательный pre-merge baseline pipeline.
 
+## Диагностические хуки runtime
+
+- В режиме разработки (`npm run dev`) доступны служебные хуки `window.render_game_to_text` и `window.advanceTime(ms)` для smoke/E2E-проверок.
+- В production-сборке (`npm run build`, `npm run preview`) эти хуки не экспортируются в `window`.
+
 ## Pre-merge Pipeline (INIT-005)
 
 Обязательная последовательность проверок перед merge:

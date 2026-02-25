@@ -124,7 +124,7 @@ Task DOD: Весь UI соответствует PRD one-screen contract; ани
 Task Context: Имплементируй адаптеры `safeStorage + player data/stats` с best-effort restore текущего уровня, гарантией сохранности all-time score и free-action timer; добавь sync leaderboard (`setScore`) для авторизованных пользователей и auth-диалог по явному действию.
 Task DOD: На рестарте восстанавливаются score/timer и по возможности уровень; при невозможности level restore создается новый уровень без потери прогресса; leaderboard sync имеет retry/backoff и не блокирует gameplay.
 
-- [ ] [CODE]-[290] Приборка этапа кодирования
+- [x] [CODE]-[290] Приборка этапа кодирования
 Task Context: Удали временные моки, debug UI, тестовые кнопки, неиспользуемые ассеты и экспериментальные рендер-фичи, добавленные в процессе разработки.
 Task DOD: В production-сборке отсутствуют debug-only элементы; кодовая база содержит только целевой v1 функционал.
 

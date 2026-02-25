@@ -9,6 +9,8 @@ import { createHelpEconomyModule } from './domain/HelpEconomy';
 import { toErrorMessage } from './shared/errors';
 import './style.css';
 
+const DIAGNOSTIC_HOOKS_ENABLED = import.meta.env.DEV;
+
 function getRootElement(): HTMLDivElement {
   const rootElement = document.querySelector<HTMLDivElement>('#app');
 
@@ -60,7 +62,17 @@ function renderBootstrapFailState(rootElement: HTMLDivElement, reason: string): 
   rootElement.append(container);
 }
 
+function clearDiagnosticHooks(): void {
+  delete window.advanceTime;
+  delete window.render_game_to_text;
+}
+
 function installFailureHooks(reason: string): void {
+  if (!DIAGNOSTIC_HOOKS_ENABLED) {
+    clearDiagnosticHooks();
+    return;
+  }
+
   window.advanceTime = () => undefined;
   window.render_game_to_text = () => {
     return JSON.stringify({
@@ -94,6 +106,8 @@ async function cleanupBootstrapRuntime(
 
 async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
+  clearDiagnosticHooks();
+
   const coreStateModule = createCoreStateModule();
   const initialHelpWindow = coreStateModule.getSnapshot().gameState.helpWindow;
   const helpEconomyModule = createHelpEconomyModule({
@@ -133,37 +147,39 @@ async function bootstrap(): Promise<void> {
     await persistenceModule.restore();
     inputPathModule.bindToCanvas(mountedRuntime.canvas);
 
-    window.advanceTime = async (ms: number) => {
-      const frameDuration = 1000 / 60;
-      const frames = Math.max(1, Math.round(ms / frameDuration));
+    if (DIAGNOSTIC_HOOKS_ENABLED) {
+      window.advanceTime = async (ms: number) => {
+        const frameDuration = 1000 / 60;
+        const frames = Math.max(1, Math.round(ms / frameDuration));
 
-      for (let frame = 0; frame < frames; frame += 1) {
-        mountedRuntime.stepFrame();
-      }
+        for (let frame = 0; frame < frames; frame += 1) {
+          mountedRuntime.stepFrame();
+        }
 
-      application.commands.dispatch({ type: 'Tick', nowTs: Date.now() });
-    };
+        application.commands.dispatch({ type: 'Tick', nowTs: Date.now() });
+      };
 
-    window.render_game_to_text = () => {
-      const sceneSnapshot = mountedRuntime.toTextSnapshot();
+      window.render_game_to_text = () => {
+        const sceneSnapshot = mountedRuntime.toTextSnapshot();
 
-      return JSON.stringify({
-        mode: sceneSnapshot.runtimeMode,
-        coordinateSystem: {
-          origin: 'top-left',
-          xAxis: 'right',
-          yAxis: 'down',
-        },
-        viewport: sceneSnapshot.viewport,
-        stageChildren: sceneSnapshot.stageChildren,
-        gameplay: sceneSnapshot.gameplay,
-        help: sceneSnapshot.help,
-        ui: sceneSnapshot.ui,
-        telemetryBufferSize: telemetryModule.getBufferedEvents().length,
-        persistence: persistenceModule.getLastSnapshot(),
-        platformLifecycle: platformYandexModule.getLifecycleLog(),
-      });
-    };
+        return JSON.stringify({
+          mode: sceneSnapshot.runtimeMode,
+          coordinateSystem: {
+            origin: 'top-left',
+            xAxis: 'right',
+            yAxis: 'down',
+          },
+          viewport: sceneSnapshot.viewport,
+          stageChildren: sceneSnapshot.stageChildren,
+          gameplay: sceneSnapshot.gameplay,
+          help: sceneSnapshot.help,
+          ui: sceneSnapshot.ui,
+          telemetryBufferSize: telemetryModule.getBufferedEvents().length,
+          persistence: persistenceModule.getLastSnapshot(),
+          platformLifecycle: platformYandexModule.getLifecycleLog(),
+        });
+      };
+    }
   } catch (error: unknown) {
     const reason = toErrorMessage(error);
 
