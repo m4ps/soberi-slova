@@ -295,4 +295,69 @@ describe('core state scoring/progression', () => {
     expect(snapshot.gameState.currentLevelSession.foundTargets).toEqual([]);
     expect(snapshot.gameState.currentLevelSession.foundBonuses).toEqual([]);
   });
+
+  it('credits target words from level session even when dictionary lookup set is narrower', () => {
+    const coreState = createCoreStateModule({
+      initialGameState: {
+        ...createScoringFixtureState(),
+        currentLevelSession: {
+          ...createScoringFixtureState().currentLevelSession,
+          levelId: 'level-target-priority',
+          grid: [
+            'д',
+            'о',
+            'р',
+            'о',
+            'г',
+            'н',
+            'о',
+            'с',
+            'к',
+            'а',
+            'л',
+            'и',
+            'м',
+            'р',
+            'е',
+            'п',
+            'у',
+            'т',
+            'ь',
+            'я',
+            'б',
+            'в',
+            'г',
+            'ё',
+            'ж',
+          ],
+          targetWords: ['дорога', 'нос', 'лим'],
+        },
+      },
+      wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+      nowProvider: () => 5_000,
+    });
+
+    const targetSubmit = coreState.submitPath(
+      [cell(0, 0), cell(0, 1), cell(0, 2), cell(0, 3), cell(0, 4), cell(1, 4)],
+      5_001,
+    );
+
+    expect(targetSubmit).toMatchObject({
+      result: 'target',
+      normalizedWord: 'дорога',
+      isSilent: false,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 22,
+        levelClearScore: 0,
+        totalScore: 22,
+      },
+      progress: {
+        foundTargets: 1,
+        totalTargets: 3,
+      },
+      allTimeScore: 22,
+      levelStatus: 'active',
+    });
+  });
 });

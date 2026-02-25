@@ -2,6 +2,32 @@
 
 ## 2026-02-25
 
+### [TEST]-[012] Browser E2E-зачёт target-слов через реальную разгадку
+
+- Добавлен детерминированный browser E2E-сценарий:
+  - новый файл `tests/e2e/test-012-target-word-submit.mjs`;
+  - сценарий поднимает локальный Vite runtime, подставляет mock `sdk.js`, берёт target-слово из dev-debug консоли (`[dev][target-words]`), находит валидный путь по grid и выполняет реальный swipe мышью по canvas;
+  - проверяет, что после swipe обновляются `x/N`, `found=true` для слова в dev-debug логе и начисляется ожидаемый `target score`.
+- Добавлена команда запуска:
+  - `package.json`: `test:e2e:test-012`.
+- Для корректного запуска E2E добавлена зависимость:
+  - `devDependencies.playwright`.
+- `eslint.config.mjs` расширен отдельным JS/MJS-профилем с browser+node globals для корректного линтинга E2E-скриптов.
+- Верификация:
+  - `npm run test:e2e:test-012` — passed;
+  - `npm run ci:baseline` — passed.
+
+### [CODE]-[014] Фикс незачета target-слов при реальной разгадке
+
+- Исправлен корень дефекта в `WordValidation`:
+  - `src/domain/WordValidation/index.ts`: target-классификация больше не зависит от словарного lookup;
+  - новая приоритизация: `repeat -> target -> bonus(dictionary) -> invalid`.
+- Добавлены регрессионные тесты:
+  - `tests/word-validation.test.ts`: target засчитывается, даже если слово отсутствует в dictionary index;
+  - `tests/core-state.scoring.test.ts`: `CoreState.submitPath` начисляет target score для слова из level session при более узком словаре.
+- Результат:
+  - browser E2E-сценарий `[TEST]-[012]`, который до фикса воспроизводил незачёт (`0/N`, `score=0`), после фикса стабильно проходит.
+
 ### [CODE]-[011] Добавить dev-only панель с целевыми словами уровня
 
 - Реализация задачи переведена в console-only debug-режим без изменений интерфейса:

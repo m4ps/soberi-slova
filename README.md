@@ -37,6 +37,7 @@ npm run dev:proxy
 - `npm run typecheck` — проверка TypeScript типов.
 - `npm run test` — запуск smoke unit tests (Vitest).
 - `npm run test:watch` — Vitest в watch-режиме.
+- `npm run test:e2e:test-012` — browser E2E регрессия зачёта target-слова через реальный swipe (Playwright).
 - `npm run ci:baseline` — обязательный pre-merge baseline pipeline.
 
 ## Диагностические хуки runtime

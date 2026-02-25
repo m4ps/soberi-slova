@@ -49,6 +49,26 @@ describe('WordValidation module', () => {
     ).toBe('invalid');
   });
 
+  it('accepts target words even when they are not present in dictionary lookup set', () => {
+    const module = createWordValidationModule(new Set(['дом', 'кот']));
+
+    expect(
+      module.validateWord({
+        word: 'дорога',
+        targetWords: ['дорога'],
+        foundWords: new Set<string>(),
+      }),
+    ).toBe('target');
+
+    expect(
+      module.validateWord({
+        word: 'дорога',
+        targetWords: ['дом'],
+        foundWords: new Set<string>(),
+      }),
+    ).toBe('invalid');
+  });
+
   it('resolves submitted path into normalized word and rejects malformed path/grid payload', () => {
     expect(
       resolveWordFromPath(BASE_GRID, [

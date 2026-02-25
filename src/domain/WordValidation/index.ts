@@ -114,7 +114,7 @@ function classifyWord(
 ): WordValidationResult {
   const normalizedWord = normalizeDictionaryWord(request.word);
 
-  if (!normalizedWord || !dictionary.has(normalizedWord)) {
+  if (!normalizedWord) {
     return 'invalid';
   }
 
@@ -134,7 +134,11 @@ function classifyWord(
     return 'target';
   }
 
-  return 'bonus';
+  if (dictionary.has(normalizedWord)) {
+    return 'bonus';
+  }
+
+  return 'invalid';
 }
 
 function validatePathWordWithDictionary(
