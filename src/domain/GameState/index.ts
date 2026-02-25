@@ -6,7 +6,15 @@ import {
   isLowercaseCyrillicWord,
 } from '../data-contract';
 
-export const GAME_STATE_SCHEMA_VERSION = 2;
+const SNAPSHOT_SCHEMA_VERSION_V0 = 0;
+const SNAPSHOT_SCHEMA_VERSION_V1 = 1;
+const SNAPSHOT_SCHEMA_VERSION_V2 = 2;
+const DEFAULT_STATE_VERSION = 0;
+const LEADERBOARD_EMPTY_SCORE = 0;
+const LEADERBOARD_EMPTY_SUBMIT_TS = 0;
+const MIGRATION_VERSION_STEP = 1;
+
+export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V2;
 
 export type LevelSessionStatus = 'active' | 'completed' | 'reshuffling';
 
@@ -182,7 +190,6 @@ const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
 const LEVEL_TARGET_WORDS_MIN = 3;
 const LEVEL_TARGET_WORDS_MAX = 7;
 const MAX_PENDING_OPERATIONS = 128;
-const LEGACY_GAME_STATE_SCHEMA_VERSION = 0;
 const DEPRECATED_GAME_STATE_FIELDS_V2 = [
   'sessionScore',
   'achievements',
@@ -216,18 +223,19 @@ function omitFields(
   return result;
 }
 
+// Migration chain must stay deterministic and stepwise: vN -> vN+1 only.
 const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
   {
-    fromVersion: 0,
-    toVersion: 1,
+    fromVersion: SNAPSHOT_SCHEMA_VERSION_V0,
+    toVersion: SNAPSHOT_SCHEMA_VERSION_V1,
     migrate: (snapshot) => {
       const nextSnapshot: Record<string, unknown> = {
         ...snapshot,
-        schemaVersion: 1,
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION_V1,
       };
 
       if (nextSnapshot.stateVersion === undefined || nextSnapshot.stateVersion === null) {
-        nextSnapshot.stateVersion = 0;
+        nextSnapshot.stateVersion = DEFAULT_STATE_VERSION;
       }
 
       if (nextSnapshot.pendingOps === undefined || nextSnapshot.pendingOps === null) {
@@ -238,11 +246,11 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
     },
   },
   {
-    fromVersion: 1,
-    toVersion: 2,
+    fromVersion: SNAPSHOT_SCHEMA_VERSION_V1,
+    toVersion: SNAPSHOT_SCHEMA_VERSION_V2,
     migrate: (snapshot) => {
       const nextSnapshot = omitFields(snapshot, DEPRECATED_GAME_STATE_FIELDS_V2);
-      nextSnapshot.schemaVersion = 2;
+      nextSnapshot.schemaVersion = SNAPSHOT_SCHEMA_VERSION_V2;
 
       if (isRecordLike(nextSnapshot.currentLevelSession)) {
         nextSnapshot.currentLevelSession = omitFields(
@@ -638,7 +646,10 @@ function assertLeaderboardSyncConsistency(
     );
   }
 
-  if (leaderboardSync.lastSubmittedScore === 0 && leaderboardSync.lastSubmitTs !== 0) {
+  if (
+    leaderboardSync.lastSubmittedScore === LEADERBOARD_EMPTY_SCORE &&
+    leaderboardSync.lastSubmitTs !== LEADERBOARD_EMPTY_SUBMIT_TS
+  ) {
     throw parseError(
       'leaderboardSync.lastSubmitTs must be 0 when no score has been submitted.',
       'game-state.invariant.leaderboard-submit-timestamp',
@@ -825,7 +836,10 @@ export function createGameState(
       input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
       'gameState.schemaVersion',
     ),
-    stateVersion: assertNonNegativeSafeInteger(input.stateVersion ?? 0, 'gameState.stateVersion'),
+    stateVersion: assertNonNegativeSafeInteger(
+      input.stateVersion ?? DEFAULT_STATE_VERSION,
+      'gameState.stateVersion',
+    ),
     updatedAt: assertNonNegativeSafeInteger(input.updatedAt, 'gameState.updatedAt'),
     allTimeScore: assertNonNegativeSafeInteger(input.allTimeScore, 'gameState.allTimeScore'),
     currentLevelSession: createLevelSession(input.currentLevelSession),
@@ -901,13 +915,15 @@ function toGameStateInput(value: unknown): GameStateInput {
 
 function getSnapshotSchemaVersion(snapshot: Readonly<Record<string, unknown>>): number {
   if (snapshot.schemaVersion === undefined || snapshot.schemaVersion === null) {
-    return LEGACY_GAME_STATE_SCHEMA_VERSION;
+    return SNAPSHOT_SCHEMA_VERSION_V0;
   }
 
   return assertNonNegativeInteger(snapshot.schemaVersion, 'gameState.schemaVersion');
 }
 
-function findSnapshotMigrationStep(fromVersion: number): SnapshotMigrationStep | undefined {
+function findSnapshotMigrationStepByFromVersion(
+  fromVersion: number,
+): SnapshotMigrationStep | undefined {
   return SNAPSHOT_MIGRATION_STEPS.find((step) => step.fromVersion === fromVersion);
 }
 
@@ -927,13 +943,13 @@ function applySnapshotMigrations(
     );
   }
 
-  if (schemaVersionBefore < LEGACY_GAME_STATE_SCHEMA_VERSION) {
+  if (schemaVersionBefore < SNAPSHOT_SCHEMA_VERSION_V0) {
     throw parseError(
-      `Snapshot schema version ${schemaVersionBefore} is below supported minimum ${LEGACY_GAME_STATE_SCHEMA_VERSION}.`,
+      `Snapshot schema version ${schemaVersionBefore} is below supported minimum ${SNAPSHOT_SCHEMA_VERSION_V0}.`,
       'game-state.migration.unsupported-legacy-version',
       {
         schemaVersionBefore,
-        minSupportedSchemaVersion: LEGACY_GAME_STATE_SCHEMA_VERSION,
+        minSupportedSchemaVersion: SNAPSHOT_SCHEMA_VERSION_V0,
       },
     );
   }
@@ -943,15 +959,16 @@ function applySnapshotMigrations(
   const appliedMigrations: AppliedSnapshotMigration[] = [];
 
   while (currentVersion < GAME_STATE_SCHEMA_VERSION) {
-    const migrationStep = findSnapshotMigrationStep(currentVersion);
+    const migrationStep = findSnapshotMigrationStepByFromVersion(currentVersion);
+    const expectedNextVersion = currentVersion + MIGRATION_VERSION_STEP;
 
-    if (!migrationStep || migrationStep.toVersion !== currentVersion + 1) {
+    if (!migrationStep || migrationStep.toVersion !== expectedNextVersion) {
       throw parseError(
-        `Missing deterministic snapshot migration step ${currentVersion} -> ${currentVersion + 1}.`,
+        `Missing deterministic snapshot migration step ${currentVersion} -> ${expectedNextVersion}.`,
         'game-state.migration.missing-step',
         {
           currentVersion,
-          expectedNextVersion: currentVersion + 1,
+          expectedNextVersion,
         },
       );
     }

@@ -1,4 +1,4 @@
-# Dictionary Pipeline Schema (DATA-003)
+# Dictionary Pipeline Schema (DATA-003 / DATA-194)
 
 ## Цель
 
@@ -43,6 +43,7 @@
   - общий размер: до `5_000_000` символов (`dictionary-pipeline.csv-too-large`);
   - длина header row: до `8_192` символов (`dictionary-pipeline.header-too-large`);
   - длина data row > `8_192` считается `malformed-row` и безопасно отбрасывается.
+- Позиции header/data-row и счётчики обработки вынесены в именованные константы (`CSV_HEADER_LINE_INDEX`, `CSV_FIRST_DATA_LINE_INDEX`, `COUNTER_*`), чтобы убрать магические числа из прохода CSV.
 - Индексные lookup API (`hasNormalizedWord`, `containsWord`, `getEntryByNormalizedWord`) runtime-safe для нестроковых значений: возвращают `false/null` вместо падения.
 
 ## Reject статистика

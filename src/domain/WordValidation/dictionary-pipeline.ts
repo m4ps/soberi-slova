@@ -21,6 +21,14 @@ const NOUN_WORD_TYPE = 'noun';
 const MAX_DICTIONARY_CSV_CHARS = 5_000_000;
 const MAX_DICTIONARY_ROW_CHARS = 8_192;
 const MAX_DICTIONARY_RANK = Number.MAX_SAFE_INTEGER;
+const CSV_HEADER_LINE_INDEX = 0;
+const CSV_FIRST_DATA_LINE_INDEX = 1;
+const CSV_LINE_INCREMENT = 1;
+const CSV_FIELD_SEPARATOR = ',';
+const CSV_QUOTE_CHAR = '"';
+const COUNTER_INITIAL_VALUE = 0;
+const COUNTER_INCREMENT = 1;
+const MISSING_COLUMN_INDEX = -1;
 
 type DictionaryRequiredColumn = (typeof DICTIONARY_REQUIRED_COLUMNS)[number];
 type RejectCounters = Record<DictionaryRowRejectReason, number>;
@@ -83,15 +91,15 @@ function parseCsvRow(rawLine: string): ParsedCsvRow {
   let currentValue = '';
   let inQuotes = false;
 
-  for (let index = 0; index < rawLine.length; index += 1) {
+  for (let index = 0; index < rawLine.length; index += CSV_LINE_INCREMENT) {
     const symbol = rawLine[index];
 
-    if (symbol === '"') {
-      const nextSymbol = rawLine[index + 1];
+    if (symbol === CSV_QUOTE_CHAR) {
+      const nextSymbol = rawLine[index + CSV_LINE_INCREMENT];
 
-      if (inQuotes && nextSymbol === '"') {
-        currentValue += '"';
-        index += 1;
+      if (inQuotes && nextSymbol === CSV_QUOTE_CHAR) {
+        currentValue += CSV_QUOTE_CHAR;
+        index += CSV_LINE_INCREMENT;
         continue;
       }
 
@@ -99,7 +107,7 @@ function parseCsvRow(rawLine: string): ParsedCsvRow {
       continue;
     }
 
-    if (symbol === ',' && !inQuotes) {
+    if (symbol === CSV_FIELD_SEPARATOR && !inQuotes) {
       values.push(currentValue);
       currentValue = '';
       continue;
@@ -128,16 +136,16 @@ function normalizeHeaderCell(rawValue: string): string {
 
 function createRejectCounters(): RejectCounters {
   return DICTIONARY_REJECT_REASONS.reduce<RejectCounters>((accumulator, rejectReason) => {
-    accumulator[rejectReason] = 0;
+    accumulator[rejectReason] = COUNTER_INITIAL_VALUE;
     return accumulator;
   }, {} as RejectCounters);
 }
 
 function createMutableStats(): MutableDictionaryPipelineStats {
   return {
-    totalRows: 0,
-    acceptedRows: 0,
-    rejectedRows: 0,
+    totalRows: COUNTER_INITIAL_VALUE,
+    acceptedRows: COUNTER_INITIAL_VALUE,
+    rejectedRows: COUNTER_INITIAL_VALUE,
     rejectedByReason: createRejectCounters(),
   };
 }
@@ -155,8 +163,8 @@ function registerRejectedRow(
   stats: MutableDictionaryPipelineStats,
   reason: DictionaryRowRejectReason,
 ): void {
-  stats.rejectedRows += 1;
-  stats.rejectedByReason[reason] += 1;
+  stats.rejectedRows += COUNTER_INCREMENT;
+  stats.rejectedByReason[reason] += COUNTER_INCREMENT;
 }
 
 function resolveRequiredColumnIndexes(headerCells: readonly string[]): RequiredColumnIndexes {
@@ -168,7 +176,7 @@ function resolveRequiredColumnIndexes(headerCells: readonly string[]): RequiredC
   }
 
   const missingColumns = DICTIONARY_REQUIRED_COLUMNS.filter(
-    (columnName) => (indexes[columnName] ?? -1) < 0,
+    (columnName) => (indexes[columnName] ?? MISSING_COLUMN_INDEX) < COUNTER_INITIAL_VALUE,
   );
 
   if (missingColumns.length > 0) {
@@ -228,7 +236,7 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
   }
 
   const csvLines = csvContent.split(/\r?\n/u);
-  const headerLine = csvLines[0];
+  const headerLine = csvLines[CSV_HEADER_LINE_INDEX];
 
   if (!headerLine || !headerLine.trim()) {
     throw new DictionaryPipelineError('dictionary-pipeline.empty-header', 'CSV header is empty.');
@@ -257,13 +265,17 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
   const entriesByNormalizedWord = new Map<string, WordEntry>();
   const stats = createMutableStats();
 
-  for (let lineIndex = 1; lineIndex < csvLines.length; lineIndex += 1) {
+  for (
+    let lineIndex = CSV_FIRST_DATA_LINE_INDEX;
+    lineIndex < csvLines.length;
+    lineIndex += CSV_LINE_INCREMENT
+  ) {
     const rawRow = csvLines[lineIndex];
     if (!rawRow || !rawRow.trim()) {
       continue;
     }
 
-    stats.totalRows += 1;
+    stats.totalRows += COUNTER_INCREMENT;
 
     if (rawRow.length > MAX_DICTIONARY_ROW_CHARS) {
       registerRejectedRow(stats, 'malformed-row');
@@ -341,7 +353,7 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
       continue;
     }
 
-    stats.acceptedRows += 1;
+    stats.acceptedRows += COUNTER_INCREMENT;
   }
 
   const normalizedWords = new Set(entriesByNormalizedWord.keys());

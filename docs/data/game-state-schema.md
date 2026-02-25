@@ -1,4 +1,4 @@
-# GameState Schema (DATA-001 / DATA-002 / DATA-004 / DATA-193)
+# GameState Schema (DATA-001 / DATA-002 / DATA-004 / DATA-193 / DATA-194)
 
 Документ фиксирует актуальную v1-схему доменных сущностей состояния игры, реализованную в `src/domain/GameState/index.ts`.
 Общие правила валидации данных (`кириллица/ё`, длина, numeric parsing) вынесены в
@@ -10,6 +10,7 @@
 - `stateVersion` — версия состояния для LWW/конфликтов (по умолчанию `0`).
 - `updatedAt` — timestamp последнего изменения состояния (ms).
 - Для legacy payload без `schemaVersion` применяется миграционная точка входа `schemaVersion=0`.
+- Версии схемы и default-сентинелы зафиксированы именованными константами в `src/domain/GameState/index.ts` (без дублирования числовых литералов в migration/check logic).
 
 ## Сущности
 
@@ -118,6 +119,7 @@
 ## Миграции и LWW merge (DATA-004)
 
 - Миграции выполняются строго детерминированной цепочкой `vN -> vN+1`.
+- Migration utilities используют единый stepwise-подход: ожидается только следующий номер версии (`+1`) для каждого шага.
 - Текущая цепочка:
   - `v0 -> v1`: выставляет `schemaVersion=1`, заполняет `stateVersion=0` при отсутствии, нормализует `pendingOps=[]` при отсутствии.
   - `v1 -> v2`: удаляет legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и очищает `pendingHelpRequest` от deprecated `requestedAt`.

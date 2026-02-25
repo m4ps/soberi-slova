@@ -149,7 +149,7 @@ flowchart TD
   - `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }`
   - `correlationId` обязателен для всех событий и используется для сквозной трассировки операций.
 
-## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004 / DATA-005 / DATA-193)
+## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004 / DATA-005 / DATA-193 / DATA-194)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
@@ -163,6 +163,7 @@ flowchart TD
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
 - Текущая `schemaVersion=2`: из snapshot-модели удалены legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и deprecated `pendingHelpRequest.requestedAt`.
+- Версии схемы/миграций и default-сентинелы (`v0/v1/v2`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
@@ -210,3 +211,4 @@ flowchart TD
 - DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.
 - DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
 - DATA-193: выполнен security-review data-слоя; добавлены guard-проверки от malformed/overflow payload, зафиксированы consistency-инварианты для snapshot/transition и усилен CSV-pipeline от повреждённых входов.
+- DATA-194: data-слой приведён к production-quality: унифицировано именование migration-утилит, магические числа вынесены в именованные константы, документация синхронизирована с текущей schema/migration логикой.

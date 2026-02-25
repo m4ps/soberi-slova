@@ -2,6 +2,20 @@
 
 ## 2026-02-25
 
+### [DATA]-[194] Приведение data-слоя к production-quality
+
+- `src/domain/GameState/index.ts` приведён к единому стилю migration/state-констант:
+  - введены именованные константы для schema-version и default-сентинелов (`v0/v1/v2`, `stateVersion=0`, sentinel leaderboard);
+  - migration chain переведён на константные версии без дублирования числовых литералов;
+  - migration utility `findSnapshotMigrationStepByFromVersion` и step-check (`expectedNextVersion`) сделаны более читаемыми и единообразными.
+- `src/domain/WordValidation/dictionary-pipeline.ts` очищен от магических чисел в CSV-проходе:
+  - индексы header/data-row, шаги прохода, счётчики и sentinel missing-column вынесены в именованные константы;
+  - код parse/iterate веток стал декларативнее без изменения поведения pipeline.
+- Синхронизирована документация data-слоя:
+  - `docs/data/game-state-schema.md`;
+  - `docs/data/dictionary-pipeline.md`;
+  - `README.md`.
+
 ### [DATA]-[193] Анализ безопасности модели данных
 
 - Усилен security-контур `GameState` (`src/domain/GameState/index.ts`):
