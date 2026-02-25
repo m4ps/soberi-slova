@@ -2,6 +2,19 @@
 
 ## 2026-02-25
 
+### [DATA]-[190] Приборка этапа модели данных
+
+- Зафиксирован воспроизводимый cleanup data-этапа: в `package.json` добавлен `npm run clean:data`.
+  - Команда удаляет временные артефакты data-контура (`*.tmp`, `*.dump`, `*.draft`) и переиспользует общий cleanup (`dist/`, `output/`, `.DS_Store`, `progress.md`).
+- В `.gitignore` добавлены data-паттерны для одноразовых CSV/JSON артефактов:
+  - `data/*.tmp.*`;
+  - `data/*.dump.*`;
+  - `data/*.draft.*`.
+- README синхронизирован:
+  - добавлена команда `clean:data` в список инженерных скриптов;
+  - добавлено правило по data-очистке в разделе `Data Model & Dictionary Schema`;
+  - обновлён `Текущий статус` с закрытием DATA-190.
+
 ### [DATA]-[005] Контракты событий и сквозной correlationId для наблюдаемости
 
 - `src/application/contracts.ts` переведён на versioned event envelope:

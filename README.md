@@ -28,6 +28,7 @@ npm run dev:proxy
 - `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` через `scripts/run-sdk-dev-proxy.mjs`.
 - `npm run build` — typecheck + production build.
 - `npm run clean:init` — удаление временных init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
+- `npm run clean:data` — удаление временных data-артефактов (`dist/`, `output/`, `progress.md`, `.DS_Store`, `data/*.tmp|*.dump|*.draft`).
 - `npm run lint` — статический анализ TypeScript-кода (ESLint).
 - `npm run lint:fix` — автоисправление lint-замечаний.
 - `npm run format` — форматирование baseline-файлов (Prettier).
@@ -168,6 +169,7 @@ flowchart TD
   - `docs/data/dictionary-pipeline.md`
 - Документация по observability event schema:
   - `docs/observability/event-contracts.md`
+- Для приборки локальных data-артефактов используйте `npm run clean:data`.
 
 ## Security Checklist (INIT-093)
 
@@ -194,3 +196,4 @@ flowchart TD
 - DATA-003: добавлен CSV pipeline словаря с нормализацией/фильтрацией, O(1) индексом lookup и статистикой reject-строк для telemetry/log.
 - DATA-004: добавлены schema migrations snapshot (`vN -> vN+1`) и LWW resolver (`stateVersion -> updatedAt -> local priority`) для local/cloud restore.
 - DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).
+- DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.

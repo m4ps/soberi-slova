@@ -4,3 +4,9 @@ output/
 .DS_Store
 *.log
 progress.md
+data/*.tmp.csv
+data/*.tmp.json
+data/*.dump.csv
+data/*.dump.json
+data/*.draft.csv
+data/*.draft.json

@@ -9,6 +9,7 @@
     "dev:proxy:prod": "node scripts/run-sdk-dev-proxy.mjs prod",
     "build": "npm run typecheck && vite build",
     "clean:init": "rm -rf dist output progress.md && find . -name .DS_Store -delete",
+    "clean:data": "npm run clean:init && rm -f data/*.tmp.csv data/*.tmp.json data/*.dump.csv data/*.dump.json data/*.draft.csv data/*.draft.json",
     "lint": "eslint . --ext .ts",
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write \"src/**/*.{ts,css}\" \"tests/**/*.ts\" \"*.{json,html,css,mjs}\" \".github/workflows/*.yml\"",

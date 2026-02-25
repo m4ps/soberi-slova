@@ -66,7 +66,7 @@ Task DOD: Восстановление состояния воспроизвод
 Task Context: Определи event envelope `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }` и минимальные domain events для word success, level clear, help, persistence, leaderboard sync.
 Task DOD: Все ключевые операции публикуют типизированные события; correlationId проходит через цепочку operation end-to-end; схема событий документирована.
 
-- [ ] [DATA]-[190] Приборка этапа модели данных
+- [x] [DATA]-[190] Приборка этапа модели данных
 Task Context: Удали временные data-fixtures, отладочные dump-файлы, промежуточные миграционные черновики и неиспользуемые CSV-утилиты.
 Task DOD: В репозитории остаются только рабочие модели, миграции и актуальные тестовые фикстуры; нет “одноразовых” артефактов.
 
