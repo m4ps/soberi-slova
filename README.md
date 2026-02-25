@@ -138,7 +138,10 @@ flowchart TD
   - apply-логика найденных слов (`foundTargets/foundBonuses`) c silent-ignore на `repeat`;
   - CSV pipeline словаря (`normalization + filtering + O(1) lookup index`).
 - `LevelGenerator` — детерминированный word-first генератор уровня (`target`-набор, path-укладка 8 направлений, anti-repeat, rejection редких букв).
-- `HelpEconomy` — контракт окна бесплатной помощи.
+- `HelpEconomy` — доменный оркестратор help-экономики:
+  - real-time окно `5 минут` с восстановлением `free action` по фактическому времени;
+  - общий lock для `hint/reshuffle` и re-entrant-safe обработка pending help request;
+  - списание бесплатного действия только после успешного применения эффекта.
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
 - `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
 - `PlatformYandex` — bootstrap YaGames SDK, lifecycle hooks (`ready/start/stop/pause/resume`) и lifecycle-log адаптера.
@@ -243,3 +246,4 @@ flowchart TD
 - CODE-003: реализован `WordValidation` submit-path контур: сбор слова из `pathCells`, однозначная классификация `target/bonus/repeat/invalid` и apply-логика с silent-ignore без изменения state для `repeat/invalid`.
 - CODE-004: реализован `CoreState` scoring/progression в state-first порядке: формулы PRD (`target: 10+2*len`, `bonus: 2+len`, `level clear: 30+5*N`), progress `x/N`, idempotent начисления и запрет bonus accrual после completion.
 - CODE-005: реализован completion pipeline финального target и авто-переход уровня: `level clear` начисляется только по `AcknowledgeWordSuccessAnimation`, ввод блокируется на `completed/reshuffling`, `AcknowledgeLevelTransitionDone` запускает deterministic auto-next уровень без потери `allTimeScore`.
+- CODE-006: реализован `HelpEconomy` и интеграция help-flow в application/core-state: общий `free-action` пул `hint/reshuffle` с real-time таймером, shared lock на обе help-кнопки, hint progression `2/3/4+` букв для самого лёгкого оставшегося target и manual reshuffle с полным reset текущего уровня.

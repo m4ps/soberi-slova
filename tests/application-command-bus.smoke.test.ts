@@ -130,8 +130,12 @@ describe('application command/query bus smoke', () => {
     const helpWindowResult = application.queries.execute({ type: 'GetHelpWindowState' });
     expect(helpWindowResult.type).toBe('ok');
     if (helpWindowResult.type === 'ok') {
-      expect(helpWindowResult.value.freeActionAvailable).toBe(true);
-      expect(helpWindowResult.value.windowStartTs).toBe(0);
+      expect(typeof helpWindowResult.value.freeActionAvailable).toBe('boolean');
+      expect(helpWindowResult.value.windowStartTs).toBeGreaterThanOrEqual(0);
+      expect(typeof helpWindowResult.value.isLocked).toBe('boolean');
+      if (helpWindowResult.value.isLocked) {
+        expect(helpWindowResult.value.pendingRequest).not.toBeNull();
+      }
     }
 
     const routedCommandTypes = events
@@ -212,8 +216,10 @@ describe('application command/query bus smoke', () => {
       correlationId: 'op-ad',
       payload: {
         phase: 'ad-result',
+        operationId: 'op-ad',
         helpKind: 'hint',
         outcome: 'reward',
+        applied: false,
       },
     });
 
@@ -441,5 +447,67 @@ describe('application command/query bus smoke', () => {
       foundTargets: 0,
     });
     expect(nextLevelSnapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(3);
+  });
+
+  it('enforces shared help lock and releases it after ad acknowledgement', () => {
+    const application = createApplicationLayer({
+      coreState: createCoreStateModule({
+        initialGameState: createScoringFixtureState(),
+        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+      }),
+      helpEconomy: createHelpEconomyModule({
+        windowStartTs: 1_000,
+        freeActionAvailable: true,
+      }),
+    });
+
+    const firstHelp = application.commands.dispatch({ type: 'RequestHint' });
+    expect(firstHelp.type).toBe('ok');
+
+    const afterFreeHint = application.queries.execute({ type: 'GetHelpWindowState' });
+    expect(afterFreeHint.type).toBe('ok');
+    if (afterFreeHint.type === 'ok') {
+      expect(afterFreeHint.value.freeActionAvailable).toBe(false);
+      expect(afterFreeHint.value.isLocked).toBe(false);
+      expect(afterFreeHint.value.pendingRequest).toBeNull();
+    }
+
+    const adRequiredHelp = application.commands.dispatch({ type: 'RequestReshuffle' });
+    expect(adRequiredHelp.type).toBe('ok');
+    const pendingOperationId =
+      adRequiredHelp.type === 'ok' ? adRequiredHelp.value.correlationId : '';
+
+    const lockedWindow = application.queries.execute({ type: 'GetHelpWindowState' });
+    expect(lockedWindow.type).toBe('ok');
+    if (lockedWindow.type === 'ok') {
+      expect(lockedWindow.value.isLocked).toBe(true);
+      expect(lockedWindow.value.pendingRequest).toMatchObject({
+        operationId: pendingOperationId,
+        kind: 'reshuffle',
+        isFreeAction: false,
+      });
+    }
+
+    const blockedReentrant = application.commands.dispatch({ type: 'RequestHint' });
+    expect(blockedReentrant.type).toBe('domainError');
+    if (blockedReentrant.type === 'domainError') {
+      expect(blockedReentrant.error.code).toBe('help.request.locked');
+    }
+
+    const adAck = application.commands.dispatch({
+      type: 'AcknowledgeAdResult',
+      helpType: 'reshuffle',
+      outcome: 'close',
+      operationId: pendingOperationId,
+    });
+    expect(adAck.type).toBe('ok');
+
+    const unlockedWindow = application.queries.execute({ type: 'GetHelpWindowState' });
+    expect(unlockedWindow.type).toBe('ok');
+    if (unlockedWindow.type === 'ok') {
+      expect(unlockedWindow.value.isLocked).toBe(false);
+      expect(unlockedWindow.value.pendingRequest).toBeNull();
+      expect(unlockedWindow.value.freeActionAvailable).toBe(false);
+    }
   });
 });

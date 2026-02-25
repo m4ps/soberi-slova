@@ -2,6 +2,35 @@
 
 ## 2026-02-25
 
+### [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint progression, manual reshuffle
+
+- `src/domain/HelpEconomy/index.ts` переведён с заглушки на stateful help-economy модуль:
+  - real-time окно `5 минут` (`HELP_WINDOW_DURATION_MS`) с авто-восстановлением `freeActionAvailable` по текущему времени;
+  - shared lock через `pendingRequest` для `hint/reshuffle` (re-entrant-safe поведение);
+  - `free action` списывается только в `finalizePendingRequest(..., applied=true)`.
+- `src/domain/CoreState/index.ts` расширен help-эффектами:
+  - добавлен `applyHelp(kind, operationId)` c idempotency-guard по `operationId`;
+  - `hint`: выбор самого лёгкого оставшегося target-слова + progression раскрытия `2/3/4+` букв;
+  - `reshuffle`: полный reset текущего уровня через `LevelGenerator` с переходом `active -> reshuffling -> active(next-level-id)`;
+  - добавлены типизированные help-результаты (`CoreStateHelpApplyResult`, `CoreStateHintEffect`, `CoreStateReshuffleEffect`).
+- `src/application/index.ts` интегрирован с новым help-flow:
+  - `RequestHint/RequestReshuffle` теперь применяют help-effect (при free-now) до публикации `domain/help` события;
+  - при `ad-required` сохраняется pending lock, повторный help-клик возвращает `domainError` `help.request.locked`;
+  - `AcknowledgeAdResult` финализирует pending help operation и снимает lock.
+- `src/application/contracts.ts` и `docs/observability/event-contracts.md` синхронизированы:
+  - `domain/help` payload расширен полями `operationId`, `requiresAd`, `applied`.
+- `src/domain/GameState/index.ts` + `docs/data/game-state-schema.md` синхронизированы под manual reshuffle:
+  - в same-level переходах разрешён `active -> reshuffling`, что поддерживает ручной reset уровня.
+- `src/main.ts` теперь инициализирует `HelpEconomy` из `CoreState.helpWindow`, чтобы сохранять корректную точку отсчёта free-window состояния.
+- Добавлены тесты:
+  - `tests/help-economy.module.test.ts` (real-time timer, consumption semantics, shared lock/re-entrancy);
+  - `tests/core-state.help.test.ts` (hint progression, manual reshuffle reset, help idempotency);
+  - `tests/application-command-bus.smoke.test.ts` расширен интеграционным сценарием shared-lock + ad-ack unlock;
+  - `tests/game-state.model.test.ts` синхронизирован с обновлённой transition-моделью.
+- Полная верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code006-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[005] Реализовать completion pipeline и автопереход уровня
 
 - `src/domain/CoreState/index.ts` расширен completion state-machine для финального target:

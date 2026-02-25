@@ -1,4 +1,5 @@
 import { MODULE_IDS } from '../../shared/module-ids';
+import type { HelpKind } from '../HelpEconomy';
 import {
   createGameState,
   type GameState,
@@ -34,10 +35,29 @@ const PENDING_OPERATION_KIND_WORD_SUCCESS: PendingOperationKind = 'word-success-
 const PENDING_OPERATION_KIND_LEVEL_TRANSITION: PendingOperationKind = 'level-transition';
 const DEFAULT_LEVEL_META_SOURCE = 'default-core-state';
 const AUTO_NEXT_LEVEL_META_SOURCE = 'core-state-auto-next';
+const MANUAL_RESHUFFLE_LEVEL_META_SOURCE = 'core-state-manual-reshuffle';
 const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
+const MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX = 'reshuffle';
+const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
+const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
+const HINT_INITIAL_REVEAL_COUNT = 2;
 const RECENT_TARGET_WORDS_MAX = 64;
+const PROCESSED_HELP_OPERATION_IDS_MAX = 128;
 const WORD_SCORE_EMPTY = 0;
 const OPERATION_RETRY_COUNT_DEFAULT = 0;
+const GRID_DIRECTIONS: readonly Readonly<{
+  readonly rowOffset: number;
+  readonly colOffset: number;
+}>[] = [
+  { rowOffset: -1, colOffset: -1 },
+  { rowOffset: -1, colOffset: 0 },
+  { rowOffset: -1, colOffset: 1 },
+  { rowOffset: 0, colOffset: -1 },
+  { rowOffset: 0, colOffset: 1 },
+  { rowOffset: 1, colOffset: -1 },
+  { rowOffset: 1, colOffset: 0 },
+  { rowOffset: 1, colOffset: 1 },
+];
 
 const DEFAULT_LEVEL_GRID: readonly string[] = [
   'д',
@@ -134,6 +154,43 @@ export interface CoreStateLevelTransitionAckResult {
   readonly stateVersion: number;
 }
 
+export type CoreStateHelpApplyResultReason =
+  | 'applied'
+  | 'invalid-operation-id'
+  | 'operation-already-applied'
+  | 'level-not-active'
+  | 'no-remaining-targets'
+  | 'target-path-unavailable';
+
+export interface CoreStateHintEffect {
+  readonly kind: 'hint';
+  readonly targetWord: string;
+  readonly revealCount: number;
+  readonly revealedLetters: string;
+  readonly revealedPathCells: readonly WordPathCellRef[];
+}
+
+export interface CoreStateReshuffleEffect {
+  readonly kind: 'reshuffle';
+  readonly previousLevelId: string;
+  readonly nextLevelId: string;
+  readonly nextSeed: number;
+}
+
+export type CoreStateHelpEffect = CoreStateHintEffect | CoreStateReshuffleEffect;
+
+export interface CoreStateHelpApplyResult {
+  readonly operationId: string;
+  readonly kind: HelpKind;
+  readonly applied: boolean;
+  readonly reason: CoreStateHelpApplyResultReason;
+  readonly levelStatus: LevelSession['status'];
+  readonly levelId: string;
+  readonly stateVersion: number;
+  readonly allTimeScore: number;
+  readonly effect: CoreStateHelpEffect | null;
+}
+
 export interface CoreStateModuleOptions {
   readonly initialMode?: RuntimeMode;
   readonly initialGameState?: GameStateInput;
@@ -155,6 +212,7 @@ export interface CoreStateModule {
     operationId: string,
     nowTs?: number,
   ) => CoreStateLevelTransitionAckResult;
+  applyHelp: (kind: HelpKind, operationId: string, nowTs?: number) => CoreStateHelpApplyResult;
 }
 
 function createDefaultLevelGrid(): readonly string[] {
@@ -334,6 +392,132 @@ function createNextLevelId(currentLevelId: string, fallbackSequence: number): st
   return `${currentLevelId}-${AUTO_NEXT_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
 }
 
+function createReshuffleLevelId(currentLevelId: string, fallbackSequence: number): string {
+  return `${currentLevelId}-${MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
+}
+
+function compareWordsByDifficulty(left: string, right: string): number {
+  if (left.length !== right.length) {
+    return left.length - right.length;
+  }
+
+  if (left < right) {
+    return -1;
+  }
+
+  if (left > right) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function sortWordsByDifficulty(words: readonly string[]): readonly string[] {
+  return [...words].sort(compareWordsByDifficulty);
+}
+
+function isGridCellInsideBounds(row: number, col: number): boolean {
+  return row >= 0 && row < GRID_SIDE && col >= 0 && col < GRID_SIDE;
+}
+
+function toGridCellIndex(row: number, col: number): number {
+  return row * GRID_SIDE + col;
+}
+
+function findPathForTargetWord(
+  grid: readonly string[],
+  targetWord: string,
+): readonly WordPathCellRef[] | null {
+  if (targetWord.length === 0 || grid.length !== GRID_CELL_COUNT) {
+    return null;
+  }
+
+  const path: WordPathCellRef[] = [];
+  const visited = new Set<number>();
+
+  const dfs = (row: number, col: number, letterIndex: number): boolean => {
+    if (!isGridCellInsideBounds(row, col)) {
+      return false;
+    }
+
+    const cellIndex = toGridCellIndex(row, col);
+    if (visited.has(cellIndex)) {
+      return false;
+    }
+
+    if (grid[cellIndex] !== targetWord[letterIndex]) {
+      return false;
+    }
+
+    visited.add(cellIndex);
+    path.push({ row, col });
+
+    if (letterIndex === targetWord.length - 1) {
+      return true;
+    }
+
+    for (const direction of GRID_DIRECTIONS) {
+      if (dfs(row + direction.rowOffset, col + direction.colOffset, letterIndex + 1)) {
+        return true;
+      }
+    }
+
+    path.pop();
+    visited.delete(cellIndex);
+    return false;
+  };
+
+  for (let row = 0; row < GRID_SIDE; row += 1) {
+    for (let col = 0; col < GRID_SIDE; col += 1) {
+      if (dfs(row, col, 0)) {
+        return [...path];
+      }
+
+      path.length = 0;
+      visited.clear();
+    }
+  }
+
+  return null;
+}
+
+function resolveHintTargetWord(levelSession: LevelSession): string | null {
+  const remainingTargets = levelSession.targetWords.filter((targetWord) => {
+    return !levelSession.foundTargets.includes(targetWord);
+  });
+
+  if (remainingTargets.length === 0) {
+    return null;
+  }
+
+  const currentHintTarget = levelSession.meta[HINT_META_TARGET_WORD_KEY];
+  if (typeof currentHintTarget === 'string' && remainingTargets.includes(currentHintTarget)) {
+    return currentHintTarget;
+  }
+
+  const [easiestTargetWord] = sortWordsByDifficulty(remainingTargets);
+  return easiestTargetWord ?? null;
+}
+
+function resolveNextHintRevealCount(levelSession: LevelSession, targetWord: string): number {
+  const currentHintTarget = levelSession.meta[HINT_META_TARGET_WORD_KEY];
+  const currentRevealCount = levelSession.meta[HINT_META_REVEAL_COUNT_KEY];
+  const normalizedCurrentRevealCount =
+    typeof currentRevealCount === 'number' && Number.isSafeInteger(currentRevealCount)
+      ? Math.max(0, Math.trunc(currentRevealCount))
+      : 0;
+
+  const startsFromInitialReveal = Math.min(HINT_INITIAL_REVEAL_COUNT, targetWord.length);
+  if (currentHintTarget !== targetWord) {
+    return startsFromInitialReveal;
+  }
+
+  return Math.min(
+    targetWord.length,
+    Math.max(startsFromInitialReveal, normalizedCurrentRevealCount + 1),
+  );
+}
+
 function createGameplaySnapshot(
   gameState: GameState,
   showEphemeralCongrats: boolean,
@@ -426,6 +610,27 @@ function createLevelTransitionAckResult(
   };
 }
 
+function createHelpApplyResult(
+  operationId: string,
+  kind: HelpKind,
+  applied: boolean,
+  reason: CoreStateHelpApplyResultReason,
+  gameState: GameState,
+  effect: CoreStateHelpEffect | null = null,
+): CoreStateHelpApplyResult {
+  return {
+    operationId,
+    kind,
+    applied,
+    reason,
+    levelStatus: gameState.currentLevelSession.status,
+    levelId: gameState.currentLevelSession.levelId,
+    stateVersion: gameState.stateVersion,
+    allTimeScore: gameState.allTimeScore,
+    effect,
+  };
+}
+
 function calculateWordScore(result: WordValidationResult, normalizedWord: string | null): number {
   if (!normalizedWord || normalizedWord.length === 0) {
     return 0;
@@ -459,11 +664,34 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
   let showEphemeralCongrats = false;
   let operationSequence = 0;
   let fallbackLevelIdSequence = 0;
+  let reshuffleLevelIdSequence = 0;
   let recentTargetWords = trimRecentTargetWords(gameState.currentLevelSession.targetWords);
+  const processedHelpOperationIds = new Set<string>();
+  const processedHelpOperationQueue: string[] = [];
 
   const createOperationId = (kind: PendingOperationKind): string => {
     operationSequence += 1;
     return `op-${kind}-${gameState.stateVersion + 1}-${operationSequence}`;
+  };
+
+  const hasProcessedHelpOperation = (operationId: string): boolean => {
+    return processedHelpOperationIds.has(operationId);
+  };
+
+  const markHelpOperationProcessed = (operationId: string): void => {
+    if (processedHelpOperationIds.has(operationId)) {
+      return;
+    }
+
+    processedHelpOperationIds.add(operationId);
+    processedHelpOperationQueue.push(operationId);
+
+    if (processedHelpOperationQueue.length > PROCESSED_HELP_OPERATION_IDS_MAX) {
+      const expiredOperationId = processedHelpOperationQueue.shift();
+      if (expiredOperationId) {
+        processedHelpOperationIds.delete(expiredOperationId);
+      }
+    }
   };
 
   const createAutoNextLevelSession = (): GameStateInput['currentLevelSession'] => {
@@ -494,6 +722,44 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       seed: generatedLevel.seed,
       meta: {
         source: AUTO_NEXT_LEVEL_META_SOURCE,
+        previousLevelId: currentLevelSession.levelId,
+        generationAttempts: generatedLevel.meta.generationAttempts,
+        replacements: generatedLevel.meta.replacements,
+        backtracks: generatedLevel.meta.backtracks,
+        rareLetterCount: generatedLevel.meta.rareLetterCount,
+        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
+      },
+    };
+  };
+
+  const createManualReshuffleLevelSession = (): GameStateInput['currentLevelSession'] => {
+    const currentLevelSession = gameState.currentLevelSession;
+    const nextSeed = currentLevelSession.seed + 1;
+    const recentWordsForGeneration = trimRecentTargetWords([
+      ...recentTargetWords,
+      ...currentLevelSession.targetWords,
+    ]);
+    const generatedLevel = levelGenerator.generateLevel({
+      seed: nextSeed,
+      recentTargetWords: recentWordsForGeneration,
+    });
+
+    reshuffleLevelIdSequence += 1;
+    recentTargetWords = trimRecentTargetWords([
+      ...recentWordsForGeneration,
+      ...generatedLevel.targetWords,
+    ]);
+
+    return {
+      levelId: createReshuffleLevelId(currentLevelSession.levelId, reshuffleLevelIdSequence),
+      grid: [...generatedLevel.grid],
+      targetWords: [...generatedLevel.targetWords],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: generatedLevel.seed,
+      meta: {
+        source: MANUAL_RESHUFFLE_LEVEL_META_SOURCE,
         previousLevelId: currentLevelSession.levelId,
         generationAttempts: generatedLevel.meta.generationAttempts,
         replacements: generatedLevel.meta.replacements,
@@ -596,6 +862,128 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         false,
         wordSuccessOperationId,
       );
+    },
+    applyHelp: (kind, operationId, nowTs = nowProvider()) => {
+      const normalizedOperationId = normalizeOperationId(operationId);
+      if (!normalizedOperationId) {
+        return createHelpApplyResult(operationId, kind, false, 'invalid-operation-id', gameState);
+      }
+
+      if (hasProcessedHelpOperation(normalizedOperationId)) {
+        return createHelpApplyResult(
+          normalizedOperationId,
+          kind,
+          false,
+          'operation-already-applied',
+          gameState,
+        );
+      }
+
+      const currentLevelSession = gameState.currentLevelSession;
+      if (currentLevelSession.status !== 'active') {
+        return createHelpApplyResult(
+          normalizedOperationId,
+          kind,
+          false,
+          'level-not-active',
+          gameState,
+        );
+      }
+
+      if (kind === 'hint') {
+        const hintTargetWord = resolveHintTargetWord(currentLevelSession);
+        if (!hintTargetWord) {
+          return createHelpApplyResult(
+            normalizedOperationId,
+            kind,
+            false,
+            'no-remaining-targets',
+            gameState,
+          );
+        }
+
+        const targetPath = findPathForTargetWord(currentLevelSession.grid, hintTargetWord);
+        if (!targetPath) {
+          return createHelpApplyResult(
+            normalizedOperationId,
+            kind,
+            false,
+            'target-path-unavailable',
+            gameState,
+          );
+        }
+
+        const revealCount = resolveNextHintRevealCount(currentLevelSession, hintTargetWord);
+        const nextState = createGameState(
+          {
+            ...toGameStateInput(gameState),
+            stateVersion: gameState.stateVersion + 1,
+            updatedAt: nowTs,
+            currentLevelSession: {
+              ...currentLevelSession,
+              meta: {
+                ...currentLevelSession.meta,
+                [HINT_META_TARGET_WORD_KEY]: hintTargetWord,
+                [HINT_META_REVEAL_COUNT_KEY]: revealCount,
+              },
+            },
+          },
+          {
+            previousState: gameState,
+          },
+        );
+
+        gameState = nextState;
+        showEphemeralCongrats = false;
+        markHelpOperationProcessed(normalizedOperationId);
+
+        return createHelpApplyResult(normalizedOperationId, kind, true, 'applied', gameState, {
+          kind: 'hint',
+          targetWord: hintTargetWord,
+          revealCount,
+          revealedLetters: hintTargetWord.slice(0, revealCount),
+          revealedPathCells: targetPath.slice(0, revealCount),
+        });
+      }
+
+      const nextLevelSession = createManualReshuffleLevelSession();
+      const previousLevelId = currentLevelSession.levelId;
+      const reshufflingState = createGameState(
+        {
+          ...toGameStateInput(gameState),
+          stateVersion: gameState.stateVersion + 1,
+          updatedAt: nowTs,
+          currentLevelSession: {
+            ...currentLevelSession,
+            status: 'reshuffling',
+          },
+        },
+        {
+          previousState: gameState,
+        },
+      );
+      const nextState = createGameState(
+        {
+          ...toGameStateInput(reshufflingState),
+          stateVersion: reshufflingState.stateVersion + 1,
+          updatedAt: nowTs,
+          currentLevelSession: nextLevelSession,
+        },
+        {
+          previousState: reshufflingState,
+        },
+      );
+
+      gameState = nextState;
+      showEphemeralCongrats = false;
+      markHelpOperationProcessed(normalizedOperationId);
+
+      return createHelpApplyResult(normalizedOperationId, kind, true, 'applied', gameState, {
+        kind: 'reshuffle',
+        previousLevelId,
+        nextLevelId: nextLevelSession.levelId,
+        nextSeed: nextLevelSession.seed,
+      });
     },
     acknowledgeWordSuccessAnimation: (operationId, nowTs = nowProvider()) => {
       const normalizedOperationId = normalizeOperationId(operationId);

@@ -506,13 +506,20 @@ describe('game state model', () => {
   });
 
   it('rejects non-monotonic level status transition for the same level', () => {
-    const previousState = createGameState(createFixtureGameStateInput());
+    const previousBaseInput = createFixtureGameStateInput();
+    const previousState = createGameState({
+      ...previousBaseInput,
+      currentLevelSession: {
+        ...previousBaseInput.currentLevelSession,
+        status: 'completed',
+      },
+    });
     const baseInput = createFixtureGameStateInput();
     const nextInput: GameStateInput = {
       ...baseInput,
       currentLevelSession: {
         ...baseInput.currentLevelSession,
-        status: 'reshuffling',
+        status: 'active',
       },
     };
 

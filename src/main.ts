@@ -92,10 +92,16 @@ async function cleanupBootstrapRuntime(
 
 async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
+  const coreStateModule = createCoreStateModule();
+  const initialHelpWindow = coreStateModule.getSnapshot().gameState.helpWindow;
+  const helpEconomyModule = createHelpEconomyModule({
+    windowStartTs: initialHelpWindow.windowStartTs,
+    freeActionAvailable: initialHelpWindow.freeActionAvailable,
+  });
 
   const application = createApplicationLayer({
-    coreState: createCoreStateModule(),
-    helpEconomy: createHelpEconomyModule(),
+    coreState: coreStateModule,
+    helpEconomy: helpEconomyModule,
   });
 
   const renderMotionModule = createRenderMotionModule(application.readModel);

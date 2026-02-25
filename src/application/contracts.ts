@@ -135,14 +135,19 @@ export type HelpEvent = EventEnvelope<
   | {
       readonly phase: 'requested';
       readonly commandType: 'RequestHint' | 'RequestReshuffle';
+      readonly operationId: string;
       readonly helpKind: HelpKind;
       readonly isFreeAction: boolean;
+      readonly requiresAd: boolean;
+      readonly applied: boolean;
     }
   | {
       readonly phase: 'ad-result';
       readonly commandType: 'AcknowledgeAdResult';
+      readonly operationId: string;
       readonly helpKind: HelpKind;
       readonly outcome: RewardedAdOutcome;
+      readonly applied: boolean;
     }
 >;
 

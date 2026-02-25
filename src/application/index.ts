@@ -159,14 +159,48 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     commandType: 'RequestHint' | 'RequestReshuffle',
     helpKind: 'hint' | 'reshuffle',
   ): ApplicationResult<CommandAck> => {
-    const decision = modules.helpEconomy.requestHelp(helpKind, Date.now());
+    const requestedAt = Date.now();
+    const decision = modules.helpEconomy.requestHelp(helpKind, requestedAt);
+
+    if (decision.type === 'locked') {
+      return domainError(
+        'help.request.locked',
+        'Help request is ignored while another help operation is pending.',
+        {
+          commandType,
+          helpKind,
+          pendingOperationId: decision.pendingOperationId,
+        },
+      );
+    }
+
+    let applied = false;
+    const requiresAd = decision.type === 'await-ad';
+
+    if (decision.type === 'apply-now') {
+      const helpApplyResult = modules.coreState.applyHelp(
+        helpKind,
+        decision.operationId,
+        requestedAt,
+      );
+      applied = helpApplyResult.applied;
+      modules.helpEconomy.finalizePendingRequest(
+        decision.operationId,
+        helpApplyResult.applied,
+        requestedAt,
+      );
+    }
+
     return routeCommand(commandType, decision.operationId, (correlationId) => {
       publish(
         createEvent('domain/help', correlationId, {
           phase: 'requested',
           commandType,
+          operationId: decision.operationId,
           helpKind: decision.kind,
           isFreeAction: decision.isFreeAction,
+          requiresAd,
+          applied,
         }),
       );
     });
@@ -215,13 +249,33 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             return routeHelpCommand(command.type, 'reshuffle');
           }
           case 'AcknowledgeAdResult': {
+            const acknowledgedAt = Date.now();
+            const helpWindowState = modules.helpEconomy.getWindowState(acknowledgedAt);
+            const pendingRequest = helpWindowState.pendingRequest;
+            const isMatchingPendingRequest =
+              pendingRequest?.operationId === command.operationId &&
+              pendingRequest.kind === command.helpType;
+            const shouldApplyHelp = isMatchingPendingRequest && command.outcome === 'reward';
+            const helpApplyResult = shouldApplyHelp
+              ? modules.coreState.applyHelp(command.helpType, command.operationId, acknowledgedAt)
+              : null;
+            const applied = helpApplyResult?.applied ?? false;
+
+            modules.helpEconomy.finalizePendingRequest(
+              command.operationId,
+              applied,
+              acknowledgedAt,
+            );
+
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
                 createEvent('domain/help', correlationId, {
                   phase: 'ad-result',
                   commandType: command.type,
+                  operationId: command.operationId,
                   helpKind: command.helpType,
                   outcome: command.outcome,
+                  applied,
                 }),
               );
             });
@@ -292,7 +346,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             >;
           }
           case 'GetHelpWindowState': {
-            return ok(modules.helpEconomy.getWindowState()) as ApplicationResult<
+            return ok(modules.helpEconomy.getWindowState(Date.now())) as ApplicationResult<
               ApplicationQueryPayload<TQuery>
             >;
           }

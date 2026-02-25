@@ -280,7 +280,7 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
 const SAME_LEVEL_STATUS_TRANSITIONS: Readonly<
   Record<LevelSessionStatus, readonly LevelSessionStatus[]>
 > = {
-  active: ['active', 'completed'],
+  active: ['active', 'completed', 'reshuffling'],
   completed: ['completed', 'reshuffling'],
   reshuffling: ['reshuffling'],
 };

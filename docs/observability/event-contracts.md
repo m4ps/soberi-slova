@@ -43,8 +43,8 @@
   - payload: `{ commandType: 'AcknowledgeLevelTransitionDone' }`
 - `domain/help`
   - payload:
-    - `{ phase: 'requested', commandType: 'RequestHint' | 'RequestReshuffle', helpKind: 'hint' | 'reshuffle', isFreeAction: boolean }`
-    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill' }`
+    - `{ phase: 'requested', commandType: 'RequestHint' | 'RequestReshuffle', operationId: string, helpKind: 'hint' | 'reshuffle', isFreeAction: boolean, requiresAd: boolean, applied: boolean }`
+    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill', applied: boolean }`
 - `domain/persistence`
   - payload: `{ commandType: 'RestoreSession', operation: 'restore-session' }`
 - `domain/leaderboard-sync`

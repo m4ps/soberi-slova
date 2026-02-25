@@ -96,7 +96,7 @@
 - `foundBonuses` не может содержать слова из `targetWords`.
 - `foundTargets` и `foundBonuses` не пересекаются.
 - Переходы статуса однонаправленные:
-  - в рамках одного уровня: `active -> active|completed`, `completed -> completed|reshuffling`, `reshuffling -> reshuffling`;
+  - в рамках одного уровня: `active -> active|completed|reshuffling`, `completed -> completed|reshuffling`, `reshuffling -> reshuffling`;
   - смена `levelId` разрешена только в переходе `reshuffling -> active` (следующий уровень).
 - Числовые счётчики и версии (`schemaVersion`, `stateVersion`, `updatedAt`, `allTimeScore`, leaderboard/pendingOps timestamps) принимаются только как non-negative safe integer, чтобы исключить overflow/precision corruption.
 - `pendingOps` дополнительно валидируется по security-контракту:

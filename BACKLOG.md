@@ -108,7 +108,7 @@ Task DOD: Очки начисляются ровно один раз на соб
 Task Context: Для последнего target слова соблюдай порядок: commit score -> success animation event -> progress N/N -> ephemeral congrats -> level clear score -> full lock -> auto-next level.
 Task DOD: Level clear начисляется ровно один раз; во время перехода ввод заблокирован; после перехода стартует новый `active` уровень без потери all-time score.
 
-- [ ] [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint progression, manual reshuffle
+- [x] [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint progression, manual reshuffle
 Task Context: Реализуй общий пул free-action (`hint`/`reshuffle`) с real-time таймером и shared lock на две кнопки; hint раскрывает 2/3/4+ букв одного слова (самое легкое оставшееся), reshuffle полностью сбрасывает текущий уровень.
 Task DOD: Бесплатное действие списывается только после успешного применения помощи; при закрытии вкладки таймер корректно восстанавливается; операции помощи re-entrant-safe.
 
