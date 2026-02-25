@@ -13,17 +13,10 @@ import type {
   CommandAck,
   DomainModules,
 } from './contracts';
+import { toErrorMessage } from '../shared/errors';
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported command: ${JSON.stringify(value)}`);
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }
 
 function createError(

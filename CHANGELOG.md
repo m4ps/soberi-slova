@@ -2,6 +2,13 @@
 
 ## 2026-02-25
 
+### [INIT]-[094] Приведение кода этапа к единому стандарту
+- Введён единый shared-слой init-стандарта: добавлены `src/shared/errors.ts` (единый `toErrorMessage`) и `src/shared/module-ids.ts` (единый реестр идентификаторов модулей).
+- Устранены дубли утилиты обработки ошибок в `main`, `application` и `PlatformYandex`; все три контура используют общий helper из `src/shared/errors.ts`.
+- Все init-модули (`CoreState`, `HelpEconomy`, `LevelGenerator`, `WordValidation`, `InputPath`, `Persistence`, `RenderMotion`, `PlatformYandex`, `Telemetry`) переведены на единый источник `moduleName` через `MODULE_IDS`, что исключает рассинхронизацию строковых литералов.
+- README синхронизирован с фактической структурой исходников: добавлен каталог `src/shared/`.
+- Полная верификация пройдена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-init094-smoke-clean`.
+
 ### [INIT]-[093] Анализ безопасности этапа инициализации
 - Проведён security-review bootstrap-поверхности init-слоя и зафиксирован чеклист в [`docs/security/init-bootstrap-checklist.md`](docs/security/init-bootstrap-checklist.md).
 - В `PlatformYandex` добавлен hardening загрузки SDK: runtime loader принимает только trusted same-origin источник `/sdk.js`.

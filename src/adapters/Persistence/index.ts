@@ -1,4 +1,5 @@
 import type { ApplicationCommandBus, ApplicationQueryBus } from '../../application';
+import { MODULE_IDS } from '../../shared/module-ids';
 
 export interface PersistenceSnapshot {
   readonly runtimeMode: string;
@@ -6,7 +7,7 @@ export interface PersistenceSnapshot {
 }
 
 export interface PersistenceModule {
-  readonly moduleName: 'Persistence';
+  readonly moduleName: typeof MODULE_IDS.persistence;
   restore: () => Promise<void>;
   flush: () => Promise<void>;
   getLastSnapshot: () => PersistenceSnapshot | null;
@@ -28,7 +29,7 @@ export function createPersistenceModule(
   };
 
   return {
-    moduleName: 'Persistence',
+    moduleName: MODULE_IDS.persistence,
     restore: async () => {
       lastSnapshot = captureSnapshot();
       commandBus.dispatch({ type: 'RestoreSession' });

@@ -6,6 +6,7 @@ import { createRenderMotionModule, type RenderMotionRuntime } from './adapters/R
 import { createTelemetryModule } from './adapters/Telemetry';
 import { createCoreStateModule } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
+import { toErrorMessage } from './shared/errors';
 import './style.css';
 
 function getRootElement(): HTMLDivElement {
@@ -16,14 +17,6 @@ function getRootElement(): HTMLDivElement {
   }
 
   return rootElement;
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }
 
 function renderBootstrapFailState(rootElement: HTMLDivElement, reason: string): void {

@@ -1,7 +1,8 @@
 import type { ApplicationCommandBus } from '../../application';
+import { MODULE_IDS } from '../../shared/module-ids';
 
 export interface InputPathModule {
-  readonly moduleName: 'InputPath';
+  readonly moduleName: typeof MODULE_IDS.inputPath;
   bindToCanvas: (canvas: HTMLCanvasElement) => void;
   dispose: () => void;
 }
@@ -11,7 +12,7 @@ export function createInputPathModule(commandBus: ApplicationCommandBus): InputP
   let pointerUpHandler: ((event: PointerEvent) => void) | null = null;
 
   return {
-    moduleName: 'InputPath',
+    moduleName: MODULE_IDS.inputPath,
     bindToCanvas: (canvas) => {
       if (boundCanvas && pointerUpHandler) {
         boundCanvas.removeEventListener('pointerup', pointerUpHandler);

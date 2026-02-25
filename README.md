@@ -97,6 +97,7 @@ src/            Исходный код приложения
   application/  Use-case слой и контракты команд/событий
   config/       Конфигурация viewport и shared-константы bootstrap
   domain/       CoreState и доменные модули/правила
+  shared/       Общие утилиты и стандартизированные константы модулей
   types/        Глобальные типы браузерного runtime
 tests/          Smoke unit tests
 ADR/            Архитектурные решения

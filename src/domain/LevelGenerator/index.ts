@@ -1,3 +1,5 @@
+import { MODULE_IDS } from '../../shared/module-ids';
+
 export interface LevelGenerationRequest {
   readonly seed: number;
 }
@@ -9,13 +11,13 @@ export interface GeneratedLevelStub {
 }
 
 export interface LevelGeneratorModule {
-  readonly moduleName: 'LevelGenerator';
+  readonly moduleName: typeof MODULE_IDS.levelGenerator;
   generateLevel: (request: LevelGenerationRequest) => GeneratedLevelStub;
 }
 
 export function createLevelGeneratorModule(): LevelGeneratorModule {
   return {
-    moduleName: 'LevelGenerator',
+    moduleName: MODULE_IDS.levelGenerator,
     generateLevel: ({ seed }) => ({
       seed,
       gridSize: 5,

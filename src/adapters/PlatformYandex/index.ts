@@ -11,6 +11,8 @@ import {
   YANDEX_SDK_SCRIPT_SRC,
   type YandexLifecycleEvent,
 } from '../../config/platform-yandex';
+import { MODULE_IDS } from '../../shared/module-ids';
+import { toErrorMessage } from '../../shared/errors';
 
 interface YandexLoadingAPI {
   ready: () => void | Promise<void>;
@@ -67,18 +69,10 @@ export interface PlatformYandexOptions {
 }
 
 export interface PlatformYandexModule {
-  readonly moduleName: 'PlatformYandex';
+  readonly moduleName: typeof MODULE_IDS.platformYandex;
   bootstrap: () => Promise<void>;
   dispose: () => void;
   getLifecycleLog: () => readonly PlatformLifecycleLogEntry[];
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }
 
 function getYaGamesGlobal(): YandexGamesGlobal | null {
@@ -335,7 +329,7 @@ export function createPlatformYandexModule(
   };
 
   return {
-    moduleName: 'PlatformYandex',
+    moduleName: MODULE_IDS.platformYandex,
     bootstrap: async () => {
       if (bootstrapped) {
         record('bootstrap-skipped', {

@@ -1,7 +1,8 @@
 import type { ApplicationEvent, ApplicationEventBus } from '../../application';
+import { MODULE_IDS } from '../../shared/module-ids';
 
 export interface TelemetryModule {
-  readonly moduleName: 'Telemetry';
+  readonly moduleName: typeof MODULE_IDS.telemetry;
   start: () => void;
   stop: () => void;
   getBufferedEvents: () => readonly ApplicationEvent[];
@@ -12,7 +13,7 @@ export function createTelemetryModule(eventBus: ApplicationEventBus): TelemetryM
   let unsubscribe: (() => void) | null = null;
 
   return {
-    moduleName: 'Telemetry',
+    moduleName: MODULE_IDS.telemetry,
     start: () => {
       if (!unsubscribe) {
         unsubscribe = eventBus.subscribe((event) => {

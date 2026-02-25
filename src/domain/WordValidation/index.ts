@@ -1,3 +1,5 @@
+import { MODULE_IDS } from '../../shared/module-ids';
+
 export interface WordValidationRequest {
   readonly word: string;
   readonly targetWords: readonly string[];
@@ -7,7 +9,7 @@ export interface WordValidationRequest {
 export type WordValidationResult = 'target' | 'bonus' | 'repeat' | 'invalid';
 
 export interface WordValidationModule {
-  readonly moduleName: 'WordValidation';
+  readonly moduleName: typeof MODULE_IDS.wordValidation;
   validateWord: (request: WordValidationRequest) => WordValidationResult;
 }
 
@@ -15,7 +17,7 @@ export function createWordValidationModule(
   dictionary: ReadonlySet<string> = new Set<string>(),
 ): WordValidationModule {
   return {
-    moduleName: 'WordValidation',
+    moduleName: MODULE_IDS.wordValidation,
     validateWord: ({ word, targetWords, foundWords }) => {
       const normalizedWord = word.trim().toLowerCase();
 

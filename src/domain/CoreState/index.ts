@@ -1,3 +1,5 @@
+import { MODULE_IDS } from '../../shared/module-ids';
+
 export type RuntimeMode = 'bootstrapping' | 'ready';
 
 export interface CoreStateSnapshot {
@@ -5,7 +7,7 @@ export interface CoreStateSnapshot {
 }
 
 export interface CoreStateModule {
-  readonly moduleName: 'CoreState';
+  readonly moduleName: typeof MODULE_IDS.coreState;
   getSnapshot: () => CoreStateSnapshot;
   setRuntimeMode: (runtimeMode: RuntimeMode) => void;
 }
@@ -14,7 +16,7 @@ export function createCoreStateModule(initialMode: RuntimeMode = 'bootstrapping'
   let snapshot: CoreStateSnapshot = { runtimeMode: initialMode };
 
   return {
-    moduleName: 'CoreState',
+    moduleName: MODULE_IDS.coreState,
     getSnapshot: () => snapshot,
     setRuntimeMode: (runtimeMode) => {
       snapshot = { runtimeMode };

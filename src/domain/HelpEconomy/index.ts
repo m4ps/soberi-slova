@@ -1,3 +1,5 @@
+import { MODULE_IDS } from '../../shared/module-ids';
+
 export type HelpKind = 'hint' | 'reshuffle';
 
 export interface HelpWindowState {
@@ -12,7 +14,7 @@ export interface HelpDecision {
 }
 
 export interface HelpEconomyModule {
-  readonly moduleName: 'HelpEconomy';
+  readonly moduleName: typeof MODULE_IDS.helpEconomy;
   getWindowState: () => HelpWindowState;
   requestHelp: (kind: HelpKind, nowTs: number) => HelpDecision;
   markFreeActionConsumed: () => void;
@@ -22,7 +24,7 @@ export function createHelpEconomyModule(windowStartTs: number = Date.now()): Hel
   let freeActionAvailable = true;
 
   return {
-    moduleName: 'HelpEconomy',
+    moduleName: MODULE_IDS.helpEconomy,
     getWindowState: () => ({
       windowStartTs,
       freeActionAvailable,

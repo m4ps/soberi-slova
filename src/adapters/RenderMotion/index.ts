@@ -2,6 +2,7 @@ import { Application, Color, Graphics } from 'pixi.js';
 
 import type { ApplicationReadModel } from '../../application';
 import { GAME_VIEWPORT } from '../../config/viewport';
+import { MODULE_IDS } from '../../shared/module-ids';
 
 export interface RenderMotionSnapshot {
   readonly runtimeMode: string;
@@ -14,7 +15,7 @@ export interface RenderMotionSnapshot {
 }
 
 export interface RenderMotionRuntime {
-  readonly moduleName: 'RenderMotion';
+  readonly moduleName: typeof MODULE_IDS.renderMotion;
   readonly canvas: HTMLCanvasElement;
   stepFrame: () => void;
   toTextSnapshot: () => RenderMotionSnapshot;
@@ -22,13 +23,13 @@ export interface RenderMotionRuntime {
 }
 
 export interface RenderMotionModule {
-  readonly moduleName: 'RenderMotion';
+  readonly moduleName: typeof MODULE_IDS.renderMotion;
   mount: (rootElement: HTMLDivElement) => Promise<RenderMotionRuntime>;
 }
 
 export function createRenderMotionModule(readModel: ApplicationReadModel): RenderMotionModule {
   return {
-    moduleName: 'RenderMotion',
+    moduleName: MODULE_IDS.renderMotion,
     mount: async (rootElement) => {
       const app = new Application();
 
@@ -51,7 +52,7 @@ export function createRenderMotionModule(readModel: ApplicationReadModel): Rende
       app.render();
 
       return {
-        moduleName: 'RenderMotion',
+        moduleName: MODULE_IDS.renderMotion,
         canvas: app.canvas,
         stepFrame: () => {
           app.render();
