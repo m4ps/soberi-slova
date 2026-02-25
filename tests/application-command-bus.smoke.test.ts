@@ -345,4 +345,101 @@ describe('application command/query bus smoke', () => {
     });
     expect(coreState.gameplay.foundTargets).toEqual(['дом']);
   });
+
+  it('processes completion pipeline and auto-next via acknowledge commands', () => {
+    const application = createApplicationLayer({
+      coreState: createCoreStateModule({
+        initialGameState: createScoringFixtureState(),
+        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+        nowProvider: () => 4_000,
+      }),
+      helpEconomy: createHelpEconomyModule(0),
+    });
+
+    const submitPath = (pathCells: ReadonlyArray<{ row: number; col: number }>): string => {
+      const result = application.commands.dispatch({
+        type: 'SubmitPath',
+        pathCells,
+      });
+
+      expect(result.type).toBe('ok');
+      return result.type === 'ok' ? result.value.correlationId : '';
+    };
+
+    submitPath([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+    ]);
+    submitPath([
+      { row: 1, col: 1 },
+      { row: 1, col: 2 },
+      { row: 1, col: 3 },
+    ]);
+    const finalTargetCorrelationId = submitPath([
+      { row: 1, col: 3 },
+      { row: 1, col: 2 },
+      { row: 1, col: 1 },
+    ]);
+
+    const completedSnapshot = application.readModel.getCoreState();
+    expect(completedSnapshot.gameplay).toMatchObject({
+      allTimeScore: 48,
+      levelStatus: 'completed',
+      isInputLocked: true,
+      showEphemeralCongrats: false,
+      progress: {
+        foundTargets: 3,
+        totalTargets: 3,
+      },
+      stateVersion: 3,
+    });
+    expect(completedSnapshot.gameplay.pendingWordSuccessOperationId).toEqual(expect.any(String));
+    expect(finalTargetCorrelationId).toBe(completedSnapshot.gameplay.pendingWordSuccessOperationId);
+
+    const wordSuccessOperationId = completedSnapshot.gameplay.pendingWordSuccessOperationId!;
+    const wordSuccessAckResult = application.commands.dispatch({
+      type: 'AcknowledgeWordSuccessAnimation',
+      wordId: 'сон',
+      operationId: wordSuccessOperationId,
+    });
+    expect(wordSuccessAckResult.type).toBe('ok');
+
+    const reshufflingSnapshot = application.readModel.getCoreState();
+    expect(reshufflingSnapshot.gameplay).toMatchObject({
+      allTimeScore: 93,
+      levelStatus: 'reshuffling',
+      isInputLocked: true,
+      showEphemeralCongrats: true,
+      pendingWordSuccessOperationId: null,
+      stateVersion: 4,
+    });
+    expect(reshufflingSnapshot.gameplay.pendingLevelTransitionOperationId).toEqual(
+      expect.any(String),
+    );
+
+    const levelTransitionOperationId =
+      reshufflingSnapshot.gameplay.pendingLevelTransitionOperationId!;
+    const transitionAckResult = application.commands.dispatch({
+      type: 'AcknowledgeLevelTransitionDone',
+      operationId: levelTransitionOperationId,
+    });
+    expect(transitionAckResult.type).toBe('ok');
+
+    const nextLevelSnapshot = application.readModel.getCoreState();
+    expect(nextLevelSnapshot.gameplay).toMatchObject({
+      allTimeScore: 93,
+      levelStatus: 'active',
+      isInputLocked: false,
+      showEphemeralCongrats: false,
+      pendingWordSuccessOperationId: null,
+      pendingLevelTransitionOperationId: null,
+      stateVersion: 5,
+    });
+    expect(nextLevelSnapshot.gameplay.levelId).not.toBe('level-command-bus');
+    expect(nextLevelSnapshot.gameplay.progress).toMatchObject({
+      foundTargets: 0,
+    });
+    expect(nextLevelSnapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(3);
+  });
 });

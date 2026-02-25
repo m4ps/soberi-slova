@@ -126,7 +126,11 @@ flowchart TD
 - `CoreState` — source of truth для runtime-mode и игрового snapshot:
   - state-first `submitPath` c apply через `WordValidation`;
   - scoring/progression контракт (`target`, `bonus`, `level clear`) и idempotency начислений;
-  - блокировка bonus/target начислений после `levelStatus=completed`.
+  - completion pipeline для финального target:
+    - финальный `target` переводит уровень в `completed` и создаёт pending `word-success-animation` operation;
+    - `AcknowledgeWordSuccessAnimation` начисляет `level clear`, включает `reshuffling` lock и создаёт pending `level-transition` operation;
+    - `AcknowledgeLevelTransitionDone` выполняет auto-next через `LevelGenerator` и переводит уровень в новый `active`;
+  - блокировка ввода на стадиях `completed/reshuffling` до завершения transition.
 - `InputPath` — adapter ввода (привязка canvas и dispatch в application).
 - `WordValidation` — доменная валидация submit-path:
   - сбор слова из `grid + pathCells`,
@@ -238,3 +242,4 @@ flowchart TD
 - CODE-002: реализован `InputPath` для swipe-драг ввода: path-engine с `adjacency`, `tail-undo`, ignore invalid/repeated и submit только на `pointerup`.
 - CODE-003: реализован `WordValidation` submit-path контур: сбор слова из `pathCells`, однозначная классификация `target/bonus/repeat/invalid` и apply-логика с silent-ignore без изменения state для `repeat/invalid`.
 - CODE-004: реализован `CoreState` scoring/progression в state-first порядке: формулы PRD (`target: 10+2*len`, `bonus: 2+len`, `level clear: 30+5*N`), progress `x/N`, idempotent начисления и запрет bonus accrual после completion.
+- CODE-005: реализован completion pipeline финального target и авто-переход уровня: `level clear` начисляется только по `AcknowledgeWordSuccessAnimation`, ввод блокируется на `completed/reshuffling`, `AcknowledgeLevelTransitionDone` запускает deterministic auto-next уровень без потери `allTimeScore`.

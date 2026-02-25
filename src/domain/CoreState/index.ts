@@ -4,7 +4,11 @@ import {
   type GameState,
   type GameStateInput,
   type LevelSession,
+  type PendingOperation,
+  type PendingOperationKind,
+  type PendingOperationStatus,
 } from '../GameState';
+import { createLevelGeneratorModule, type LevelGeneratorModule } from '../LevelGenerator';
 import {
   createWordValidationModule,
   type WordPathCellRef,
@@ -25,6 +29,15 @@ const BONUS_SCORE_BASE = 2;
 const BONUS_SCORE_PER_LETTER = 1;
 const LEVEL_CLEAR_SCORE_BASE = 30;
 const LEVEL_CLEAR_SCORE_PER_TARGET = 5;
+const PENDING_OPERATION_STATUS_PENDING: PendingOperationStatus = 'pending';
+const PENDING_OPERATION_KIND_WORD_SUCCESS: PendingOperationKind = 'word-success-animation';
+const PENDING_OPERATION_KIND_LEVEL_TRANSITION: PendingOperationKind = 'level-transition';
+const DEFAULT_LEVEL_META_SOURCE = 'default-core-state';
+const AUTO_NEXT_LEVEL_META_SOURCE = 'core-state-auto-next';
+const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
+const RECENT_TARGET_WORDS_MAX = 64;
+const WORD_SCORE_EMPTY = 0;
+const OPERATION_RETRY_COUNT_DEFAULT = 0;
 
 const DEFAULT_LEVEL_GRID: readonly string[] = [
   'д',
@@ -65,9 +78,13 @@ export interface CoreStateGameplaySnapshot {
   readonly updatedAt: number;
   readonly levelId: string;
   readonly levelStatus: LevelSession['status'];
+  readonly isInputLocked: boolean;
+  readonly showEphemeralCongrats: boolean;
   readonly progress: CoreStateProgressSnapshot;
   readonly foundTargets: readonly string[];
   readonly foundBonuses: readonly string[];
+  readonly pendingWordSuccessOperationId: string | null;
+  readonly pendingLevelTransitionOperationId: string | null;
 }
 
 export interface CoreStateSnapshot {
@@ -87,8 +104,31 @@ export interface CoreStateSubmitResult {
   readonly normalizedWord: string | null;
   readonly isSilent: boolean;
   readonly levelClearAwarded: boolean;
+  readonly wordSuccessOperationId: string | null;
   readonly scoreDelta: CoreStateScoreDelta;
   readonly progress: CoreStateProgressSnapshot;
+  readonly levelStatus: LevelSession['status'];
+  readonly allTimeScore: number;
+  readonly stateVersion: number;
+}
+
+export interface CoreStateWordSuccessAckResult {
+  readonly operationId: string;
+  readonly handled: boolean;
+  readonly levelClearAwarded: boolean;
+  readonly levelTransitionOperationId: string | null;
+  readonly scoreDelta: CoreStateScoreDelta;
+  readonly levelStatus: LevelSession['status'];
+  readonly showEphemeralCongrats: boolean;
+  readonly allTimeScore: number;
+  readonly stateVersion: number;
+}
+
+export interface CoreStateLevelTransitionAckResult {
+  readonly operationId: string;
+  readonly handled: boolean;
+  readonly transitionedToNextLevel: boolean;
+  readonly levelId: string;
   readonly levelStatus: LevelSession['status'];
   readonly allTimeScore: number;
   readonly stateVersion: number;
@@ -98,6 +138,7 @@ export interface CoreStateModuleOptions {
   readonly initialMode?: RuntimeMode;
   readonly initialGameState?: GameStateInput;
   readonly wordValidation?: WordValidationModule;
+  readonly levelGenerator?: LevelGeneratorModule;
   readonly nowProvider?: () => number;
 }
 
@@ -106,6 +147,14 @@ export interface CoreStateModule {
   getSnapshot: () => CoreStateSnapshot;
   setRuntimeMode: (runtimeMode: RuntimeMode) => void;
   submitPath: (pathCells: readonly WordPathCellRef[], nowTs?: number) => CoreStateSubmitResult;
+  acknowledgeWordSuccessAnimation: (
+    operationId: string,
+    nowTs?: number,
+  ) => CoreStateWordSuccessAckResult;
+  acknowledgeLevelTransitionDone: (
+    operationId: string,
+    nowTs?: number,
+  ) => CoreStateLevelTransitionAckResult;
 }
 
 function createDefaultLevelGrid(): readonly string[] {
@@ -129,7 +178,7 @@ function createDefaultGameStateInput(nowTs: number): GameStateInput {
       status: 'active',
       seed: 1,
       meta: {
-        source: 'default-core-state',
+        source: DEFAULT_LEVEL_META_SOURCE,
       },
     },
     helpWindow: {
@@ -199,16 +248,115 @@ function createProgressSnapshot(levelSession: LevelSession): CoreStateProgressSn
   };
 }
 
-function createGameplaySnapshot(gameState: GameState): CoreStateGameplaySnapshot {
+function isInputLocked(levelStatus: LevelSession['status']): boolean {
+  return levelStatus !== 'active';
+}
+
+function createPendingOperation(
+  operationId: string,
+  kind: PendingOperationKind,
+  nowTs: number,
+): PendingOperation {
+  return {
+    operationId,
+    kind,
+    status: PENDING_OPERATION_STATUS_PENDING,
+    retryCount: OPERATION_RETRY_COUNT_DEFAULT,
+    createdAt: nowTs,
+    updatedAt: nowTs,
+  };
+}
+
+function appendPendingOperation(
+  pendingOps: readonly PendingOperation[],
+  operation: PendingOperation,
+): readonly PendingOperation[] {
+  return [...pendingOps.filter((item) => item.operationId !== operation.operationId), operation];
+}
+
+function removePendingOperation(
+  pendingOps: readonly PendingOperation[],
+  operationId: string,
+): readonly PendingOperation[] {
+  return pendingOps.filter((item) => item.operationId !== operationId);
+}
+
+function hasPendingOperation(
+  pendingOps: readonly PendingOperation[],
+  operationId: string,
+  kind: PendingOperationKind,
+): boolean {
+  return pendingOps.some((item) => {
+    return (
+      item.operationId === operationId &&
+      item.kind === kind &&
+      item.status === PENDING_OPERATION_STATUS_PENDING
+    );
+  });
+}
+
+function findPendingOperationIdByKind(
+  pendingOps: readonly PendingOperation[],
+  kind: PendingOperationKind,
+): string | null {
+  const operation = pendingOps.find((item) => {
+    return item.kind === kind && item.status === PENDING_OPERATION_STATUS_PENDING;
+  });
+
+  return operation ? operation.operationId : null;
+}
+
+function normalizeOperationId(operationId: string): string | null {
+  const normalized = operationId.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function trimRecentTargetWords(words: readonly string[]): readonly string[] {
+  if (words.length <= RECENT_TARGET_WORDS_MAX) {
+    return [...words];
+  }
+
+  return words.slice(words.length - RECENT_TARGET_WORDS_MAX);
+}
+
+function createNextLevelId(currentLevelId: string, fallbackSequence: number): string {
+  const numericSuffixMatch = currentLevelId.match(/^(.*?)(\d+)$/);
+  if (numericSuffixMatch) {
+    const [, prefix, suffix] = numericSuffixMatch;
+    if (suffix) {
+      const parsedSuffix = Number.parseInt(suffix, 10);
+      if (Number.isSafeInteger(parsedSuffix) && parsedSuffix >= 0) {
+        return `${prefix}${parsedSuffix + 1}`;
+      }
+    }
+  }
+
+  return `${currentLevelId}-${AUTO_NEXT_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
+}
+
+function createGameplaySnapshot(
+  gameState: GameState,
+  showEphemeralCongrats: boolean,
+): CoreStateGameplaySnapshot {
   return {
     allTimeScore: gameState.allTimeScore,
     stateVersion: gameState.stateVersion,
     updatedAt: gameState.updatedAt,
     levelId: gameState.currentLevelSession.levelId,
     levelStatus: gameState.currentLevelSession.status,
+    isInputLocked: isInputLocked(gameState.currentLevelSession.status),
+    showEphemeralCongrats,
     progress: createProgressSnapshot(gameState.currentLevelSession),
     foundTargets: [...gameState.currentLevelSession.foundTargets],
     foundBonuses: [...gameState.currentLevelSession.foundBonuses],
+    pendingWordSuccessOperationId: findPendingOperationIdByKind(
+      gameState.pendingOps,
+      PENDING_OPERATION_KIND_WORD_SUCCESS,
+    ),
+    pendingLevelTransitionOperationId: findPendingOperationIdByKind(
+      gameState.pendingOps,
+      PENDING_OPERATION_KIND_LEVEL_TRANSITION,
+    ),
   };
 }
 
@@ -223,14 +371,55 @@ function createSubmitResult(
   },
   levelClearAwarded: boolean = false,
   isSilent: boolean = true,
+  wordSuccessOperationId: string | null = null,
 ): CoreStateSubmitResult {
   return {
     result,
     normalizedWord,
     isSilent,
     levelClearAwarded,
+    wordSuccessOperationId,
     scoreDelta,
     progress: createProgressSnapshot(gameState.currentLevelSession),
+    levelStatus: gameState.currentLevelSession.status,
+    allTimeScore: gameState.allTimeScore,
+    stateVersion: gameState.stateVersion,
+  };
+}
+
+function createWordSuccessAckResult(
+  operationId: string,
+  handled: boolean,
+  levelClearAwarded: boolean,
+  gameState: GameState,
+  scoreDelta: CoreStateScoreDelta,
+  levelTransitionOperationId: string | null,
+  showEphemeralCongrats: boolean,
+): CoreStateWordSuccessAckResult {
+  return {
+    operationId,
+    handled,
+    levelClearAwarded,
+    levelTransitionOperationId,
+    scoreDelta,
+    levelStatus: gameState.currentLevelSession.status,
+    showEphemeralCongrats,
+    allTimeScore: gameState.allTimeScore,
+    stateVersion: gameState.stateVersion,
+  };
+}
+
+function createLevelTransitionAckResult(
+  operationId: string,
+  handled: boolean,
+  transitionedToNextLevel: boolean,
+  gameState: GameState,
+): CoreStateLevelTransitionAckResult {
+  return {
+    operationId,
+    handled,
+    transitionedToNextLevel,
+    levelId: gameState.currentLevelSession.levelId,
     levelStatus: gameState.currentLevelSession.status,
     allTimeScore: gameState.allTimeScore,
     stateVersion: gameState.stateVersion,
@@ -259,6 +448,7 @@ function calculateLevelClearScore(targetCount: number): number {
 
 export function createCoreStateModule(options: CoreStateModuleOptions = {}): CoreStateModule {
   const nowProvider = options.nowProvider ?? (() => Date.now());
+  const levelGenerator = options.levelGenerator ?? createLevelGeneratorModule();
   const wordValidation =
     options.wordValidation ?? createWordValidationModule(new Set(DEFAULT_DICTIONARY_WORDS));
 
@@ -266,6 +456,53 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
   let gameState = createGameState(
     options.initialGameState ?? createDefaultGameStateInput(nowProvider()),
   );
+  let showEphemeralCongrats = false;
+  let operationSequence = 0;
+  let fallbackLevelIdSequence = 0;
+  let recentTargetWords = trimRecentTargetWords(gameState.currentLevelSession.targetWords);
+
+  const createOperationId = (kind: PendingOperationKind): string => {
+    operationSequence += 1;
+    return `op-${kind}-${gameState.stateVersion + 1}-${operationSequence}`;
+  };
+
+  const createAutoNextLevelSession = (): GameStateInput['currentLevelSession'] => {
+    const currentLevelSession = gameState.currentLevelSession;
+    const nextSeed = currentLevelSession.seed + 1;
+    const recentWordsForGeneration = trimRecentTargetWords([
+      ...recentTargetWords,
+      ...currentLevelSession.targetWords,
+    ]);
+    const generatedLevel = levelGenerator.generateLevel({
+      seed: nextSeed,
+      recentTargetWords: recentWordsForGeneration,
+    });
+
+    fallbackLevelIdSequence += 1;
+    recentTargetWords = trimRecentTargetWords([
+      ...recentWordsForGeneration,
+      ...generatedLevel.targetWords,
+    ]);
+
+    return {
+      levelId: createNextLevelId(currentLevelSession.levelId, fallbackLevelIdSequence),
+      grid: [...generatedLevel.grid],
+      targetWords: [...generatedLevel.targetWords],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: generatedLevel.seed,
+      meta: {
+        source: AUTO_NEXT_LEVEL_META_SOURCE,
+        previousLevelId: currentLevelSession.levelId,
+        generationAttempts: generatedLevel.meta.generationAttempts,
+        replacements: generatedLevel.meta.replacements,
+        backtracks: generatedLevel.meta.backtracks,
+        rareLetterCount: generatedLevel.meta.rareLetterCount,
+        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
+      },
+    };
+  };
 
   const buildSnapshot = (): CoreStateSnapshot => {
     const stateCopy = cloneGameState(gameState);
@@ -273,7 +510,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     return {
       runtimeMode,
       gameState: stateCopy,
-      gameplay: createGameplaySnapshot(stateCopy),
+      gameplay: createGameplaySnapshot(stateCopy, showEphemeralCongrats),
     };
   };
 
@@ -295,37 +532,141 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       });
 
       const levelIsActive = currentLevelSession.status === 'active';
-      const blockedByCompletedLevel =
-        !levelIsActive && (wordApply.result === 'target' || wordApply.result === 'bonus');
 
-      if (wordApply.isSilent || blockedByCompletedLevel || wordApply.normalizedWord === null) {
-        return createSubmitResult(
-          blockedByCompletedLevel ? 'invalid' : wordApply.result,
-          wordApply.normalizedWord,
-          gameState,
-        );
+      if (!levelIsActive) {
+        return createSubmitResult('invalid', wordApply.normalizedWord, gameState);
+      }
+
+      if (wordApply.isSilent || wordApply.normalizedWord === null) {
+        return createSubmitResult(wordApply.result, wordApply.normalizedWord, gameState);
       }
 
       const wordScore = calculateWordScore(wordApply.result, wordApply.normalizedWord);
       const isLastTargetWord =
         wordApply.result === 'target' &&
         wordApply.nextFoundTargets.length === currentLevelSession.targetWords.length;
-      const levelClearScore = isLastTargetWord
-        ? calculateLevelClearScore(currentLevelSession.targetWords.length)
-        : 0;
+      const wordSuccessOperationId = isLastTargetWord
+        ? createOperationId(PENDING_OPERATION_KIND_WORD_SUCCESS)
+        : null;
+      const nextPendingOps = wordSuccessOperationId
+        ? appendPendingOperation(
+            gameState.pendingOps,
+            createPendingOperation(
+              wordSuccessOperationId,
+              PENDING_OPERATION_KIND_WORD_SUCCESS,
+              nowTs,
+            ),
+          )
+        : gameState.pendingOps;
 
       const nextState = createGameState(
         {
           ...toGameStateInput(gameState),
           stateVersion: gameState.stateVersion + 1,
           updatedAt: nowTs,
-          allTimeScore: gameState.allTimeScore + wordScore + levelClearScore,
+          allTimeScore: gameState.allTimeScore + wordScore,
           currentLevelSession: {
             ...currentLevelSession,
             foundTargets: wordApply.nextFoundTargets,
             foundBonuses: wordApply.nextFoundBonuses,
             status: isLastTargetWord ? 'completed' : currentLevelSession.status,
           },
+          pendingOps: nextPendingOps,
+        },
+        {
+          previousState: gameState,
+        },
+      );
+
+      gameState = nextState;
+      if (!isLastTargetWord) {
+        showEphemeralCongrats = false;
+      }
+
+      return createSubmitResult(
+        wordApply.result,
+        wordApply.normalizedWord,
+        gameState,
+        {
+          wordScore,
+          levelClearScore: WORD_SCORE_EMPTY,
+          totalScore: wordScore,
+        },
+        false,
+        false,
+        wordSuccessOperationId,
+      );
+    },
+    acknowledgeWordSuccessAnimation: (operationId, nowTs = nowProvider()) => {
+      const normalizedOperationId = normalizeOperationId(operationId);
+      const noOpScoreDelta: CoreStateScoreDelta = {
+        wordScore: WORD_SCORE_EMPTY,
+        levelClearScore: WORD_SCORE_EMPTY,
+        totalScore: WORD_SCORE_EMPTY,
+      };
+
+      if (!normalizedOperationId) {
+        return createWordSuccessAckResult(
+          operationId,
+          false,
+          false,
+          gameState,
+          noOpScoreDelta,
+          null,
+          showEphemeralCongrats,
+        );
+      }
+
+      if (
+        !hasPendingOperation(
+          gameState.pendingOps,
+          normalizedOperationId,
+          PENDING_OPERATION_KIND_WORD_SUCCESS,
+        )
+      ) {
+        return createWordSuccessAckResult(
+          normalizedOperationId,
+          false,
+          false,
+          gameState,
+          noOpScoreDelta,
+          null,
+          showEphemeralCongrats,
+        );
+      }
+
+      const currentLevelSession = gameState.currentLevelSession;
+      let nextPendingOps = removePendingOperation(gameState.pendingOps, normalizedOperationId);
+      let levelClearScore = WORD_SCORE_EMPTY;
+      let levelTransitionOperationId: string | null = null;
+      let nextLevelStatus = currentLevelSession.status;
+
+      if (currentLevelSession.status === 'completed') {
+        levelClearScore = calculateLevelClearScore(currentLevelSession.targetWords.length);
+        levelTransitionOperationId = createOperationId(PENDING_OPERATION_KIND_LEVEL_TRANSITION);
+        nextPendingOps = appendPendingOperation(
+          nextPendingOps,
+          createPendingOperation(
+            levelTransitionOperationId,
+            PENDING_OPERATION_KIND_LEVEL_TRANSITION,
+            nowTs,
+          ),
+        );
+        nextLevelStatus = 'reshuffling';
+        showEphemeralCongrats = true;
+      }
+
+      const nextState = createGameState(
+        {
+          ...toGameStateInput(gameState),
+          stateVersion: gameState.stateVersion + 1,
+          updatedAt: nowTs,
+          allTimeScore: gameState.allTimeScore + levelClearScore,
+          currentLevelSession: {
+            ...currentLevelSession,
+            status: nextLevelStatus,
+          },
+          pendingOps: nextPendingOps,
         },
         {
           previousState: gameState,
@@ -334,18 +675,55 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
 
       gameState = nextState;
 
-      return createSubmitResult(
-        wordApply.result,
-        wordApply.normalizedWord,
+      return createWordSuccessAckResult(
+        normalizedOperationId,
+        true,
+        levelClearScore > WORD_SCORE_EMPTY,
         gameState,
         {
-          wordScore,
+          wordScore: WORD_SCORE_EMPTY,
           levelClearScore,
-          totalScore: wordScore + levelClearScore,
+          totalScore: levelClearScore,
         },
-        isLastTargetWord,
-        false,
+        levelTransitionOperationId,
+        showEphemeralCongrats,
       );
+    },
+    acknowledgeLevelTransitionDone: (operationId, nowTs = nowProvider()) => {
+      const normalizedOperationId = normalizeOperationId(operationId);
+      if (!normalizedOperationId) {
+        return createLevelTransitionAckResult(operationId, false, false, gameState);
+      }
+
+      const currentLevelSession = gameState.currentLevelSession;
+      if (
+        currentLevelSession.status !== 'reshuffling' ||
+        !hasPendingOperation(
+          gameState.pendingOps,
+          normalizedOperationId,
+          PENDING_OPERATION_KIND_LEVEL_TRANSITION,
+        )
+      ) {
+        return createLevelTransitionAckResult(normalizedOperationId, false, false, gameState);
+      }
+
+      const nextState = createGameState(
+        {
+          ...toGameStateInput(gameState),
+          stateVersion: gameState.stateVersion + 1,
+          updatedAt: nowTs,
+          currentLevelSession: createAutoNextLevelSession(),
+          pendingOps: removePendingOperation(gameState.pendingOps, normalizedOperationId),
+        },
+        {
+          previousState: gameState,
+        },
+      );
+
+      gameState = nextState;
+      showEphemeralCongrats = false;
+
+      return createLevelTransitionAckResult(normalizedOperationId, true, true, gameState);
     },
   };
 }

@@ -205,8 +205,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               );
             }
 
-            modules.coreState.submitPath(command.pathCells);
-            return routeCommand(command.type);
+            const submitResult = modules.coreState.submitPath(command.pathCells);
+            return routeCommand(command.type, submitResult.wordSuccessOperationId);
           }
           case 'RequestHint': {
             return routeHelpCommand(command.type, 'hint');
@@ -227,6 +227,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'AcknowledgeWordSuccessAnimation': {
+            modules.coreState.acknowledgeWordSuccessAnimation(command.operationId);
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
                 createEvent('domain/word-success', correlationId, {
@@ -237,6 +238,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'AcknowledgeLevelTransitionDone': {
+            modules.coreState.acknowledgeLevelTransitionDone(command.operationId);
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
                 createEvent('domain/level-clear', correlationId, {

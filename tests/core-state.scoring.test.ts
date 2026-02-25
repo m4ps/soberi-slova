@@ -153,20 +153,21 @@ describe('core state scoring/progression', () => {
       result: 'target',
       normalizedWord: 'сон',
       isSilent: false,
-      levelClearAwarded: true,
+      levelClearAwarded: false,
       scoreDelta: {
         wordScore: 16,
-        levelClearScore: 45,
-        totalScore: 61,
+        levelClearScore: 0,
+        totalScore: 16,
       },
       progress: {
         foundTargets: 3,
         totalTargets: 3,
       },
-      allTimeScore: 98,
+      allTimeScore: 53,
       stateVersion: 4,
       levelStatus: 'completed',
     });
+    expect(finalTarget.wordSuccessOperationId).toEqual(expect.any(String));
 
     const blockedBonusAfterCompletion = coreState.submitPath(
       [cell(1, 0), cell(0, 1), cell(1, 1)],
@@ -185,24 +186,113 @@ describe('core state scoring/progression', () => {
         foundTargets: 3,
         totalTargets: 3,
       },
-      allTimeScore: 98,
+      allTimeScore: 53,
       stateVersion: 4,
       levelStatus: 'completed',
+    });
+
+    const wordSuccessOperationId = finalTarget.wordSuccessOperationId;
+    expect(wordSuccessOperationId).not.toBeNull();
+
+    const levelClearAck = coreState.acknowledgeWordSuccessAnimation(wordSuccessOperationId!, 2_007);
+    expect(levelClearAck).toMatchObject({
+      operationId: wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: true,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 45,
+        totalScore: 45,
+      },
+      levelStatus: 'reshuffling',
+      showEphemeralCongrats: true,
+      allTimeScore: 98,
+      stateVersion: 5,
+    });
+    expect(levelClearAck.levelTransitionOperationId).toEqual(expect.any(String));
+
+    const duplicateLevelClearAck = coreState.acknowledgeWordSuccessAnimation(
+      wordSuccessOperationId!,
+      2_008,
+    );
+    expect(duplicateLevelClearAck).toMatchObject({
+      operationId: wordSuccessOperationId,
+      handled: false,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      levelStatus: 'reshuffling',
+      allTimeScore: 98,
+      stateVersion: 5,
+    });
+
+    const blockedInputDuringTransition = coreState.submitPath(
+      [cell(1, 0), cell(0, 1), cell(1, 1)],
+      2_009,
+    );
+    expect(blockedInputDuringTransition).toMatchObject({
+      result: 'invalid',
+      normalizedWord: 'тон',
+      isSilent: true,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      allTimeScore: 98,
+      stateVersion: 5,
+      levelStatus: 'reshuffling',
+    });
+
+    const levelTransitionOperationId = levelClearAck.levelTransitionOperationId;
+    expect(levelTransitionOperationId).not.toBeNull();
+
+    const transitionAck = coreState.acknowledgeLevelTransitionDone(
+      levelTransitionOperationId!,
+      2_010,
+    );
+    expect(transitionAck).toMatchObject({
+      operationId: levelTransitionOperationId,
+      handled: true,
+      transitionedToNextLevel: true,
+      levelStatus: 'active',
+      allTimeScore: 98,
+      stateVersion: 6,
+    });
+    expect(transitionAck.levelId).not.toBe('level-scoring');
+
+    const duplicateTransitionAck = coreState.acknowledgeLevelTransitionDone(
+      levelTransitionOperationId!,
+      2_011,
+    );
+    expect(duplicateTransitionAck).toMatchObject({
+      operationId: levelTransitionOperationId,
+      handled: false,
+      transitionedToNextLevel: false,
+      allTimeScore: 98,
+      stateVersion: 6,
     });
 
     const snapshot = coreState.getSnapshot();
     expect(snapshot.gameplay).toMatchObject({
       allTimeScore: 98,
       progress: {
-        foundTargets: 3,
-        totalTargets: 3,
+        foundTargets: 0,
       },
-      levelStatus: 'completed',
-      stateVersion: 4,
+      levelStatus: 'active',
+      stateVersion: 6,
+      isInputLocked: false,
+      showEphemeralCongrats: false,
     });
-    expect(snapshot.gameplay.foundTargets).toEqual(['дом', 'нос', 'сон']);
-    expect(snapshot.gameplay.foundBonuses).toEqual(['том']);
-    expect(snapshot.gameState.currentLevelSession.foundTargets).toEqual(['дом', 'нос', 'сон']);
-    expect(snapshot.gameState.currentLevelSession.foundBonuses).toEqual(['том']);
+    expect(snapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(3);
+    expect(snapshot.gameplay.foundTargets).toEqual([]);
+    expect(snapshot.gameplay.foundBonuses).toEqual([]);
+    expect(snapshot.gameplay.pendingWordSuccessOperationId).toBeNull();
+    expect(snapshot.gameplay.pendingLevelTransitionOperationId).toBeNull();
+    expect(snapshot.gameState.currentLevelSession.foundTargets).toEqual([]);
+    expect(snapshot.gameState.currentLevelSession.foundBonuses).toEqual([]);
   });
 });

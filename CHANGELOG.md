@@ -2,6 +2,26 @@
 
 ## 2026-02-25
 
+### [CODE]-[005] Реализовать completion pipeline и автопереход уровня
+
+- `src/domain/CoreState/index.ts` расширен completion state-machine для финального target:
+  - `submitPath` больше не начисляет `level clear` мгновенно; финальный target фиксирует только `word score`, переводит уровень в `completed` и создаёт pending operation `word-success-animation`;
+  - добавлены `acknowledgeWordSuccessAnimation(operationId)` и `acknowledgeLevelTransitionDone(operationId)` с idempotent обработкой по `operationId`;
+  - `level clear` начисляется ровно один раз только на `acknowledgeWordSuccessAnimation` и переводит уровень в `reshuffling` (full input lock);
+  - `acknowledgeLevelTransitionDone` генерирует новый уровень через `LevelGenerator`, переводит сессию в новый `active` level и сохраняет `allTimeScore`.
+- Snapshot `CoreState` дополнен transition-индикаторами:
+  - `isInputLocked`, `showEphemeralCongrats`;
+  - `pendingWordSuccessOperationId`, `pendingLevelTransitionOperationId`.
+- `src/application/index.ts` синхронизирован с новым пайплайном:
+  - `SubmitPath` использует `wordSuccessOperationId` как `correlationId`, если операция создана;
+  - команды `AcknowledgeWordSuccessAnimation` и `AcknowledgeLevelTransitionDone` теперь сначала применяют state-transition в `CoreState`, затем публикуют event envelope.
+- Тесты обновлены:
+  - `tests/core-state.scoring.test.ts` — проверка полного pipeline (`completed -> reshuffling -> active(next)`), single-award level clear, lock ввода и idempotent duplicate-ack;
+  - `tests/application-command-bus.smoke.test.ts` — интеграционная проверка completion flow через command bus.
+- Полная верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты: `output/web-game-code005-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`; `errors-*.json` отсутствуют.
+
 ### [CODE]-[004] Реализовать CoreState scoring/progression в state-first порядке
 
 - `src/domain/CoreState/index.ts` переведён со stub-модуля на stateful доменный контур:
