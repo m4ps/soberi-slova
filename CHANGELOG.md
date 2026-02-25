@@ -1,6 +1,31 @@
 # CHANGELOG
 
+## 2026-02-25
+
+### [INIT]-[092] Удаление дублирования в конфигурации и bootstrap-логике
+- Вынесены дублирующиеся bootstrap-константы YaGames в единый модуль [`src/config/platform-yandex.ts`](src/config/platform-yandex.ts): `sdk.js` path, lifecycle event names, script marker и timeout.
+- `PlatformYandex` адаптер и его контрактный тест переведены на shared-константы, что устранило расхождения строковых литералов в runtime/test коде.
+- Добавлен единый конфиг портов [`config/runtime-ports.json`](config/runtime-ports.json) и общий runner [`scripts/run-sdk-dev-proxy.mjs`](scripts/run-sdk-dev-proxy.mjs) для `dev:proxy`/`dev:proxy:prod`.
+- `vite.config.ts` теперь использует тот же источник портов, что и proxy-runner, чтобы исключить конфликтующие значения dev/preview/proxy окружений.
+- В application bus сокращён шаблонный routed-command код через helper’ы `routeCommand`/`routeHelpCommand` без изменения поведения маршрутизации.
+- README синхронизирован с новым единым конфигом портов и proxy-runner.
+- Полная верификация пройдена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-init092-smoke`.
+
 ## 2026-02-24
+
+### [INIT]-[091] Удаление ненужного кода и зависимостей этапа
+- Выполнена ревизия зависимостей: `depcheck` не выявил лишних пакетов, текущий набор `dependencies/devDependencies` оставлен минимальным и обоснованным для init/v1 scope.
+- Из `Application`-контракта удалены неиспользуемые bootstrap-зависимости `WordValidation` и `LevelGenerator`, которые не участвуют в текущем command-routing.
+- Обновлён composition root `src/main.ts`: исключён неиспользуемый wiring доменных модулей, чтобы не включать мёртвый код в entry-контур.
+- Обновлён smoke-тест `tests/application-command-bus.smoke.test.ts` под новый минимальный набор обязательных зависимостей application-слоя.
+- Прогон baseline-сборки подтверждён (`typecheck/test/lint/format:check/build`), baseline-бандл не увеличен.
+- В `BACKLOG.md` добавлена follow-up задача `[TEST]-[007]` для стабилизации Playwright smoke в TLS-контуре `sdk-dev-proxy`.
+
+### [INIT]-[090] Приборка init-этапа и удаление временных артефактов
+- Удалён временный агентский журнал `progress.md`; хранение факта выполненных работ закреплено через `CHANGELOG.md` и `tasks/*.md`.
+- `.gitignore` дополнен правилом `progress.md`, чтобы временные handoff-файлы не попадали в репозиторий.
+- Добавлен скрипт `npm run clean:init` для воспроизводимой локальной приборки init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
+- README обновлён: добавлена команда `clean:init` в список инженерных скриптов.
 
 ### [OPS] GitHub Actions deploy workflow для GitHub Pages
 - Добавлен workflow `.github/workflows/deploy-pages.yml` для автоматического деплоя в GitHub Pages при `push` в `main` и вручную (`workflow_dispatch`).

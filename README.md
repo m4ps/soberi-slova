@@ -24,9 +24,10 @@ npm run dev:proxy
 ## Скрипты
 
 - `npm run dev` — локальный запуск в режиме разработки.
-- `npm run dev:proxy` — запуск `@yandex-games/sdk-dev-proxy` в `--dev-mode=true` (хост `localhost:5173`).
-- `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` для prod-like локального режима (хост `localhost:4173`).
+- `npm run dev:proxy` — запуск `@yandex-games/sdk-dev-proxy` в `--dev-mode=true` через `scripts/run-sdk-dev-proxy.mjs`.
+- `npm run dev:proxy:prod` — запуск `sdk-dev-proxy` в `--dev-mode=false` через `scripts/run-sdk-dev-proxy.mjs`.
 - `npm run build` — typecheck + production build.
+- `npm run clean:init` — удаление временных init-артефактов (`dist/`, `output/`, `.DS_Store`, `progress.md`).
 - `npm run lint` — статический анализ TypeScript-кода (ESLint).
 - `npm run lint:fix` — автоисправление lint-замечаний.
 - `npm run format` — форматирование baseline-файлов (Prettier).
@@ -77,6 +78,8 @@ Prod-like локально:
 3. В отдельном терминале запустите `npm run dev:proxy:prod`.
 4. Откройте `http://localhost:8080`.
 
+Порты dev/preview/proxy заданы в одном месте: `config/runtime-ports.json`.
+
 Draft в Консоли Яндекс Игр:
 1. Загрузите актуальный архив сборки в черновик.
 2. Откройте черновик (обычный или debug-panel режим) из Консоли.
@@ -86,7 +89,9 @@ Draft в Консоли Яндекс Игр:
 
 ```text
 assets/         Статические ассеты игры
+config/         Единые runtime-константы (dev/preview/proxy порты)
 data/           Входные данные (словарь)
+scripts/        Служебные node-скрипты для dev/bootstrap контуров
 src/            Исходный код приложения
   adapters/     Верхний слой: Input/Render/Platform/Persistence/Telemetry
   application/  Use-case слой и контракты команд/событий
@@ -141,3 +146,5 @@ flowchart TD
 - INIT-003: добавлен typed command/query bus с envelopes результатов и smoke-тестом маршрутизации.
 - INIT-004: подключён `PlatformYandex` runtime bootstrap для YaGames SDK + локальный dev/prod proxy цикл.
 - INIT-005: настроен инженерный baseline (`lint/typecheck/build/test/format`) и CI pre-merge workflow.
+- INIT-090: удалены временные init-артефакты, добавлен воспроизводимый cleanup-скрипт `clean:init`.
+- INIT-091: убран неиспользуемый bootstrap wiring (`WordValidation`/`LevelGenerator`) из application entry-контура, зависимости init-слоя сведены к фактически используемым.

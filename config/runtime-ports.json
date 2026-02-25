@@ -1,0 +1,6 @@
+{
+  "host": "0.0.0.0",
+  "devPort": 5173,
+  "previewPort": 4173,
+  "proxyPort": 8080
+}

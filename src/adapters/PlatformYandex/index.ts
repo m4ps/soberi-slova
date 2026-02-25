@@ -4,8 +4,13 @@ import type {
   ApplicationResult,
   CommandAck,
 } from '../../application';
-
-type YandexLifecycleEvent = 'game_api_pause' | 'game_api_resume';
+import {
+  YANDEX_LIFECYCLE_EVENTS,
+  YANDEX_SDK_SCRIPT_LOAD_TIMEOUT_MS,
+  YANDEX_SDK_SCRIPT_MARKER_ATTR,
+  YANDEX_SDK_SCRIPT_SRC,
+  type YandexLifecycleEvent,
+} from '../../config/platform-yandex';
 
 interface YandexLoadingAPI {
   ready: () => void | Promise<void>;
@@ -30,10 +35,6 @@ interface YandexSdkInstance {
 interface YandexGamesGlobal {
   init: () => Promise<YandexSdkInstance>;
 }
-
-const DEFAULT_SDK_SCRIPT_SRC = '/sdk.js';
-const SDK_SCRIPT_LOAD_TIMEOUT_MS = 5_000;
-const SDK_SCRIPT_MARKER_ATTR = 'data-yandex-sdk';
 
 type PlatformLifecycleEventType =
   | 'sdk-init-start'
@@ -102,7 +103,7 @@ function waitForSdkScriptLoad(scriptElement: HTMLScriptElement, scriptSrc: strin
     const timeoutId = setTimeout(() => {
       cleanupListeners();
       reject(new Error(`Timed out while loading YaGames SDK script: ${scriptSrc}`));
-    }, SDK_SCRIPT_LOAD_TIMEOUT_MS);
+    }, YANDEX_SDK_SCRIPT_LOAD_TIMEOUT_MS);
 
     const onLoad = (): void => {
       cleanupListeners();
@@ -133,7 +134,7 @@ async function loadSdkScript(scriptSrc: string): Promise<void> {
   }
 
   const existingSdkScript =
-    document.querySelector<HTMLScriptElement>(`script[${SDK_SCRIPT_MARKER_ATTR}="true"]`) ??
+    document.querySelector<HTMLScriptElement>(`script[${YANDEX_SDK_SCRIPT_MARKER_ATTR}="true"]`) ??
     document.querySelector<HTMLScriptElement>(`script[src="${scriptSrc}"]`);
 
   if (existingSdkScript) {
@@ -148,7 +149,7 @@ async function loadSdkScript(scriptSrc: string): Promise<void> {
   const scriptElement = document.createElement('script');
   scriptElement.src = scriptSrc;
   scriptElement.async = true;
-  scriptElement.setAttribute(SDK_SCRIPT_MARKER_ATTR, 'true');
+  scriptElement.setAttribute(YANDEX_SDK_SCRIPT_MARKER_ATTR, 'true');
   document.head.append(scriptElement);
 
   await waitForSdkScriptLoad(scriptElement, scriptSrc);
@@ -195,7 +196,7 @@ export function createPlatformYandexModule(
   eventBus: ApplicationEventBus,
   options: PlatformYandexOptions = {},
 ): PlatformYandexModule {
-  const sdkScriptSrc = options.sdkScriptSrc ?? DEFAULT_SDK_SCRIPT_SRC;
+  const sdkScriptSrc = options.sdkScriptSrc ?? YANDEX_SDK_SCRIPT_SRC;
   const resolveSdk = options.resolveSdkInstance ?? (() => resolveSdkFromRuntime(sdkScriptSrc));
   const now = options.now ?? Date.now;
   const lifecycleLog: PlatformLifecycleLogEntry[] = [];
@@ -292,12 +293,12 @@ export function createPlatformYandexModule(
       await startGameplay('bootstrap');
 
       if (sdkInstance.on && sdkInstance.off) {
-        sdkInstance.on('game_api_pause', handlePause);
-        sdkInstance.on('game_api_resume', handleResume);
+        sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
+        sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
 
         unsubscribeLifecycleEvents = () => {
-          sdkInstance?.off?.('game_api_pause', handlePause);
-          sdkInstance?.off?.('game_api_resume', handleResume);
+          sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
+          sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
         };
       }
 
