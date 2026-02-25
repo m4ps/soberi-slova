@@ -157,6 +157,7 @@ flowchart TD
 - Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
+- Текущая `schemaVersion=2`: из snapshot-модели удалены legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и deprecated `pendingHelpRequest.requestedAt`.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
@@ -197,3 +198,4 @@ flowchart TD
 - DATA-004: добавлены schema migrations snapshot (`vN -> vN+1`) и LWW resolver (`stateVersion -> updatedAt -> local priority`) для local/cloud restore.
 - DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).
 - DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.
+- DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.

@@ -71,7 +71,6 @@ function createFixtureGameStateInput(): GameStateInput {
       pendingHelpRequest: {
         operationId: 'help-op-1',
         kind: 'hint',
-        requestedAt: 1_710_000_000_123,
       },
     },
     pendingOps: [
@@ -205,10 +204,53 @@ describe('game state model', () => {
     expect(firstMigration).toEqual(migratedFromSerialized);
     expect(firstMigration.schemaVersionBefore).toBe(0);
     expect(firstMigration.schemaVersionAfter).toBe(GAME_STATE_SCHEMA_VERSION);
-    expect(firstMigration.appliedMigrations).toEqual([{ fromVersion: 0, toVersion: 1 }]);
+    expect(firstMigration.appliedMigrations).toEqual([
+      { fromVersion: 0, toVersion: 1 },
+      { fromVersion: 1, toVersion: 2 },
+    ]);
     expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(firstMigration.state.stateVersion).toBe(0);
     expect(firstMigration.state.pendingOps).toEqual([]);
+  });
+
+  it('drops out-of-scope legacy fields while migrating v1 snapshots to current schema', () => {
+    const baseInput = createFixtureGameStateInput();
+    const legacyV1Snapshot: Record<string, unknown> = {
+      ...baseInput,
+      schemaVersion: 1,
+      stateVersion: 3,
+      sessionScore: 999,
+      achievements: ['first-word'],
+      dailyQuests: { completed: 1 },
+      tutorialTraces: ['intro-step-1'],
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        sessionScore: 24,
+        tutorialTrace: {
+          step: 'swipe',
+        },
+      },
+      helpWindow: {
+        ...baseInput.helpWindow,
+        pendingHelpRequest: {
+          operationId: 'help-op-legacy',
+          kind: 'hint',
+          requestedAt: 1_710_000_000_999,
+        },
+      },
+    };
+
+    const migration = migrateGameStateSnapshot(legacyV1Snapshot);
+
+    expect(migration.appliedMigrations).toEqual([{ fromVersion: 1, toVersion: 2 }]);
+    expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(migration.state.helpWindow.pendingHelpRequest).toEqual({
+      operationId: 'help-op-legacy',
+      kind: 'hint',
+    });
+    expect(migration.state).not.toHaveProperty('sessionScore');
+    expect(migration.state.currentLevelSession).not.toHaveProperty('sessionScore');
+    expect(migration.state.currentLevelSession).not.toHaveProperty('tutorialTrace');
   });
 
   it('rejects snapshots from unsupported future schema versions', () => {

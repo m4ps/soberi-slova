@@ -2,6 +2,21 @@
 
 ## 2026-02-25
 
+### [DATA]-[191] Удаление ненужных структур и полей данных
+
+- Сужена snapshot-схема `GameState` до v1-необходимого набора полей:
+  - из `PendingHelpRequest` удалено deprecated поле `requestedAt`;
+  - `GAME_STATE_SCHEMA_VERSION` повышена до `2`.
+- В `src/domain/GameState/index.ts` добавлена миграция `v1 -> v2`, которая:
+  - удаляет out-of-scope legacy поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) из snapshot;
+  - очищает `helpWindow.pendingHelpRequest` от `requestedAt`.
+- Обновлены unit-тесты `tests/game-state.model.test.ts`:
+  - миграционный сценарий `v0` теперь проверяет полную цепочку `v0 -> v1 -> v2`;
+  - добавлен тест на зачистку legacy/out-of-scope полей в миграции `v1 -> v2`.
+- Синхронизирована документация:
+  - `docs/data/game-state-schema.md` (schema `v2`, обновлённая migration chain);
+  - `README.md` (актуальный статус data-схемы и закрытие DATA-191).
+
 ### [DATA]-[190] Приборка этапа модели данных
 
 - Зафиксирован воспроизводимый cleanup data-этапа: в `package.json` добавлен `npm run clean:data`.

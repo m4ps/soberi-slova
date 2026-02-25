@@ -4,7 +4,7 @@
 
 ## Версионирование snapshot
 
-- `schemaVersion` — версия схемы snapshot (по умолчанию `1`).
+- `schemaVersion` — версия схемы snapshot (по умолчанию `2`).
 - `stateVersion` — версия состояния для LWW/конфликтов (по умолчанию `0`).
 - `updatedAt` — timestamp последнего изменения состояния (ms).
 - Для legacy payload без `schemaVersion` применяется миграционная точка входа `schemaVersion=0`.
@@ -43,7 +43,6 @@
 
 - `operationId: string`
 - `kind: 'hint' | 'reshuffle'`
-- `requestedAt: number`
 
 ### `PendingOperation`
 
@@ -108,6 +107,7 @@
 - Миграции выполняются строго детерминированной цепочкой `vN -> vN+1`.
 - Текущая цепочка:
   - `v0 -> v1`: выставляет `schemaVersion=1`, заполняет `stateVersion=0` при отсутствии, нормализует `pendingOps=[]` при отсутствии.
+  - `v1 -> v2`: удаляет legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и очищает `pendingHelpRequest` от deprecated `requestedAt`.
 - Snapshot с `schemaVersion > 1` отклоняется как unsupported future schema.
 - `resolveLwwSnapshot` выбирает winner по контракту TECHSPEC:
   1. Больше `stateVersion` выигрывает.

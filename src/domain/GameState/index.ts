@@ -1,7 +1,7 @@
 import { toErrorMessage } from '../../shared/errors';
 import type { HelpKind } from '../HelpEconomy';
 
-export const GAME_STATE_SCHEMA_VERSION = 1;
+export const GAME_STATE_SCHEMA_VERSION = 2;
 
 export type LevelSessionStatus = 'active' | 'completed' | 'reshuffling';
 
@@ -26,7 +26,6 @@ export interface WordEntry {
 export interface PendingHelpRequest {
   readonly operationId: string;
   readonly kind: HelpKind;
-  readonly requestedAt: number;
 }
 
 export interface HelpWindow {
@@ -85,7 +84,6 @@ export interface WordEntryInput {
 export interface PendingHelpRequestInput {
   readonly operationId: string;
   readonly kind: HelpKind;
-  readonly requestedAt: number;
 }
 
 export interface HelpWindowInput {
@@ -210,6 +208,38 @@ const LEVEL_TARGET_WORDS_MAX = 7;
 const CYRILLIC_WORD_PATTERN = /^[а-яё]+$/u;
 const CYRILLIC_GRID_CELL_PATTERN = /^[а-яё]$/u;
 const LEGACY_GAME_STATE_SCHEMA_VERSION = 0;
+const DEPRECATED_GAME_STATE_FIELDS_V2 = [
+  'sessionScore',
+  'achievements',
+  'dailyQuests',
+  'tutorialTrace',
+  'tutorialTraces',
+] as const;
+const DEPRECATED_LEVEL_SESSION_FIELDS_V2 = [
+  'sessionScore',
+  'achievements',
+  'dailyQuests',
+  'tutorialTrace',
+  'tutorialTraces',
+] as const;
+const DEPRECATED_PENDING_HELP_REQUEST_FIELDS_V2 = ['requestedAt'] as const;
+
+function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function omitFields(
+  source: Readonly<Record<string, unknown>>,
+  fields: readonly string[],
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...source };
+
+  for (const field of fields) {
+    delete result[field];
+  }
+
+  return result;
+}
 
 const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
   {
@@ -227,6 +257,36 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
 
       if (nextSnapshot.pendingOps === undefined || nextSnapshot.pendingOps === null) {
         nextSnapshot.pendingOps = [];
+      }
+
+      return nextSnapshot;
+    },
+  },
+  {
+    fromVersion: 1,
+    toVersion: 2,
+    migrate: (snapshot) => {
+      const nextSnapshot = omitFields(snapshot, DEPRECATED_GAME_STATE_FIELDS_V2);
+      nextSnapshot.schemaVersion = 2;
+
+      if (isRecordLike(nextSnapshot.currentLevelSession)) {
+        nextSnapshot.currentLevelSession = omitFields(
+          nextSnapshot.currentLevelSession,
+          DEPRECATED_LEVEL_SESSION_FIELDS_V2,
+        );
+      }
+
+      if (isRecordLike(nextSnapshot.helpWindow)) {
+        const helpWindow = { ...nextSnapshot.helpWindow };
+
+        if (isRecordLike(helpWindow.pendingHelpRequest)) {
+          helpWindow.pendingHelpRequest = omitFields(
+            helpWindow.pendingHelpRequest,
+            DEPRECATED_PENDING_HELP_REQUEST_FIELDS_V2,
+          );
+        }
+
+        nextSnapshot.helpWindow = helpWindow;
       }
 
       return nextSnapshot;
@@ -510,7 +570,6 @@ export function createPendingHelpRequest(input: PendingHelpRequestInput): Pendin
   return {
     operationId: assertNonEmptyString(input.operationId, 'pendingHelpRequest.operationId'),
     kind: assertLiteral(input.kind, 'pendingHelpRequest.kind', HELP_KINDS),
-    requestedAt: assertNonNegativeNumber(input.requestedAt, 'pendingHelpRequest.requestedAt'),
   };
 }
 
@@ -657,7 +716,6 @@ function toPendingHelpRequestInput(value: unknown): PendingHelpRequestInput {
   return {
     operationId: assertNonEmptyString(source.operationId, 'pendingHelpRequest.operationId'),
     kind: assertLiteral(source.kind, 'pendingHelpRequest.kind', HELP_KINDS),
-    requestedAt: assertNonNegativeNumber(source.requestedAt, 'pendingHelpRequest.requestedAt'),
   };
 }
 
