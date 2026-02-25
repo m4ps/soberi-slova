@@ -121,7 +121,7 @@ flowchart TD
 
 - `CoreState` — source of truth для runtime-mode snapshot.
 - `InputPath` — adapter ввода (привязка canvas и dispatch в application).
-- `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`).
+- `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`) + CSV pipeline словаря (`normalization + filtering + O(1) lookup index`).
 - `LevelGenerator` — заготовка генерации уровня (seed/grid contract).
 - `HelpEconomy` — контракт окна бесплатной помощи.
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
@@ -142,13 +142,21 @@ flowchart TD
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
 
-## Data Model Schema (DATA-001 / DATA-002)
+## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
 - Для state-модели добавлены runtime-инварианты (`grid 5x5`, кириллица с отдельной `ё`, `targetWords 3..7`, запрет дублей/пересечений, однонаправленные status transitions) с доменной ошибкой `GameStateDomainError`.
+- Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
+  - нормализация слов `lowercase + trim`;
+  - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
+  - дедупликация по `normalized`;
+  - in-memory индекс с O(1) lookup по normalized слову;
+  - статистика отбраковки строк для telemetry/log.
 - Документация по полям сущностей, инвариантам и snapshot-контракту:
   - `docs/data/game-state-schema.md`
+- Документация по контракту dictionary pipeline:
+  - `docs/data/dictionary-pipeline.md`
 
 ## Security Checklist (INIT-093)
 
@@ -172,3 +180,4 @@ flowchart TD
 - INIT-094: init-код приведён к единому стандарту через shared-константы и общие утилиты.
 - DATA-001: реализована доменная state-модель с runtime-конструкторами и snapshot serialization/deserialization.
 - DATA-002: закреплены runtime-инварианты состояния и unit-тесты на каждое критичное правило (включая однонаправленные переходы статуса уровня).
+- DATA-003: добавлен CSV pipeline словаря с нормализацией/фильтрацией, O(1) индексом lookup и статистикой reject-строк для telemetry/log.

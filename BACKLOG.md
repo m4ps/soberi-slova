@@ -54,7 +54,7 @@ Task DOD: Все сущности представлены типами и runti
 Task Context: Реализуй runtime-валидацию инвариантов: grid 5x5, только кириллица и отдельная `ё`, target count 3..7, отсутствие дублей, непересечение found sets, однонаправленные level state transitions.
 Task DOD: Попытки создать невалидное состояние отклоняются с доменной ошибкой; есть набор unit-тестов на каждое критичное правило инварианта.
 
-- [ ] [DATA]-[003] Построить pipeline словаря из `data/dictionary.csv` (normalization + filtering)
+- [x] [DATA]-[003] Построить pipeline словаря из `data/dictionary.csv` (normalization + filtering)
 Task Context: Реализуй загрузку CSV и нормализацию словаря согласно PRD: lower-case, только кириллица, `ё != е`, без дефисов/пробелов/спецсимволов, только `type=noun`; невалидные строки игнорируй.
 Task DOD: Pipeline генерирует валидный in-memory индекс слов; статистика отбракованных строк доступна в telemetry/log; lookup работает O(1) по normalized word.
 

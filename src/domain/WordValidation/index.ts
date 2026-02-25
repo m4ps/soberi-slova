@@ -1,4 +1,5 @@
 import { MODULE_IDS } from '../../shared/module-ids';
+import { normalizeDictionaryWord } from './dictionary-pipeline';
 
 export interface WordValidationRequest {
   readonly word: string;
@@ -19,7 +20,7 @@ export function createWordValidationModule(
   return {
     moduleName: MODULE_IDS.wordValidation,
     validateWord: ({ word, targetWords, foundWords }) => {
-      const normalizedWord = word.trim().toLowerCase();
+      const normalizedWord = normalizeDictionaryWord(word);
 
       if (!normalizedWord || !dictionary.has(normalizedWord)) {
         return 'invalid';
@@ -37,3 +38,14 @@ export function createWordValidationModule(
     },
   };
 }
+
+export {
+  buildDictionaryIndexFromCsv,
+  DictionaryPipelineError,
+  isValidNormalizedDictionaryWord,
+  normalizeDictionaryWord,
+  type DictionaryCsvPipelineResult,
+  type DictionaryIndex,
+  type DictionaryPipelineStats,
+  type DictionaryRowRejectReason,
+} from './dictionary-pipeline';

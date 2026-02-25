@@ -2,6 +2,21 @@
 
 ## 2026-02-25
 
+### [DATA]-[003] Pipeline словаря из CSV (normalization + filtering)
+- Добавлен модуль [`src/domain/WordValidation/dictionary-pipeline.ts`](src/domain/WordValidation/dictionary-pipeline.ts):
+  - реализован `buildDictionaryIndexFromCsv` для загрузки словаря из CSV в in-memory индекс;
+  - реализована нормализация `trim + lowercase` с сохранением различий `ё` и `е`;
+  - добавлена фильтрация строк по правилам PRD (`type=noun`, только `а-яё`, без спецсимволов);
+  - добавлена дедупликация по `normalized` (в индекс попадает первое валидное вхождение);
+  - добавлена статистика отбраковки `rejectedByReason` для telemetry/log (`malformed-row`, `invalid-id`, `invalid-rank`, `invalid-type`, `empty-word`, `not-lowercase`, `non-cyrillic-word`, `duplicate-word`).
+- `src/domain/WordValidation/index.ts` переведён на единый normalizer `normalizeDictionaryWord` и дополнен ре-экспортом API dictionary pipeline.
+- Добавлен unit-test suite [`tests/word-validation.dictionary-pipeline.test.ts`](tests/word-validation.dictionary-pipeline.test.ts):
+  - проверка нормализации/фильтрации и reject-статистики на синтетическом CSV;
+  - проверка typed-error при отсутствии обязательных колонок в header;
+  - проверка загрузки реального `data/dictionary.csv` с доступной telemetry-статистикой.
+- Добавлена документация pipeline: [`docs/data/dictionary-pipeline.md`](docs/data/dictionary-pipeline.md).
+- README синхронизирован с новым dictionary data-контрактом.
+
 ### [DATA]-[002] Инварианты и валидаторы состояния
 - В `src/domain/GameState/index.ts` добавлена доменная ошибка `GameStateDomainError` (`code/message/retryable/context`) и type-guard `isGameStateDomainError`.
 - Реализована runtime-валидация инвариантов `LevelSession`:
