@@ -1,6 +1,8 @@
 # GameState Schema (DATA-001 / DATA-002 / DATA-004)
 
 Документ фиксирует актуальную v1-схему доменных сущностей состояния игры, реализованную в `src/domain/GameState/index.ts`.
+Общие правила валидации данных (`кириллица/ё`, длина, numeric parsing) вынесены в
+`src/domain/data-contract.ts` и переиспользуются в data-модулях.
 
 ## Версионирование snapshot
 
@@ -108,7 +110,7 @@
 - Текущая цепочка:
   - `v0 -> v1`: выставляет `schemaVersion=1`, заполняет `stateVersion=0` при отсутствии, нормализует `pendingOps=[]` при отсутствии.
   - `v1 -> v2`: удаляет legacy/out-of-scope поля (`sessionScore`, `achievements`, `dailyQuests`, `tutorialTrace/tutorialTraces`) и очищает `pendingHelpRequest` от deprecated `requestedAt`.
-- Snapshot с `schemaVersion > 1` отклоняется как unsupported future schema.
+- Snapshot с `schemaVersion > 2` отклоняется как unsupported future schema.
 - `resolveLwwSnapshot` выбирает winner по контракту TECHSPEC:
   1. Больше `stateVersion` выигрывает.
   2. При равенстве `stateVersion` выигрывает больше `updatedAt`.

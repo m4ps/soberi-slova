@@ -1,5 +1,10 @@
 import { toErrorMessage } from '../../shared/errors';
 import type { HelpKind } from '../HelpEconomy';
+import {
+  isLengthInRange,
+  isLowercaseCyrillicLetter,
+  isLowercaseCyrillicWord,
+} from '../data-contract';
 
 export const GAME_STATE_SCHEMA_VERSION = 2;
 
@@ -73,60 +78,31 @@ export interface GameState {
   readonly leaderboardSync: LeaderboardSyncState;
 }
 
-export interface WordEntryInput {
-  readonly id: number;
-  readonly bare: string;
-  readonly rank: number;
-  readonly type: string;
-  readonly normalized: string;
-}
+export type WordEntryInput = WordEntry;
 
-export interface PendingHelpRequestInput {
-  readonly operationId: string;
-  readonly kind: HelpKind;
-}
+export type PendingHelpRequestInput = PendingHelpRequest;
 
-export interface HelpWindowInput {
-  readonly windowStartTs: number;
-  readonly freeActionAvailable: boolean;
+export interface HelpWindowInput extends Omit<HelpWindow, 'pendingHelpRequest'> {
   readonly pendingHelpRequest?: PendingHelpRequestInput | null;
 }
 
-export interface PendingOperationInput {
-  readonly operationId: string;
-  readonly kind: PendingOperationKind;
-  readonly status: PendingOperationStatus;
-  readonly retryCount: number;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-}
+export type PendingOperationInput = PendingOperation;
 
-export interface LeaderboardSyncStateInput {
-  readonly lastSubmittedScore: number;
-  readonly lastAckScore: number;
-  readonly lastSubmitTs: number;
-}
+export type LeaderboardSyncStateInput = LeaderboardSyncState;
 
-export interface LevelSessionInput {
-  readonly levelId: string;
-  readonly grid: readonly string[];
-  readonly targetWords: readonly string[];
-  readonly foundTargets: readonly string[];
-  readonly foundBonuses: readonly string[];
-  readonly status: LevelSessionStatus;
-  readonly seed: number;
+export interface LevelSessionInput extends Omit<LevelSession, 'meta'> {
   readonly meta?: Readonly<Record<string, LevelSessionMetaValue>>;
 }
 
-export interface GameStateInput {
+export interface GameStateInput extends Omit<
+  GameState,
+  'schemaVersion' | 'stateVersion' | 'currentLevelSession' | 'helpWindow' | 'pendingOps'
+> {
   readonly schemaVersion?: number;
   readonly stateVersion?: number;
-  readonly updatedAt: number;
-  readonly allTimeScore: number;
   readonly currentLevelSession: LevelSessionInput;
   readonly helpWindow: HelpWindowInput;
   readonly pendingOps?: readonly PendingOperationInput[];
-  readonly leaderboardSync: LeaderboardSyncStateInput;
 }
 
 export interface GameStateCreationOptions {
@@ -205,8 +181,6 @@ const LEVEL_GRID_SIDE = 5;
 const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
 const LEVEL_TARGET_WORDS_MIN = 3;
 const LEVEL_TARGET_WORDS_MAX = 7;
-const CYRILLIC_WORD_PATTERN = /^[а-яё]+$/u;
-const CYRILLIC_GRID_CELL_PATTERN = /^[а-яё]$/u;
 const LEGACY_GAME_STATE_SCHEMA_VERSION = 0;
 const DEPRECATED_GAME_STATE_FIELDS_V2 = [
   'sessionScore',
@@ -383,7 +357,7 @@ function assertStringArray(value: unknown, fieldName: string): readonly string[]
 }
 
 function assertCyrillicWord(value: string, fieldName: string): string {
-  if (!CYRILLIC_WORD_PATTERN.test(value)) {
+  if (!isLowercaseCyrillicWord(value)) {
     throw parseError(
       `${fieldName} must contain only lowercase Cyrillic letters (а-я, ё).`,
       'game-state.invariant.cyrillic-word',
@@ -395,7 +369,7 @@ function assertCyrillicWord(value: string, fieldName: string): string {
 }
 
 function assertGridCell(value: string, fieldName: string): string {
-  if (!CYRILLIC_GRID_CELL_PATTERN.test(value)) {
+  if (!isLowercaseCyrillicLetter(value)) {
     throw parseError(
       `${fieldName} must be a single lowercase Cyrillic letter (а-я, ё).`,
       'game-state.invariant.grid-cyrillic',
@@ -446,7 +420,7 @@ function assertUniqueWords(words: readonly string[], fieldName: string): void {
 }
 
 function assertTargetWordCount(words: readonly string[]): void {
-  if (words.length < LEVEL_TARGET_WORDS_MIN || words.length > LEVEL_TARGET_WORDS_MAX) {
+  if (!isLengthInRange(words.length, LEVEL_TARGET_WORDS_MIN, LEVEL_TARGET_WORDS_MAX)) {
     throw parseError(
       `levelSession.targetWords must contain from ${LEVEL_TARGET_WORDS_MIN} to ${LEVEL_TARGET_WORDS_MAX} words.`,
       'game-state.invariant.target-count',
@@ -699,83 +673,27 @@ export function createGameState(
 }
 
 function toWordEntryInput(value: unknown): WordEntryInput {
-  const source = assertRecord(value, 'wordEntry');
-
-  return {
-    id: assertNonNegativeNumber(source.id, 'wordEntry.id'),
-    bare: assertNonEmptyString(source.bare, 'wordEntry.bare'),
-    rank: assertFiniteNumber(source.rank, 'wordEntry.rank'),
-    type: assertNonEmptyString(source.type, 'wordEntry.type'),
-    normalized: assertNonEmptyString(source.normalized, 'wordEntry.normalized'),
-  };
-}
-
-function toPendingHelpRequestInput(value: unknown): PendingHelpRequestInput {
-  const source = assertRecord(value, 'pendingHelpRequest');
-
-  return {
-    operationId: assertNonEmptyString(source.operationId, 'pendingHelpRequest.operationId'),
-    kind: assertLiteral(source.kind, 'pendingHelpRequest.kind', HELP_KINDS),
-  };
+  return createWordEntry(assertRecord(value, 'wordEntry') as unknown as WordEntryInput);
 }
 
 function toHelpWindowInput(value: unknown): HelpWindowInput {
-  const source = assertRecord(value, 'helpWindow');
-  const pendingHelpRequestRaw = source.pendingHelpRequest;
-  const pendingHelpRequest =
-    pendingHelpRequestRaw === null || pendingHelpRequestRaw === undefined
-      ? null
-      : toPendingHelpRequestInput(pendingHelpRequestRaw);
-
-  return {
-    windowStartTs: assertNonNegativeNumber(source.windowStartTs, 'helpWindow.windowStartTs'),
-    freeActionAvailable: assertBoolean(
-      source.freeActionAvailable,
-      'helpWindow.freeActionAvailable',
-    ),
-    pendingHelpRequest,
-  };
+  return createHelpWindow(assertRecord(value, 'helpWindow') as unknown as HelpWindowInput);
 }
 
 function toPendingOperationInput(value: unknown): PendingOperationInput {
-  const source = assertRecord(value, 'pendingOperation');
-
-  return {
-    operationId: assertNonEmptyString(source.operationId, 'pendingOperation.operationId'),
-    kind: assertLiteral(source.kind, 'pendingOperation.kind', PENDING_OPERATION_KINDS),
-    status: assertLiteral(source.status, 'pendingOperation.status', PENDING_OPERATION_STATUSES),
-    retryCount: assertNonNegativeNumber(source.retryCount, 'pendingOperation.retryCount'),
-    createdAt: assertNonNegativeNumber(source.createdAt, 'pendingOperation.createdAt'),
-    updatedAt: assertNonNegativeNumber(source.updatedAt, 'pendingOperation.updatedAt'),
-  };
+  return createPendingOperation(
+    assertRecord(value, 'pendingOperation') as unknown as PendingOperationInput,
+  );
 }
 
 function toLeaderboardSyncStateInput(value: unknown): LeaderboardSyncStateInput {
-  const source = assertRecord(value, 'leaderboardSync');
-
-  return {
-    lastSubmittedScore: assertNonNegativeNumber(
-      source.lastSubmittedScore,
-      'leaderboardSync.lastSubmittedScore',
-    ),
-    lastAckScore: assertNonNegativeNumber(source.lastAckScore, 'leaderboardSync.lastAckScore'),
-    lastSubmitTs: assertNonNegativeNumber(source.lastSubmitTs, 'leaderboardSync.lastSubmitTs'),
-  };
+  return createLeaderboardSyncState(
+    assertRecord(value, 'leaderboardSync') as unknown as LeaderboardSyncStateInput,
+  );
 }
 
 function toLevelSessionInput(value: unknown): LevelSessionInput {
-  const source = assertRecord(value, 'levelSession');
-
-  return {
-    levelId: assertNonEmptyString(source.levelId, 'levelSession.levelId'),
-    grid: assertGrid(source.grid, 'levelSession.grid'),
-    targetWords: assertCyrillicWordArray(source.targetWords, 'levelSession.targetWords'),
-    foundTargets: assertCyrillicWordArray(source.foundTargets, 'levelSession.foundTargets'),
-    foundBonuses: assertCyrillicWordArray(source.foundBonuses, 'levelSession.foundBonuses'),
-    status: assertLiteral(source.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
-    seed: assertFiniteNumber(source.seed, 'levelSession.seed'),
-    meta: assertLevelSessionMeta(source.meta, 'levelSession.meta'),
-  };
+  return createLevelSession(assertRecord(value, 'levelSession') as unknown as LevelSessionInput);
 }
 
 function toGameStateInput(value: unknown): GameStateInput {

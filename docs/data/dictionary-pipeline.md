@@ -7,6 +7,7 @@
 ## Runtime API
 
 Модуль: `src/domain/WordValidation/dictionary-pipeline.ts`
+Общие data-правила переиспользуются из `src/domain/data-contract.ts`.
 
 - `buildDictionaryIndexFromCsv(csvContent)`
   - Вход: сырой CSV-текст.

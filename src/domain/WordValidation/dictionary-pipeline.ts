@@ -1,4 +1,10 @@
 import { createWordEntry, type WordEntry } from '../GameState';
+import {
+  isLowercaseCyrillicWord,
+  normalizeCyrillicWord,
+  parseFiniteNumberString,
+  parseStrictIntegerString,
+} from '../data-contract';
 
 const DICTIONARY_REQUIRED_COLUMNS = ['id', 'bare', 'rank', 'type'] as const;
 const DICTIONARY_REJECT_REASONS = [
@@ -11,7 +17,6 @@ const DICTIONARY_REJECT_REASONS = [
   'non-cyrillic-word',
   'duplicate-word',
 ] as const;
-const CYRILLIC_WORD_PATTERN = /^[а-яё]+$/u;
 const NOUN_WORD_TYPE = 'noun';
 
 type DictionaryRequiredColumn = (typeof DICTIONARY_REQUIRED_COLUMNS)[number];
@@ -151,32 +156,6 @@ function registerRejectedRow(
   stats.rejectedByReason[reason] += 1;
 }
 
-function parseStrictInteger(rawValue: string): number | null {
-  if (!/^\d+$/u.test(rawValue)) {
-    return null;
-  }
-
-  const value = Number(rawValue);
-  if (!Number.isSafeInteger(value)) {
-    return null;
-  }
-
-  return value;
-}
-
-function parseFiniteNumber(rawValue: string): number | null {
-  if (!rawValue) {
-    return null;
-  }
-
-  const value = Number(rawValue);
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-
-  return value;
-}
-
 function resolveRequiredColumnIndexes(headerCells: readonly string[]): RequiredColumnIndexes {
   const normalizedHeader = headerCells.map((cell) => normalizeHeaderCell(cell));
   const indexes: Partial<Record<DictionaryRequiredColumn, number>> = {};
@@ -210,11 +189,11 @@ function getCellValue(cells: readonly string[], columnIndex: number): string | n
 }
 
 export function normalizeDictionaryWord(word: string): string {
-  return word.trim().toLowerCase();
+  return normalizeCyrillicWord(word);
 }
 
 export function isValidNormalizedDictionaryWord(word: string): boolean {
-  return CYRILLIC_WORD_PATTERN.test(word);
+  return isLowercaseCyrillicWord(word);
 }
 
 export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPipelineResult {
@@ -271,13 +250,13 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
       continue;
     }
 
-    const entryId = parseStrictInteger(idValue);
+    const entryId = parseStrictIntegerString(idValue);
     if (entryId === null) {
       registerRejectedRow(stats, 'invalid-id');
       continue;
     }
 
-    const entryRank = parseFiniteNumber(rankValue);
+    const entryRank = parseFiniteNumberString(rankValue);
     if (entryRank === null) {
       registerRejectedRow(stats, 'invalid-rank');
       continue;

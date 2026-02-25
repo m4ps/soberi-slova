@@ -2,6 +2,31 @@
 
 ## 2026-02-25
 
+### [DATA]-[192] Удаление дублирования схем, DTO и валидаторов
+
+- Добавлен единый модуль data-контрактов [`src/domain/data-contract.ts`](src/domain/data-contract.ts):
+  - `normalizeCyrillicWord`;
+  - `isLowercaseCyrillicWord`;
+  - `isLowercaseCyrillicLetter`;
+  - `isLengthInRange`;
+  - `parseStrictIntegerString`;
+  - `parseFiniteNumberString`.
+- `src/domain/WordValidation/dictionary-pipeline.ts` переведён на shared data-helpers:
+  - нормализация/проверка слов и парсинг `id/rank` больше не дублируются локально.
+- `src/domain/GameState/index.ts` переведён на shared validators:
+  - правила кириллицы (`а-я`, `ё`) и диапазон длины target-слов используют единый модуль.
+- В `GameState` сокращено дублирование DTO-описаний:
+  - идентичные `*Input` типы консолидированы через type aliases;
+  - input-типы с частичными отличиями оформлены через `extends Omit<...>`.
+- Сокращено дублирование parse/validate веток в `to*Input` функциях `GameState` через повторное
+  использование runtime-конструкторов `create*`.
+- Добавлен новый unit-suite [`tests/data-contract.test.ts`](tests/data-contract.test.ts) для
+  shared data-helpers.
+- Синхронизирована документация:
+  - `docs/data/game-state-schema.md`;
+  - `docs/data/dictionary-pipeline.md`;
+  - `README.md`.
+
 ### [DATA]-[191] Удаление ненужных структур и полей данных
 
 - Сужена snapshot-схема `GameState` до v1-необходимого набора полей:

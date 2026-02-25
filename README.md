@@ -164,6 +164,9 @@ flowchart TD
   - дедупликация по `normalized`;
   - in-memory индекс с O(1) lookup по normalized слову;
   - статистика отбраковки строк для telemetry/log.
+- Общие data-валидаторы и parser helpers (`кириллица/ё`, length range, numeric parsing) вынесены в единый модуль:
+  - `src/domain/data-contract.ts`;
+  - используются и в `GameState`, и в `WordValidation/dictionary-pipeline`.
 - Документация по полям сущностей, инвариантам и snapshot-контракту:
   - `docs/data/game-state-schema.md`
 - Документация по контракту dictionary pipeline:
@@ -199,3 +202,4 @@ flowchart TD
 - DATA-005: формализован event envelope с `correlationId` и добавлены минимальные domain events (`word success`, `level clear`, `help`, `persistence`, `leaderboard sync`).
 - DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.
 - DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.
+- DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
