@@ -142,11 +142,12 @@ flowchart TD
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
 
-## Data Model Schema (DATA-001)
+## Data Model Schema (DATA-001 / DATA-002)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
-- Документация по полям сущностей и snapshot-контракту:
+- Для state-модели добавлены runtime-инварианты (`grid 5x5`, кириллица с отдельной `ё`, `targetWords 3..7`, запрет дублей/пересечений, однонаправленные status transitions) с доменной ошибкой `GameStateDomainError`.
+- Документация по полям сущностей, инвариантам и snapshot-контракту:
   - `docs/data/game-state-schema.md`
 
 ## Security Checklist (INIT-093)
@@ -170,3 +171,4 @@ flowchart TD
 - INIT-093: выполнен security-review init-слоя, добавлен checklist и hardening bootstrap fail-closed сценариев.
 - INIT-094: init-код приведён к единому стандарту через shared-константы и общие утилиты.
 - DATA-001: реализована доменная state-модель с runtime-конструкторами и snapshot serialization/deserialization.
+- DATA-002: закреплены runtime-инварианты состояния и unit-тесты на каждое критичное правило (включая однонаправленные переходы статуса уровня).

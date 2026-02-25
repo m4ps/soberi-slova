@@ -130,6 +130,28 @@ export interface GameStateInput {
   readonly leaderboardSync: LeaderboardSyncStateInput;
 }
 
+export interface GameStateCreationOptions {
+  readonly previousState?: GameState;
+}
+
+export class GameStateDomainError extends Error {
+  readonly code: string;
+  readonly retryable: false;
+  readonly context: Readonly<Record<string, unknown>>;
+
+  constructor(code: string, message: string, context: Readonly<Record<string, unknown>> = {}) {
+    super(`[game-state] ${message}`);
+    this.name = 'GameStateDomainError';
+    this.code = code;
+    this.retryable = false;
+    this.context = context;
+  }
+}
+
+export function isGameStateDomainError(error: unknown): error is GameStateDomainError {
+  return error instanceof GameStateDomainError;
+}
+
 const LEVEL_SESSION_STATUSES: ReadonlySet<LevelSessionStatus> = new Set([
   'active',
   'completed',
@@ -153,8 +175,27 @@ const PENDING_OPERATION_STATUSES: ReadonlySet<PendingOperationStatus> = new Set(
 
 const HELP_KINDS: ReadonlySet<HelpKind> = new Set(['hint', 'reshuffle']);
 
-function parseError(message: string): Error {
-  return new Error(`[game-state] ${message}`);
+const LEVEL_GRID_SIDE = 5;
+const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
+const LEVEL_TARGET_WORDS_MIN = 3;
+const LEVEL_TARGET_WORDS_MAX = 7;
+const CYRILLIC_WORD_PATTERN = /^[а-яё]+$/u;
+const CYRILLIC_GRID_CELL_PATTERN = /^[а-яё]$/u;
+
+const SAME_LEVEL_STATUS_TRANSITIONS: Readonly<
+  Record<LevelSessionStatus, readonly LevelSessionStatus[]>
+> = {
+  active: ['active', 'completed'],
+  completed: ['completed', 'reshuffling'],
+  reshuffling: ['reshuffling'],
+};
+
+function parseError(
+  message: string,
+  code = 'game-state.validation',
+  context: Readonly<Record<string, unknown>> = {},
+): GameStateDomainError {
+  return new GameStateDomainError(code, message, context);
 }
 
 function assertRecord(value: unknown, fieldName: string): Record<string, unknown> {
@@ -183,6 +224,14 @@ function assertNonNegativeNumber(value: unknown, fieldName: string): number {
   return parsed;
 }
 
+function assertBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw parseError(`${fieldName} must be a boolean.`);
+  }
+
+  return value;
+}
+
 function assertNonEmptyString(value: unknown, fieldName: string): string {
   if (typeof value !== 'string') {
     throw parseError(`${fieldName} must be a string.`);
@@ -202,6 +251,134 @@ function assertStringArray(value: unknown, fieldName: string): readonly string[]
   }
 
   return value.map((entry, index) => assertNonEmptyString(entry, `${fieldName}[${index}]`));
+}
+
+function assertCyrillicWord(value: string, fieldName: string): string {
+  if (!CYRILLIC_WORD_PATTERN.test(value)) {
+    throw parseError(
+      `${fieldName} must contain only lowercase Cyrillic letters (а-я, ё).`,
+      'game-state.invariant.cyrillic-word',
+      { fieldName, value },
+    );
+  }
+
+  return value;
+}
+
+function assertGridCell(value: string, fieldName: string): string {
+  if (!CYRILLIC_GRID_CELL_PATTERN.test(value)) {
+    throw parseError(
+      `${fieldName} must be a single lowercase Cyrillic letter (а-я, ё).`,
+      'game-state.invariant.grid-cyrillic',
+      { fieldName, value },
+    );
+  }
+
+  return value;
+}
+
+function assertCyrillicWordArray(value: unknown, fieldName: string): readonly string[] {
+  return assertStringArray(value, fieldName).map((entry, index) =>
+    assertCyrillicWord(entry, `${fieldName}[${index}]`),
+  );
+}
+
+function assertGrid(value: unknown, fieldName: string): readonly string[] {
+  const grid = assertStringArray(value, fieldName);
+
+  if (grid.length !== LEVEL_GRID_CELL_COUNT) {
+    throw parseError(
+      `${fieldName} must contain exactly ${LEVEL_GRID_CELL_COUNT} cells (${LEVEL_GRID_SIDE}x${LEVEL_GRID_SIDE}).`,
+      'game-state.invariant.grid-size',
+      {
+        expected: LEVEL_GRID_CELL_COUNT,
+        actual: grid.length,
+      },
+    );
+  }
+
+  return grid.map((entry, index) => assertGridCell(entry, `${fieldName}[${index}]`));
+}
+
+function assertUniqueWords(words: readonly string[], fieldName: string): void {
+  const seen = new Set<string>();
+
+  for (const [index, word] of words.entries()) {
+    if (seen.has(word)) {
+      throw parseError(
+        `${fieldName} must not contain duplicate values.`,
+        'game-state.invariant.duplicate-word',
+        { fieldName, word, index },
+      );
+    }
+
+    seen.add(word);
+  }
+}
+
+function assertTargetWordCount(words: readonly string[]): void {
+  if (words.length < LEVEL_TARGET_WORDS_MIN || words.length > LEVEL_TARGET_WORDS_MAX) {
+    throw parseError(
+      `levelSession.targetWords must contain from ${LEVEL_TARGET_WORDS_MIN} to ${LEVEL_TARGET_WORDS_MAX} words.`,
+      'game-state.invariant.target-count',
+      {
+        min: LEVEL_TARGET_WORDS_MIN,
+        max: LEVEL_TARGET_WORDS_MAX,
+        actual: words.length,
+      },
+    );
+  }
+}
+
+function assertFoundTargetsBelongToTargetWords(
+  targetWords: readonly string[],
+  foundTargets: readonly string[],
+): void {
+  const targetWordsSet = new Set(targetWords);
+
+  for (const word of foundTargets) {
+    if (!targetWordsSet.has(word)) {
+      throw parseError(
+        'levelSession.foundTargets must contain only words from levelSession.targetWords.',
+        'game-state.invariant.found-target-not-target',
+        { word },
+      );
+    }
+  }
+}
+
+function assertFoundBonusesDoNotContainTargetWords(
+  targetWords: readonly string[],
+  foundBonuses: readonly string[],
+): void {
+  const targetWordsSet = new Set(targetWords);
+
+  for (const word of foundBonuses) {
+    if (targetWordsSet.has(word)) {
+      throw parseError(
+        'levelSession.foundBonuses must not contain target words.',
+        'game-state.invariant.bonus-is-target',
+        { word },
+      );
+    }
+  }
+}
+
+function assertFoundSetsDoNotIntersect(
+  foundTargets: readonly string[],
+  foundBonuses: readonly string[],
+): void {
+  const foundTargetSet = new Set(foundTargets);
+
+  for (const word of foundBonuses) {
+    if (foundTargetSet.has(word)) {
+      throw parseError(
+        'levelSession.foundTargets and levelSession.foundBonuses must not intersect.',
+        'game-state.invariant.found-sets-overlap',
+        { word },
+      );
+    }
+  }
 }
 
 function assertLiteral<TValue extends string>(
@@ -271,12 +448,7 @@ export function createPendingHelpRequest(input: PendingHelpRequestInput): Pendin
 export function createHelpWindow(input: HelpWindowInput): HelpWindow {
   return {
     windowStartTs: assertNonNegativeNumber(input.windowStartTs, 'helpWindow.windowStartTs'),
-    freeActionAvailable:
-      typeof input.freeActionAvailable === 'boolean'
-        ? input.freeActionAvailable
-        : (() => {
-            throw parseError('helpWindow.freeActionAvailable must be a boolean.');
-          })(),
+    freeActionAvailable: assertBoolean(input.freeActionAvailable, 'helpWindow.freeActionAvailable'),
     pendingHelpRequest:
       input.pendingHelpRequest === undefined || input.pendingHelpRequest === null
         ? null
@@ -307,20 +479,74 @@ export function createLeaderboardSyncState(input: LeaderboardSyncStateInput): Le
 }
 
 export function createLevelSession(input: LevelSessionInput): LevelSession {
-  return {
+  const levelSession: LevelSession = {
     levelId: assertNonEmptyString(input.levelId, 'levelSession.levelId'),
-    grid: assertStringArray(input.grid, 'levelSession.grid'),
-    targetWords: assertStringArray(input.targetWords, 'levelSession.targetWords'),
-    foundTargets: assertStringArray(input.foundTargets, 'levelSession.foundTargets'),
-    foundBonuses: assertStringArray(input.foundBonuses, 'levelSession.foundBonuses'),
+    grid: assertGrid(input.grid, 'levelSession.grid'),
+    targetWords: assertCyrillicWordArray(input.targetWords, 'levelSession.targetWords'),
+    foundTargets: assertCyrillicWordArray(input.foundTargets, 'levelSession.foundTargets'),
+    foundBonuses: assertCyrillicWordArray(input.foundBonuses, 'levelSession.foundBonuses'),
     status: assertLiteral(input.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
     seed: assertFiniteNumber(input.seed, 'levelSession.seed'),
     meta: assertLevelSessionMeta(input.meta, 'levelSession.meta'),
   };
+
+  assertTargetWordCount(levelSession.targetWords);
+  assertUniqueWords(levelSession.targetWords, 'levelSession.targetWords');
+  assertUniqueWords(levelSession.foundTargets, 'levelSession.foundTargets');
+  assertUniqueWords(levelSession.foundBonuses, 'levelSession.foundBonuses');
+  assertFoundTargetsBelongToTargetWords(levelSession.targetWords, levelSession.foundTargets);
+  assertFoundSetsDoNotIntersect(levelSession.foundTargets, levelSession.foundBonuses);
+  assertFoundBonusesDoNotContainTargetWords(levelSession.targetWords, levelSession.foundBonuses);
+
+  return levelSession;
 }
 
-export function createGameState(input: GameStateInput): GameState {
-  return {
+export function assertLevelSessionTransition(
+  previousSession: LevelSession,
+  nextSession: LevelSession,
+): void {
+  const levelChanged = previousSession.levelId !== nextSession.levelId;
+
+  if (!levelChanged) {
+    const allowedTransitions = SAME_LEVEL_STATUS_TRANSITIONS[previousSession.status];
+
+    if (!allowedTransitions.includes(nextSession.status)) {
+      throw parseError(
+        `Invalid level status transition: ${previousSession.status} -> ${nextSession.status}.`,
+        'game-state.invariant.level-status-transition',
+        {
+          fromStatus: previousSession.status,
+          toStatus: nextSession.status,
+          levelId: previousSession.levelId,
+        },
+      );
+    }
+
+    return;
+  }
+
+  const isAllowedNextLevelTransition =
+    previousSession.status === 'reshuffling' && nextSession.status === 'active';
+
+  if (!isAllowedNextLevelTransition) {
+    throw parseError(
+      'levelSession.levelId can change only during reshuffling -> active transition.',
+      'game-state.invariant.level-transition-order',
+      {
+        fromStatus: previousSession.status,
+        toStatus: nextSession.status,
+        previousLevelId: previousSession.levelId,
+        nextLevelId: nextSession.levelId,
+      },
+    );
+  }
+}
+
+export function createGameState(
+  input: GameStateInput,
+  options: GameStateCreationOptions = {},
+): GameState {
+  const nextState: GameState = {
     schemaVersion: assertNonNegativeNumber(
       input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
       'gameState.schemaVersion',
@@ -333,6 +559,15 @@ export function createGameState(input: GameStateInput): GameState {
     pendingOps: (input.pendingOps ?? []).map((operation) => createPendingOperation(operation)),
     leaderboardSync: createLeaderboardSyncState(input.leaderboardSync),
   };
+
+  if (options.previousState) {
+    assertLevelSessionTransition(
+      options.previousState.currentLevelSession,
+      nextState.currentLevelSession,
+    );
+  }
+
+  return nextState;
 }
 
 function toWordEntryInput(value: unknown): WordEntryInput {
@@ -367,12 +602,10 @@ function toHelpWindowInput(value: unknown): HelpWindowInput {
 
   return {
     windowStartTs: assertNonNegativeNumber(source.windowStartTs, 'helpWindow.windowStartTs'),
-    freeActionAvailable:
-      typeof source.freeActionAvailable === 'boolean'
-        ? source.freeActionAvailable
-        : (() => {
-            throw parseError('helpWindow.freeActionAvailable must be a boolean.');
-          })(),
+    freeActionAvailable: assertBoolean(
+      source.freeActionAvailable,
+      'helpWindow.freeActionAvailable',
+    ),
     pendingHelpRequest,
   };
 }
@@ -408,10 +641,10 @@ function toLevelSessionInput(value: unknown): LevelSessionInput {
 
   return {
     levelId: assertNonEmptyString(source.levelId, 'levelSession.levelId'),
-    grid: assertStringArray(source.grid, 'levelSession.grid'),
-    targetWords: assertStringArray(source.targetWords, 'levelSession.targetWords'),
-    foundTargets: assertStringArray(source.foundTargets, 'levelSession.foundTargets'),
-    foundBonuses: assertStringArray(source.foundBonuses, 'levelSession.foundBonuses'),
+    grid: assertGrid(source.grid, 'levelSession.grid'),
+    targetWords: assertCyrillicWordArray(source.targetWords, 'levelSession.targetWords'),
+    foundTargets: assertCyrillicWordArray(source.foundTargets, 'levelSession.foundTargets'),
+    foundBonuses: assertCyrillicWordArray(source.foundBonuses, 'levelSession.foundBonuses'),
     status: assertLiteral(source.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
     seed: assertFiniteNumber(source.seed, 'levelSession.seed'),
     meta: assertLevelSessionMeta(source.meta, 'levelSession.meta'),
@@ -421,15 +654,16 @@ function toLevelSessionInput(value: unknown): LevelSessionInput {
 function toGameStateInput(value: unknown): GameStateInput {
   const source = assertRecord(value, 'gameState');
   const pendingOpsRaw = source.pendingOps;
-  const pendingOps = pendingOpsRaw
-    ? (() => {
-        if (!Array.isArray(pendingOpsRaw)) {
-          throw parseError('gameState.pendingOps must be an array when present.');
-        }
+  const pendingOps =
+    pendingOpsRaw === undefined || pendingOpsRaw === null
+      ? []
+      : (() => {
+          if (!Array.isArray(pendingOpsRaw)) {
+            throw parseError('gameState.pendingOps must be an array when present.');
+          }
 
-        return pendingOpsRaw.map((entry) => toPendingOperationInput(entry));
-      })()
-    : [];
+          return pendingOpsRaw.map((entry) => toPendingOperationInput(entry));
+        })();
 
   return {
     schemaVersion: assertNonNegativeNumber(source.schemaVersion, 'gameState.schemaVersion'),
@@ -465,7 +699,7 @@ export function deserializeGameState(serialized: string): GameState {
   try {
     parsed = JSON.parse(serialized) as unknown;
   } catch {
-    throw parseError('Invalid JSON snapshot.');
+    throw parseError('Invalid JSON snapshot.', 'game-state.invalid-json');
   }
 
   return createGameState(toGameStateInput(parsed));

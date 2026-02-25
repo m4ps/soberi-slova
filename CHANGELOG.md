@@ -2,6 +2,29 @@
 
 ## 2026-02-25
 
+### [DATA]-[002] Инварианты и валидаторы состояния
+- В `src/domain/GameState/index.ts` добавлена доменная ошибка `GameStateDomainError` (`code/message/retryable/context`) и type-guard `isGameStateDomainError`.
+- Реализована runtime-валидация инвариантов `LevelSession`:
+  - grid строго `5x5` (`25` ячеек);
+  - только нижняя кириллица (`а-я`, `ё`) для `grid`, `targetWords`, `foundTargets`, `foundBonuses`;
+  - `targetWords` строго в диапазоне `3..7`;
+  - запрет дублей в `targetWords`, `foundTargets`, `foundBonuses`;
+  - `foundTargets` только из target-набора;
+  - `foundBonuses` не содержат target-слова;
+  - `foundTargets` и `foundBonuses` не пересекаются.
+- Добавлена проверка однонаправленных переходов статуса уровня:
+  - в рамках одного `levelId`: `active -> active|completed`, `completed -> completed|reshuffling`, `reshuffling -> reshuffling`;
+  - смена `levelId` разрешена только при `reshuffling -> active`.
+- `createGameState` расширен опцией `previousState` для runtime-валидации status transition при построении следующего snapshot.
+- Обновлён test suite `tests/game-state.model.test.ts`:
+  - добавлены unit-тесты на каждое критичное правило инвариантов;
+  - добавлены проверки кодов доменных ошибок;
+  - добавлен позитивный тест разрешённого перехода `reshuffling -> active(next level)`.
+- Документация синхронизирована: обновлены `docs/data/game-state-schema.md` и `README.md`.
+- Полная верификация выполнена:
+  - `npm run ci:baseline` — green;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — green, артефакты в `output/web-game-data002-smoke`, `errors-*.json` отсутствуют.
+
 ### [DATA]-[001] Доменные сущности состояния игры
 - Добавлен модуль [`src/domain/GameState/index.ts`](src/domain/GameState/index.ts) как единый source of truth для state-модели:
   - `GameState`, `LevelSession`, `HelpWindow`, `PendingHelpRequest`, `PendingOperation`, `LeaderboardSyncState`, `WordEntry`.
