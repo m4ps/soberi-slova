@@ -1,4 +1,4 @@
-# GameState Schema (DATA-001 / DATA-002 / DATA-004)
+# GameState Schema (DATA-001 / DATA-002 / DATA-004 / DATA-193)
 
 Документ фиксирует актуальную v1-схему доменных сущностей состояния игры, реализованную в `src/domain/GameState/index.ts`.
 Общие правила валидации данных (`кириллица/ё`, длина, numeric parsing) вынесены в
@@ -97,11 +97,22 @@
 - Переходы статуса однонаправленные:
   - в рамках одного уровня: `active -> active|completed`, `completed -> completed|reshuffling`, `reshuffling -> reshuffling`;
   - смена `levelId` разрешена только в переходе `reshuffling -> active` (следующий уровень).
+- Числовые счётчики и версии (`schemaVersion`, `stateVersion`, `updatedAt`, `allTimeScore`, leaderboard/pendingOps timestamps) принимаются только как non-negative safe integer, чтобы исключить overflow/precision corruption.
+- `pendingOps` дополнительно валидируется по security-контракту:
+  - максимум `128` операций в snapshot;
+  - `operationId` уникален в пределах массива;
+  - `updatedAt >= createdAt` для каждой операции.
+- `leaderboardSync` должен быть консистентен:
+  - `lastAckScore <= lastSubmittedScore <= allTimeScore`;
+  - `lastSubmitTs=0`, если `lastSubmittedScore=0`.
+- При валидации перехода `previousState -> nextState` запрещены регрессии:
+  - `stateVersion`, `updatedAt`, `allTimeScore` не уменьшаются;
+  - `foundTargets/foundBonuses` не теряют ранее найденные слова в рамках того же `levelId`.
 
 ## Контракт сериализации
 
 - Snapshot сохраняется/восстанавливается через JSON.
-- Десериализация и инвариантная валидация fail-fast: malformed payload/invalid state вызывает `GameStateDomainError` с префиксом `[game-state]`, `retryable=false` и кодом ошибки.
+- Десериализация и инвариантная валидация fail-fast: malformed payload/invalid state/overflow-consistency нарушения вызывают `GameStateDomainError` с префиксом `[game-state]`, `retryable=false` и кодом ошибки.
 - Round-trip без потери структуры подтверждён unit-тестом `tests/game-state.model.test.ts`.
 
 ## Миграции и LWW merge (DATA-004)

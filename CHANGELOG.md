@@ -2,6 +2,32 @@
 
 ## 2026-02-25
 
+### [DATA]-[193] Анализ безопасности модели данных
+
+- Усилен security-контур `GameState` (`src/domain/GameState/index.ts`):
+  - критичные счётчики/версии/timestamp валидируются как non-negative safe integer (`game-state.validation.safe-integer`);
+  - добавлены guard-инварианты `pendingOps`:
+    - лимит размера массива (`<= 128`);
+    - запрет дублей `operationId`;
+    - проверка timeline `updatedAt >= createdAt`;
+  - добавлены guard-инварианты `leaderboardSync`:
+    - `lastAckScore <= lastSubmittedScore <= allTimeScore`;
+    - `lastSubmitTs=0` при `lastSubmittedScore=0`;
+  - расширены transition-проверки при `previousState`:
+    - запрет регрессии `stateVersion`, `updatedAt`, `allTimeScore`;
+    - запрет потери `foundTargets/foundBonuses` в пределах того же `levelId`.
+- Усилен security-контур dictionary pipeline (`src/domain/WordValidation/dictionary-pipeline.ts`):
+  - добавлены runtime guards на invalid input type и oversized CSV/header/row;
+  - добавлена защита от overflow rank payload (`rank` только `0..Number.MAX_SAFE_INTEGER`);
+  - index lookup API сделан runtime-safe для нестроковых входов (возвращает `false/null` вместо throw).
+- Расширены unit-тесты:
+  - `tests/game-state.model.test.ts` — security-кейсы для overflow/consistency/regression guards;
+  - `tests/word-validation.dictionary-pipeline.test.ts` — security-кейсы oversized CSV, invalid rank и runtime-safe lookup.
+- Синхронизирована документация:
+  - `docs/data/game-state-schema.md`;
+  - `docs/data/dictionary-pipeline.md`;
+  - `README.md`.
+
 ### [DATA]-[192] Удаление дублирования схем, DTO и валидаторов
 
 - Добавлен единый модуль data-контрактов [`src/domain/data-contract.ts`](src/domain/data-contract.ts):

@@ -18,6 +18,9 @@ const DICTIONARY_REJECT_REASONS = [
   'duplicate-word',
 ] as const;
 const NOUN_WORD_TYPE = 'noun';
+const MAX_DICTIONARY_CSV_CHARS = 5_000_000;
+const MAX_DICTIONARY_ROW_CHARS = 8_192;
+const MAX_DICTIONARY_RANK = Number.MAX_SAFE_INTEGER;
 
 type DictionaryRequiredColumn = (typeof DICTIONARY_REQUIRED_COLUMNS)[number];
 type RejectCounters = Record<DictionaryRowRejectReason, number>;
@@ -188,6 +191,10 @@ function getCellValue(cells: readonly string[], columnIndex: number): string | n
   return sanitizeCell(value);
 }
 
+function isValidDictionaryRank(value: number): boolean {
+  return value >= 0 && value <= MAX_DICTIONARY_RANK;
+}
+
 export function normalizeDictionaryWord(word: string): string {
   return normalizeCyrillicWord(word);
 }
@@ -197,6 +204,25 @@ export function isValidNormalizedDictionaryWord(word: string): boolean {
 }
 
 export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPipelineResult {
+  if (typeof csvContent !== 'string') {
+    throw new DictionaryPipelineError(
+      'dictionary-pipeline.invalid-input',
+      'CSV content must be a string.',
+      { actualType: typeof csvContent },
+    );
+  }
+
+  if (csvContent.length > MAX_DICTIONARY_CSV_CHARS) {
+    throw new DictionaryPipelineError(
+      'dictionary-pipeline.csv-too-large',
+      `CSV content exceeds ${MAX_DICTIONARY_CSV_CHARS} characters.`,
+      {
+        actualLength: csvContent.length,
+        maxLength: MAX_DICTIONARY_CSV_CHARS,
+      },
+    );
+  }
+
   if (!csvContent.trim()) {
     throw new DictionaryPipelineError('dictionary-pipeline.empty-csv', 'CSV content is empty.');
   }
@@ -206,6 +232,17 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
 
   if (!headerLine || !headerLine.trim()) {
     throw new DictionaryPipelineError('dictionary-pipeline.empty-header', 'CSV header is empty.');
+  }
+
+  if (headerLine.length > MAX_DICTIONARY_ROW_CHARS) {
+    throw new DictionaryPipelineError(
+      'dictionary-pipeline.header-too-large',
+      `CSV header exceeds ${MAX_DICTIONARY_ROW_CHARS} characters.`,
+      {
+        actualLength: headerLine.length,
+        maxLength: MAX_DICTIONARY_ROW_CHARS,
+      },
+    );
   }
 
   const parsedHeader = parseCsvRow(headerLine);
@@ -227,6 +264,11 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
     }
 
     stats.totalRows += 1;
+
+    if (rawRow.length > MAX_DICTIONARY_ROW_CHARS) {
+      registerRejectedRow(stats, 'malformed-row');
+      continue;
+    }
 
     const parsedRow = parseCsvRow(rawRow);
     if (parsedRow.malformed) {
@@ -257,7 +299,7 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
     }
 
     const entryRank = parseFiniteNumberString(rankValue);
-    if (entryRank === null) {
+    if (entryRank === null || !isValidDictionaryRank(entryRank)) {
       registerRejectedRow(stats, 'invalid-rank');
       continue;
     }
@@ -283,16 +325,22 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
       continue;
     }
 
-    entriesByNormalizedWord.set(
-      normalizedWord,
-      createWordEntry({
-        id: entryId,
-        bare: bareValue,
-        rank: entryRank,
-        type: NOUN_WORD_TYPE,
-        normalized: normalizedWord,
-      }),
-    );
+    try {
+      entriesByNormalizedWord.set(
+        normalizedWord,
+        createWordEntry({
+          id: entryId,
+          bare: bareValue,
+          rank: entryRank,
+          type: NOUN_WORD_TYPE,
+          normalized: normalizedWord,
+        }),
+      );
+    } catch {
+      registerRejectedRow(stats, 'malformed-row');
+      continue;
+    }
+
     stats.acceptedRows += 1;
   }
 
@@ -302,10 +350,14 @@ export function buildDictionaryIndexFromCsv(csvContent: string): DictionaryCsvPi
     index: {
       size: normalizedWords.size,
       normalizedWords,
-      hasNormalizedWord: (normalizedWord) => entriesByNormalizedWord.has(normalizedWord),
-      containsWord: (word) => entriesByNormalizedWord.has(normalizeDictionaryWord(word)),
+      hasNormalizedWord: (normalizedWord) =>
+        typeof normalizedWord === 'string' && entriesByNormalizedWord.has(normalizedWord),
+      containsWord: (word) =>
+        typeof word === 'string' && entriesByNormalizedWord.has(normalizeDictionaryWord(word)),
       getEntryByNormalizedWord: (normalizedWord) =>
-        entriesByNormalizedWord.get(normalizedWord) ?? null,
+        typeof normalizedWord === 'string'
+          ? (entriesByNormalizedWord.get(normalizedWord) ?? null)
+          : null,
     },
     stats: createReadonlyStats(stats),
   };

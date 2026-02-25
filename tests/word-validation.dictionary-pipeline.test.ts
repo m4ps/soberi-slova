@@ -50,9 +50,31 @@ describe('dictionary CSV pipeline', () => {
     expect(result.index.hasNormalizedWord('Дом')).toBe(false);
     expect(result.index.containsWord(' дом ')).toBe(true);
     expect(result.index.containsWord('не-слово')).toBe(false);
+    expect(result.index.containsWord(123 as unknown as string)).toBe(false);
+    expect(result.index.getEntryByNormalizedWord(123 as unknown as string)).toBe(null);
     expect(result.index.getEntryByNormalizedWord('дом')?.id).toBe(1);
     expect(result.index.getEntryByNormalizedWord('еж')?.id).toBe(9);
     expect(result.index.getEntryByNormalizedWord('ёж')?.id).toBe(8);
+  });
+
+  it('rejects negative and overflow rank values as invalid-rank without crashing pipeline', () => {
+    const fixtureCsv = [
+      'id,bare,rank,type',
+      '1,дом,10,noun',
+      '2,лес,-1,noun',
+      `3,мир,${Number.MAX_SAFE_INTEGER + 1},noun`,
+    ].join('\n');
+
+    const result = buildDictionaryIndexFromCsv(fixtureCsv);
+
+    expect(result.stats.totalRows).toBe(3);
+    expect(result.stats.acceptedRows).toBe(1);
+    expect(result.stats.rejectedRows).toBe(2);
+    expect(result.stats.rejectedByReason['invalid-rank']).toBe(2);
+    expect(result.index.size).toBe(1);
+    expect(result.index.hasNormalizedWord('дом')).toBe(true);
+    expect(result.index.hasNormalizedWord('лес')).toBe(false);
+    expect(result.index.hasNormalizedWord('мир')).toBe(false);
   });
 
   it('throws a typed error when required CSV columns are missing', () => {
@@ -67,6 +89,22 @@ describe('dictionary CSV pipeline', () => {
       expect(error).toBeInstanceOf(DictionaryPipelineError);
       if (error instanceof DictionaryPipelineError) {
         expect(error.code).toBe('dictionary-pipeline.missing-columns');
+      }
+    }
+  });
+
+  it('throws a typed error when CSV payload exceeds size guard', () => {
+    const oversizedCsv = 'a'.repeat(5_000_001);
+
+    expect(() => buildDictionaryIndexFromCsv(oversizedCsv)).toThrowError(DictionaryPipelineError);
+
+    try {
+      buildDictionaryIndexFromCsv(oversizedCsv);
+      throw new Error('Expected buildDictionaryIndexFromCsv to throw.');
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(DictionaryPipelineError);
+      if (error instanceof DictionaryPipelineError) {
+        expect(error.code).toBe('dictionary-pipeline.csv-too-large');
       }
     }
   });

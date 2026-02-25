@@ -149,11 +149,16 @@ flowchart TD
   - `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }`
   - `correlationId` обязателен для всех событий и используется для сквозной трассировки операций.
 
-## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004 / DATA-005)
+## Data Model & Dictionary Schema (DATA-001 / DATA-002 / DATA-003 / DATA-004 / DATA-005 / DATA-193)
 
 - Версионированная схема состояния игры и runtime-конструкторы реализованы в:
   - `src/domain/GameState/index.ts`
 - Для state-модели добавлены runtime-инварианты (`grid 5x5`, кириллица с отдельной `ё`, `targetWords 3..7`, запрет дублей/пересечений, однонаправленные status transitions) с доменной ошибкой `GameStateDomainError`.
+- Для data-security слоя добавлены guard-проверки:
+  - non-negative safe-integer для критичных счётчиков/версий/timestamp в snapshot;
+  - консистентность `pendingOps` (`operationId` unique, `updatedAt >= createdAt`, лимит массива);
+  - консистентность leaderboard sync (`lastAck <= lastSubmitted <= allTimeScore`);
+  - защита от регрессии найденных слов и state counters при переходах с `previousState`.
 - Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
@@ -161,6 +166,7 @@ flowchart TD
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
+  - rank guard (`0..Number.MAX_SAFE_INTEGER`) и size guards на CSV/header/row;
   - дедупликация по `normalized`;
   - in-memory индекс с O(1) lookup по normalized слову;
   - статистика отбраковки строк для telemetry/log.
@@ -203,3 +209,4 @@ flowchart TD
 - DATA-190: добавлен воспроизводимый cleanup data-этапа (`clean:data`) и зафиксированы ignore-правила для временных CSV/JSON артефактов.
 - DATA-191: из state schema удалены out-of-scope legacy поля и deprecated `pendingHelpRequest.requestedAt`; миграции расширены до `v1 -> v2`.
 - DATA-192: устранено дублирование data-типов и валидаторов; общие правила вынесены в `src/domain/data-contract.ts`, DTO-повторы в `GameState` консолидированы через type aliases.
+- DATA-193: выполнен security-review data-слоя; добавлены guard-проверки от malformed/overflow payload, зафиксированы consistency-инварианты для snapshot/transition и усилен CSV-pipeline от повреждённых входов.

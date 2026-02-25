@@ -315,6 +315,11 @@ describe('game state model', () => {
       ...createLegacySnapshotV0WithoutStateVersion(),
       updatedAt: 120,
       allTimeScore: 111,
+      leaderboardSync: {
+        lastSubmittedScore: 111,
+        lastAckScore: 111,
+        lastSubmitTs: 120,
+      },
     };
     const cloudSnapshot = createGameState({
       ...baseInput,
@@ -411,6 +416,95 @@ describe('game state model', () => {
     );
   });
 
+  it('rejects unsafe integer counters to prevent overflow corruption', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      allTimeScore: Number.MAX_SAFE_INTEGER + 1,
+    };
+
+    expectDomainErrorWithCode(() => createGameState(input), 'game-state.validation.safe-integer');
+  });
+
+  it('rejects pending operations with duplicate operationId values', () => {
+    const baseInput = createFixtureGameStateInput();
+    const duplicateOp = baseInput.pendingOps?.[0];
+    const input: GameStateInput = {
+      ...baseInput,
+      pendingOps: duplicateOp
+        ? [
+            duplicateOp,
+            {
+              ...duplicateOp,
+              kind: 'leaderboard-sync',
+            },
+          ]
+        : [],
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.pending-operation-duplicate-id',
+    );
+  });
+
+  it('rejects pending operations with non-monotonic timestamps', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      pendingOps: [
+        {
+          operationId: 'pending-invalid-timeline',
+          kind: 'restore-session',
+          status: 'pending',
+          retryCount: 0,
+          createdAt: 200,
+          updatedAt: 199,
+        },
+      ],
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.pending-operation-timeline',
+    );
+  });
+
+  it('rejects inconsistent leaderboard sync ordering', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      leaderboardSync: {
+        lastSubmittedScore: 50,
+        lastAckScore: 60,
+        lastSubmitTs: 1_710_000_001_000,
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.leaderboard-ack-order',
+    );
+  });
+
+  it('rejects leaderboard submitted score above allTimeScore', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      allTimeScore: 100,
+      leaderboardSync: {
+        ...baseInput.leaderboardSync,
+        lastSubmittedScore: 101,
+        lastAckScore: 100,
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.leaderboard-submitted-score',
+    );
+  });
+
   it('rejects non-monotonic level status transition for the same level', () => {
     const previousState = createGameState(createFixtureGameStateInput());
     const baseInput = createFixtureGameStateInput();
@@ -425,6 +519,45 @@ describe('game state model', () => {
     expectDomainErrorWithCode(
       () => createGameState(nextInput, { previousState }),
       'game-state.invariant.level-status-transition',
+    );
+  });
+
+  it('rejects regression of found words within the same level transition', () => {
+    const previousState = createGameState(createFixtureGameStateInput());
+    const baseInput = createFixtureGameStateInput();
+    const nextInput: GameStateInput = {
+      ...baseInput,
+      stateVersion: 1,
+      updatedAt: baseInput.updatedAt + 1,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        foundTargets: [],
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(nextInput, { previousState }),
+      'game-state.invariant.found-targets-regression',
+    );
+  });
+
+  it('rejects regression of stateVersion when previousState is provided', () => {
+    const previousState = createGameState({
+      ...createFixtureGameStateInput(),
+      stateVersion: 10,
+      updatedAt: 1_710_000_000_100,
+    });
+    const baseInput = createFixtureGameStateInput();
+    const nextInput: GameStateInput = {
+      ...baseInput,
+      stateVersion: 9,
+      updatedAt: 1_710_000_000_101,
+      allTimeScore: previousState.allTimeScore + 1,
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(nextInput, { previousState }),
+      'game-state.invariant.state-version-regression',
     );
   });
 

@@ -181,6 +181,7 @@ const LEVEL_GRID_SIDE = 5;
 const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
 const LEVEL_TARGET_WORDS_MIN = 3;
 const LEVEL_TARGET_WORDS_MAX = 7;
+const MAX_PENDING_OPERATIONS = 128;
 const LEGACY_GAME_STATE_SCHEMA_VERSION = 0;
 const DEPRECATED_GAME_STATE_FIELDS_V2 = [
   'sessionScore',
@@ -287,13 +288,32 @@ function parseError(
 function assertNonNegativeInteger(value: unknown, fieldName: string): number {
   const parsed = assertNonNegativeNumber(value, fieldName);
 
-  if (!Number.isInteger(parsed)) {
+  if (!Number.isSafeInteger(parsed)) {
     throw parseError(
-      `${fieldName} must be a non-negative integer.`,
+      `${fieldName} must be a non-negative safe integer.`,
       'game-state.migration.integer',
       {
         fieldName,
         value,
+        maxSafeInteger: Number.MAX_SAFE_INTEGER,
+      },
+    );
+  }
+
+  return parsed;
+}
+
+function assertNonNegativeSafeInteger(value: unknown, fieldName: string): number {
+  const parsed = assertNonNegativeNumber(value, fieldName);
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw parseError(
+      `${fieldName} must be a non-negative safe integer.`,
+      'game-state.validation.safe-integer',
+      {
+        fieldName,
+        value,
+        maxSafeInteger: Number.MAX_SAFE_INTEGER,
       },
     );
   }
@@ -484,6 +504,25 @@ function assertFoundSetsDoNotIntersect(
   }
 }
 
+function assertNoWordRegression(
+  previousWords: readonly string[],
+  nextWords: readonly string[],
+  fieldName: string,
+  code: string,
+): void {
+  const nextWordsSet = new Set(nextWords);
+
+  for (const word of previousWords) {
+    if (!nextWordsSet.has(word)) {
+      throw parseError(
+        `${fieldName} must not lose previously found words within the same level.`,
+        code,
+        { fieldName, word },
+      );
+    }
+  }
+}
+
 function assertLiteral<TValue extends string>(
   value: unknown,
   fieldName: string,
@@ -530,9 +569,90 @@ function assertLevelSessionMeta(
   return result;
 }
 
+function assertPendingOperationTimeline(operation: PendingOperation): void {
+  if (operation.updatedAt < operation.createdAt) {
+    throw parseError(
+      'pendingOperation.updatedAt must be >= pendingOperation.createdAt.',
+      'game-state.invariant.pending-operation-timeline',
+      {
+        operationId: operation.operationId,
+        createdAt: operation.createdAt,
+        updatedAt: operation.updatedAt,
+      },
+    );
+  }
+}
+
+function assertPendingOperationsLimit(pendingOps: readonly PendingOperation[]): void {
+  if (pendingOps.length > MAX_PENDING_OPERATIONS) {
+    throw parseError(
+      `gameState.pendingOps must contain at most ${MAX_PENDING_OPERATIONS} operations.`,
+      'game-state.invariant.pending-operations-limit',
+      {
+        max: MAX_PENDING_OPERATIONS,
+        actual: pendingOps.length,
+      },
+    );
+  }
+}
+
+function assertUniquePendingOperationIds(pendingOps: readonly PendingOperation[]): void {
+  const seenOperationIds = new Set<string>();
+
+  for (const operation of pendingOps) {
+    if (seenOperationIds.has(operation.operationId)) {
+      throw parseError(
+        'gameState.pendingOps must not contain duplicate operationId values.',
+        'game-state.invariant.pending-operation-duplicate-id',
+        { operationId: operation.operationId },
+      );
+    }
+
+    seenOperationIds.add(operation.operationId);
+  }
+}
+
+function assertLeaderboardSyncConsistency(
+  leaderboardSync: LeaderboardSyncState,
+  allTimeScore: number,
+): void {
+  if (leaderboardSync.lastAckScore > leaderboardSync.lastSubmittedScore) {
+    throw parseError(
+      'leaderboardSync.lastAckScore must be <= leaderboardSync.lastSubmittedScore.',
+      'game-state.invariant.leaderboard-ack-order',
+      {
+        lastAckScore: leaderboardSync.lastAckScore,
+        lastSubmittedScore: leaderboardSync.lastSubmittedScore,
+      },
+    );
+  }
+
+  if (leaderboardSync.lastSubmittedScore > allTimeScore) {
+    throw parseError(
+      'leaderboardSync.lastSubmittedScore must be <= gameState.allTimeScore.',
+      'game-state.invariant.leaderboard-submitted-score',
+      {
+        lastSubmittedScore: leaderboardSync.lastSubmittedScore,
+        allTimeScore,
+      },
+    );
+  }
+
+  if (leaderboardSync.lastSubmittedScore === 0 && leaderboardSync.lastSubmitTs !== 0) {
+    throw parseError(
+      'leaderboardSync.lastSubmitTs must be 0 when no score has been submitted.',
+      'game-state.invariant.leaderboard-submit-timestamp',
+      {
+        lastSubmittedScore: leaderboardSync.lastSubmittedScore,
+        lastSubmitTs: leaderboardSync.lastSubmitTs,
+      },
+    );
+  }
+}
+
 export function createWordEntry(input: WordEntryInput): WordEntry {
   return {
-    id: assertNonNegativeNumber(input.id, 'wordEntry.id'),
+    id: assertNonNegativeSafeInteger(input.id, 'wordEntry.id'),
     bare: assertNonEmptyString(input.bare, 'wordEntry.bare'),
     rank: assertFiniteNumber(input.rank, 'wordEntry.rank'),
     type: assertNonEmptyString(input.type, 'wordEntry.type'),
@@ -549,7 +669,7 @@ export function createPendingHelpRequest(input: PendingHelpRequestInput): Pendin
 
 export function createHelpWindow(input: HelpWindowInput): HelpWindow {
   return {
-    windowStartTs: assertNonNegativeNumber(input.windowStartTs, 'helpWindow.windowStartTs'),
+    windowStartTs: assertNonNegativeSafeInteger(input.windowStartTs, 'helpWindow.windowStartTs'),
     freeActionAvailable: assertBoolean(input.freeActionAvailable, 'helpWindow.freeActionAvailable'),
     pendingHelpRequest:
       input.pendingHelpRequest === undefined || input.pendingHelpRequest === null
@@ -559,24 +679,28 @@ export function createHelpWindow(input: HelpWindowInput): HelpWindow {
 }
 
 export function createPendingOperation(input: PendingOperationInput): PendingOperation {
-  return {
+  const operation: PendingOperation = {
     operationId: assertNonEmptyString(input.operationId, 'pendingOperation.operationId'),
     kind: assertLiteral(input.kind, 'pendingOperation.kind', PENDING_OPERATION_KINDS),
     status: assertLiteral(input.status, 'pendingOperation.status', PENDING_OPERATION_STATUSES),
-    retryCount: assertNonNegativeNumber(input.retryCount, 'pendingOperation.retryCount'),
-    createdAt: assertNonNegativeNumber(input.createdAt, 'pendingOperation.createdAt'),
-    updatedAt: assertNonNegativeNumber(input.updatedAt, 'pendingOperation.updatedAt'),
+    retryCount: assertNonNegativeSafeInteger(input.retryCount, 'pendingOperation.retryCount'),
+    createdAt: assertNonNegativeSafeInteger(input.createdAt, 'pendingOperation.createdAt'),
+    updatedAt: assertNonNegativeSafeInteger(input.updatedAt, 'pendingOperation.updatedAt'),
   };
+
+  assertPendingOperationTimeline(operation);
+
+  return operation;
 }
 
 export function createLeaderboardSyncState(input: LeaderboardSyncStateInput): LeaderboardSyncState {
   return {
-    lastSubmittedScore: assertNonNegativeNumber(
+    lastSubmittedScore: assertNonNegativeSafeInteger(
       input.lastSubmittedScore,
       'leaderboardSync.lastSubmittedScore',
     ),
-    lastAckScore: assertNonNegativeNumber(input.lastAckScore, 'leaderboardSync.lastAckScore'),
-    lastSubmitTs: assertNonNegativeNumber(input.lastSubmitTs, 'leaderboardSync.lastSubmitTs'),
+    lastAckScore: assertNonNegativeSafeInteger(input.lastAckScore, 'leaderboardSync.lastAckScore'),
+    lastSubmitTs: assertNonNegativeSafeInteger(input.lastSubmitTs, 'leaderboardSync.lastSubmitTs'),
   };
 }
 
@@ -624,6 +748,19 @@ export function assertLevelSessionTransition(
       );
     }
 
+    assertNoWordRegression(
+      previousSession.foundTargets,
+      nextSession.foundTargets,
+      'levelSession.foundTargets',
+      'game-state.invariant.found-targets-regression',
+    );
+    assertNoWordRegression(
+      previousSession.foundBonuses,
+      nextSession.foundBonuses,
+      'levelSession.foundBonuses',
+      'game-state.invariant.found-bonuses-regression',
+    );
+
     return;
   }
 
@@ -644,25 +781,65 @@ export function assertLevelSessionTransition(
   }
 }
 
+function assertGameStateProgression(previousState: GameState, nextState: GameState): void {
+  if (nextState.stateVersion < previousState.stateVersion) {
+    throw parseError(
+      'gameState.stateVersion must not decrease between consecutive states.',
+      'game-state.invariant.state-version-regression',
+      {
+        previousStateVersion: previousState.stateVersion,
+        nextStateVersion: nextState.stateVersion,
+      },
+    );
+  }
+
+  if (nextState.updatedAt < previousState.updatedAt) {
+    throw parseError(
+      'gameState.updatedAt must not decrease between consecutive states.',
+      'game-state.invariant.updated-at-regression',
+      {
+        previousUpdatedAt: previousState.updatedAt,
+        nextUpdatedAt: nextState.updatedAt,
+      },
+    );
+  }
+
+  if (nextState.allTimeScore < previousState.allTimeScore) {
+    throw parseError(
+      'gameState.allTimeScore must not decrease between consecutive states.',
+      'game-state.invariant.score-regression',
+      {
+        previousAllTimeScore: previousState.allTimeScore,
+        nextAllTimeScore: nextState.allTimeScore,
+      },
+    );
+  }
+}
+
 export function createGameState(
   input: GameStateInput,
   options: GameStateCreationOptions = {},
 ): GameState {
   const nextState: GameState = {
-    schemaVersion: assertNonNegativeNumber(
+    schemaVersion: assertNonNegativeSafeInteger(
       input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
       'gameState.schemaVersion',
     ),
-    stateVersion: assertNonNegativeNumber(input.stateVersion ?? 0, 'gameState.stateVersion'),
-    updatedAt: assertNonNegativeNumber(input.updatedAt, 'gameState.updatedAt'),
-    allTimeScore: assertNonNegativeNumber(input.allTimeScore, 'gameState.allTimeScore'),
+    stateVersion: assertNonNegativeSafeInteger(input.stateVersion ?? 0, 'gameState.stateVersion'),
+    updatedAt: assertNonNegativeSafeInteger(input.updatedAt, 'gameState.updatedAt'),
+    allTimeScore: assertNonNegativeSafeInteger(input.allTimeScore, 'gameState.allTimeScore'),
     currentLevelSession: createLevelSession(input.currentLevelSession),
     helpWindow: createHelpWindow(input.helpWindow),
     pendingOps: (input.pendingOps ?? []).map((operation) => createPendingOperation(operation)),
     leaderboardSync: createLeaderboardSyncState(input.leaderboardSync),
   };
 
+  assertPendingOperationsLimit(nextState.pendingOps);
+  assertUniquePendingOperationIds(nextState.pendingOps);
+  assertLeaderboardSyncConsistency(nextState.leaderboardSync, nextState.allTimeScore);
+
   if (options.previousState) {
+    assertGameStateProgression(options.previousState, nextState);
     assertLevelSessionTransition(
       options.previousState.currentLevelSession,
       nextState.currentLevelSession,
@@ -711,10 +888,10 @@ function toGameStateInput(value: unknown): GameStateInput {
         })();
 
   return {
-    schemaVersion: assertNonNegativeNumber(source.schemaVersion, 'gameState.schemaVersion'),
-    stateVersion: assertNonNegativeNumber(source.stateVersion, 'gameState.stateVersion'),
-    updatedAt: assertNonNegativeNumber(source.updatedAt, 'gameState.updatedAt'),
-    allTimeScore: assertNonNegativeNumber(source.allTimeScore, 'gameState.allTimeScore'),
+    schemaVersion: assertNonNegativeSafeInteger(source.schemaVersion, 'gameState.schemaVersion'),
+    stateVersion: assertNonNegativeSafeInteger(source.stateVersion, 'gameState.stateVersion'),
+    updatedAt: assertNonNegativeSafeInteger(source.updatedAt, 'gameState.updatedAt'),
+    allTimeScore: assertNonNegativeSafeInteger(source.allTimeScore, 'gameState.allTimeScore'),
     currentLevelSession: toLevelSessionInput(source.currentLevelSession),
     helpWindow: toHelpWindowInput(source.helpWindow),
     pendingOps,

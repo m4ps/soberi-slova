@@ -32,8 +32,18 @@
 - `bare` должен быть уже в lower-case форме (строки с uppercase отбраковываются).
 - В `bare` разрешены только символы `а-яё`.
 - `ё` и `е` считаются разными буквами (без схлопывания).
+- `rank` должен быть числом в диапазоне `0..Number.MAX_SAFE_INTEGER` (защита от overflow/negative rank payload).
 - Пустые строки словаря пропускаются.
 - Дубли `normalized` слов отбраковываются (в индекс попадает первое валидное вхождение).
+
+## Security Guards (DATA-193)
+
+- `buildDictionaryIndexFromCsv` проверяет, что вход — строка; иначе выбрасывается typed error `dictionary-pipeline.invalid-input`.
+- Добавлены size guards на CSV payload:
+  - общий размер: до `5_000_000` символов (`dictionary-pipeline.csv-too-large`);
+  - длина header row: до `8_192` символов (`dictionary-pipeline.header-too-large`);
+  - длина data row > `8_192` считается `malformed-row` и безопасно отбрасывается.
+- Индексные lookup API (`hasNormalizedWord`, `containsWord`, `getEntryByNormalizedWord`) runtime-safe для нестроковых значений: возвращают `false/null` вместо падения.
 
 ## Reject статистика
 
