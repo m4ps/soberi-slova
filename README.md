@@ -100,6 +100,7 @@ src/            Исходный код приложения
   types/        Глобальные типы браузерного runtime
 tests/          Smoke unit tests
 ADR/            Архитектурные решения
+docs/           Технические документы и security-checklists
 tasks/          Отчёты по выполненным задачам
 ```
 
@@ -139,6 +140,14 @@ flowchart TD
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
 
+## Security Checklist (INIT-093)
+
+- Для init-слоя зафиксирован security-checklist:
+  - `docs/security/init-bootstrap-checklist.md`
+- В bootstrap-контуре применяется fail-closed стратегия:
+  - при ошибке SDK bootstrap runtime очищается и отображается технический fail-state.
+- Runtime loader YaGames SDK принимает только trusted same-origin источник `/sdk.js`.
+
 ## Текущий статус
 
 - INIT-001: базовый bootstrap завершён.
@@ -148,3 +157,5 @@ flowchart TD
 - INIT-005: настроен инженерный baseline (`lint/typecheck/build/test/format`) и CI pre-merge workflow.
 - INIT-090: удалены временные init-артефакты, добавлен воспроизводимый cleanup-скрипт `clean:init`.
 - INIT-091: убран неиспользуемый bootstrap wiring (`WordValidation`/`LevelGenerator`) из application entry-контура, зависимости init-слоя сведены к фактически используемым.
+- INIT-092: устранено дублирование bootstrap-констант YaGames и dev/proxy runtime-конфигурации.
+- INIT-093: выполнен security-review init-слоя, добавлен checklist и hardening bootstrap fail-closed сценариев.

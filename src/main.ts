@@ -2,7 +2,7 @@ import { createApplicationLayer } from './application';
 import { createInputPathModule } from './adapters/InputPath';
 import { createPersistenceModule } from './adapters/Persistence';
 import { createPlatformYandexModule } from './adapters/PlatformYandex';
-import { createRenderMotionModule } from './adapters/RenderMotion';
+import { createRenderMotionModule, type RenderMotionRuntime } from './adapters/RenderMotion';
 import { createTelemetryModule } from './adapters/Telemetry';
 import { createCoreStateModule } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
@@ -18,6 +18,85 @@ function getRootElement(): HTMLDivElement {
   return rootElement;
 }
 
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function renderBootstrapFailState(rootElement: HTMLDivElement, reason: string): void {
+  rootElement.replaceChildren();
+
+  const container = document.createElement('section');
+  container.setAttribute('aria-live', 'polite');
+  container.style.display = 'grid';
+  container.style.gap = '8px';
+  container.style.placeContent = 'center';
+  container.style.width = '100%';
+  container.style.height = '100%';
+  container.style.padding = '20px';
+  container.style.textAlign = 'center';
+  container.style.background = '#0f172a';
+  container.style.color = '#e2e8f0';
+  container.style.fontFamily =
+    '"Manrope", "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif';
+
+  const title = document.createElement('h1');
+  title.textContent = 'Runtime unavailable';
+  title.style.margin = '0';
+  title.style.fontSize = '20px';
+  title.style.fontWeight = '700';
+
+  const description = document.createElement('p');
+  description.textContent =
+    'Yandex SDK initialization failed. Launch through sdk-dev-proxy or Yandex draft runtime.';
+  description.style.margin = '0';
+  description.style.fontSize = '14px';
+  description.style.lineHeight = '1.4';
+
+  const details = document.createElement('p');
+  details.textContent = `Reason: ${reason}`;
+  details.style.margin = '0';
+  details.style.fontSize = '12px';
+  details.style.lineHeight = '1.4';
+  details.style.opacity = '0.8';
+
+  container.append(title, description, details);
+  rootElement.append(container);
+}
+
+function installFailureHooks(reason: string): void {
+  window.advanceTime = () => undefined;
+  window.render_game_to_text = () => {
+    return JSON.stringify({
+      mode: 'bootstrap-failed',
+      coordinateSystem: {
+        origin: 'top-left',
+        xAxis: 'right',
+        yAxis: 'down',
+      },
+      reason,
+    });
+  };
+}
+
+async function cleanupBootstrapRuntime(
+  renderMotionRuntime: RenderMotionRuntime | null,
+  inputPathDispose: () => void,
+  telemetryStop: () => void,
+  platformDispose: () => void,
+): Promise<void> {
+  inputPathDispose();
+  telemetryStop();
+  platformDispose();
+
+  if (renderMotionRuntime) {
+    await renderMotionRuntime.dispose();
+  }
+}
+
 async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
 
@@ -27,48 +106,66 @@ async function bootstrap(): Promise<void> {
   });
 
   const renderMotionModule = createRenderMotionModule(application.readModel);
-  const renderMotionRuntime = await renderMotionModule.mount(rootElement);
-
   const inputPathModule = createInputPathModule(application.commands);
-  inputPathModule.bindToCanvas(renderMotionRuntime.canvas);
-
   const telemetryModule = createTelemetryModule(application.events);
-  telemetryModule.start();
-
   const persistenceModule = createPersistenceModule(application.commands, application.queries);
-  await persistenceModule.restore();
-
   const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
-  await platformYandexModule.bootstrap();
+  let renderMotionRuntime: RenderMotionRuntime | null = null;
 
-  window.advanceTime = async (ms: number) => {
-    const frameDuration = 1000 / 60;
-    const frames = Math.max(1, Math.round(ms / frameDuration));
+  try {
+    renderMotionRuntime = await renderMotionModule.mount(rootElement);
+    const mountedRuntime = renderMotionRuntime;
 
-    for (let frame = 0; frame < frames; frame += 1) {
-      renderMotionRuntime.stepFrame();
-    }
+    telemetryModule.start();
+    await persistenceModule.restore();
+    await platformYandexModule.bootstrap();
+    inputPathModule.bindToCanvas(mountedRuntime.canvas);
 
-    application.commands.dispatch({ type: 'Tick', nowTs: Date.now() });
-  };
+    window.advanceTime = async (ms: number) => {
+      const frameDuration = 1000 / 60;
+      const frames = Math.max(1, Math.round(ms / frameDuration));
 
-  window.render_game_to_text = () => {
-    const sceneSnapshot = renderMotionRuntime.toTextSnapshot();
+      for (let frame = 0; frame < frames; frame += 1) {
+        mountedRuntime.stepFrame();
+      }
 
-    return JSON.stringify({
-      mode: sceneSnapshot.runtimeMode,
-      coordinateSystem: {
-        origin: 'top-left',
-        xAxis: 'right',
-        yAxis: 'down',
-      },
-      viewport: sceneSnapshot.viewport,
-      stageChildren: sceneSnapshot.stageChildren,
-      telemetryBufferSize: telemetryModule.getBufferedEvents().length,
-      persistence: persistenceModule.getLastSnapshot(),
-      platformLifecycle: platformYandexModule.getLifecycleLog(),
+      application.commands.dispatch({ type: 'Tick', nowTs: Date.now() });
+    };
+
+    window.render_game_to_text = () => {
+      const sceneSnapshot = mountedRuntime.toTextSnapshot();
+
+      return JSON.stringify({
+        mode: sceneSnapshot.runtimeMode,
+        coordinateSystem: {
+          origin: 'top-left',
+          xAxis: 'right',
+          yAxis: 'down',
+        },
+        viewport: sceneSnapshot.viewport,
+        stageChildren: sceneSnapshot.stageChildren,
+        telemetryBufferSize: telemetryModule.getBufferedEvents().length,
+        persistence: persistenceModule.getLastSnapshot(),
+        platformLifecycle: platformYandexModule.getLifecycleLog(),
+      });
+    };
+  } catch (error: unknown) {
+    const reason = toErrorMessage(error);
+
+    await cleanupBootstrapRuntime(
+      renderMotionRuntime,
+      () => inputPathModule.dispose(),
+      () => telemetryModule.stop(),
+      () => platformYandexModule.dispose(),
+    ).catch((cleanupError: unknown) => {
+      console.error('[main] Cleanup after bootstrap failure failed.', cleanupError);
     });
-  };
+
+    renderBootstrapFailState(rootElement, reason);
+    installFailureHooks(reason);
+
+    throw error;
+  }
 }
 
 void bootstrap().catch((error: unknown) => {

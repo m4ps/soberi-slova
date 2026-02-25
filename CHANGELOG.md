@@ -2,6 +2,16 @@
 
 ## 2026-02-25
 
+### [INIT]-[093] Анализ безопасности этапа инициализации
+- Проведён security-review bootstrap-поверхности init-слоя и зафиксирован чеклист в [`docs/security/init-bootstrap-checklist.md`](docs/security/init-bootstrap-checklist.md).
+- В `PlatformYandex` добавлен hardening загрузки SDK: runtime loader принимает только trusted same-origin источник `/sdk.js`.
+- Усилено fail-closed поведение bootstrap: при ошибке фиксируется `bootstrap-failed`, выполняется rollback lifecycle-подписок и остановка gameplay (если был запущен).
+- `main.ts` переведён на controlled failure path: при сбое bootstrap выполняется cleanup частично поднятых модулей и показывается технический fail-state.
+- Добавлены security-тесты `tests/platform-yandex.adapter.test.ts`:
+  - reject untrusted sdk script source;
+  - rollback gameplay/listeners при падении dispatch `RuntimeReady`.
+- Проверка на hardcoded secrets выполнена по init-контуру (`src/`, `config/`, `scripts/`, `tests/`, `.github/workflows`) — секреты не обнаружены.
+
 ### [INIT]-[092] Удаление дублирования в конфигурации и bootstrap-логике
 - Вынесены дублирующиеся bootstrap-константы YaGames в единый модуль [`src/config/platform-yandex.ts`](src/config/platform-yandex.ts): `sdk.js` path, lifecycle event names, script marker и timeout.
 - `PlatformYandex` адаптер и его контрактный тест переведены на shared-константы, что устранило расхождения строковых литералов в runtime/test коде.

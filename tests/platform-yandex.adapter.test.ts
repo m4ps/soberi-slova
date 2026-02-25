@@ -54,7 +54,9 @@ function createEventBus(): ApplicationEventBus {
   };
 }
 
-function createCommandBusSpy(): {
+function createCommandBusSpy(options?: {
+  readonly runtimeReadyResult?: ApplicationResult<CommandAck>;
+}): {
   readonly commandBus: ApplicationCommandBus;
   readonly dispatchedCommands: ApplicationCommand[];
 } {
@@ -63,6 +65,11 @@ function createCommandBusSpy(): {
   const commandBus: ApplicationCommandBus = {
     dispatch: (command: ApplicationCommand): ApplicationResult<CommandAck> => {
       dispatchedCommands.push(command);
+
+      if (command.type === 'RuntimeReady' && options?.runtimeReadyResult) {
+        return options.runtimeReadyResult;
+      }
+
       return {
         type: 'ok',
         value: {
@@ -246,5 +253,54 @@ describe('PlatformYandex adapter', () => {
     } else {
       delete runtime.YaGames;
     }
+  });
+
+  it('rejects untrusted sdk script source when runtime loader is used', async () => {
+    const { commandBus } = createCommandBusSpy();
+    const platformModule = createPlatformYandexModule(commandBus, createEventBus(), {
+      sdkScriptSrc: 'https://evil.example/sdk.js',
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await expect(platformModule.bootstrap()).rejects.toThrow('Untrusted YaGames SDK script source');
+  });
+
+  it('rolls back gameplay/listeners if RuntimeReady dispatch fails', async () => {
+    const sdkRuntime = createMockSdkRuntime();
+    const runtimeReadyFailure: ApplicationResult<CommandAck> = {
+      type: 'domainError',
+      error: {
+        code: 'runtime.not-ready',
+        message: 'Runtime is blocked.',
+        retryable: false,
+        context: {},
+      },
+    };
+    const { commandBus } = createCommandBusSpy({
+      runtimeReadyResult: runtimeReadyFailure,
+    });
+    const platformModule = createPlatformYandexModule(commandBus, createEventBus(), {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await expect(platformModule.bootstrap()).rejects.toThrow(
+      'Failed to dispatch RuntimeReady: runtime.not-ready (Runtime is blocked.)',
+    );
+
+    expect(sdkRuntime.counters.gameplayStartCalls).toBe(1);
+    expect(sdkRuntime.counters.gameplayStopCalls).toBe(1);
+    expect(sdkRuntime.getListenerCount(YANDEX_LIFECYCLE_EVENTS.pause)).toBe(0);
+    expect(sdkRuntime.getListenerCount(YANDEX_LIFECYCLE_EVENTS.resume)).toBe(0);
+    expect(
+      platformModule
+        .getLifecycleLog()
+        .map((entry) => entry.type)
+        .includes('bootstrap-failed'),
+    ).toBe(true);
   });
 });

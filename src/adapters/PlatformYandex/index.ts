@@ -47,6 +47,7 @@ type PlatformLifecycleEventType =
   | 'runtime-ready-dispatched'
   | 'application-runtime-ready-observed'
   | 'bootstrap-complete'
+  | 'bootstrap-failed'
   | 'bootstrap-skipped'
   | 'dispose'
   | 'gameplay-start-error'
@@ -98,6 +99,77 @@ async function resolveSdkFromGlobal(): Promise<YandexSdkInstance> {
   return yaGames.init();
 }
 
+function assertTrustedSdkScriptSrc(scriptSrc: string): void {
+  const normalizedScriptSrc = scriptSrc.trim();
+
+  if (!normalizedScriptSrc) {
+    throw new Error('YaGames SDK script source is empty.');
+  }
+
+  if (/[\r\n]/.test(normalizedScriptSrc)) {
+    throw new Error('YaGames SDK script source contains unsafe control characters.');
+  }
+
+  if (typeof location === 'undefined') {
+    if (normalizedScriptSrc !== YANDEX_SDK_SCRIPT_SRC) {
+      throw new Error(
+        `Untrusted YaGames SDK script source "${normalizedScriptSrc}". Expected "${YANDEX_SDK_SCRIPT_SRC}".`,
+      );
+    }
+    return;
+  }
+
+  const expectedUrl = new URL(YANDEX_SDK_SCRIPT_SRC, location.origin);
+  let candidateUrl: URL;
+  try {
+    candidateUrl = new URL(normalizedScriptSrc, location.origin);
+  } catch {
+    throw new Error(`Invalid YaGames SDK script source "${normalizedScriptSrc}".`);
+  }
+
+  if (
+    candidateUrl.origin !== expectedUrl.origin ||
+    candidateUrl.pathname !== expectedUrl.pathname
+  ) {
+    throw new Error(
+      `Untrusted YaGames SDK script source "${normalizedScriptSrc}". Expected same-origin "${YANDEX_SDK_SCRIPT_SRC}".`,
+    );
+  }
+}
+
+function toAbsoluteUrl(source: string): string {
+  if (typeof location === 'undefined') {
+    return source;
+  }
+
+  return new URL(source, location.origin).toString();
+}
+
+function findExistingSdkScript(scriptSrc: string): HTMLScriptElement | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const taggedScript = document.querySelector<HTMLScriptElement>(
+    `script[${YANDEX_SDK_SCRIPT_MARKER_ATTR}="true"]`,
+  );
+
+  if (taggedScript) {
+    return taggedScript;
+  }
+
+  const targetAbsoluteSrc = toAbsoluteUrl(scriptSrc);
+  const scripts = document.querySelectorAll<HTMLScriptElement>('script[src]');
+
+  for (const script of scripts) {
+    if (script.src === targetAbsoluteSrc) {
+      return script;
+    }
+  }
+
+  return null;
+}
+
 function waitForSdkScriptLoad(scriptElement: HTMLScriptElement, scriptSrc: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -133,9 +205,7 @@ async function loadSdkScript(scriptSrc: string): Promise<void> {
     );
   }
 
-  const existingSdkScript =
-    document.querySelector<HTMLScriptElement>(`script[${YANDEX_SDK_SCRIPT_MARKER_ATTR}="true"]`) ??
-    document.querySelector<HTMLScriptElement>(`script[src="${scriptSrc}"]`);
+  const existingSdkScript = findExistingSdkScript(scriptSrc);
 
   if (existingSdkScript) {
     if (getYaGamesGlobal()) {
@@ -210,6 +280,7 @@ export function createPlatformYandexModule(
   let unsubscribeApplicationEvents: (() => void) | null = null;
   let unsubscribeLifecycleEvents: (() => void) | null = null;
   let bootstrapped = false;
+  let gameplayStarted = false;
 
   const record = (
     type: PlatformLifecycleEventType,
@@ -227,14 +298,16 @@ export function createPlatformYandexModule(
 
   const startGameplay = async (source: 'bootstrap' | 'resume'): Promise<void> => {
     await invokeLifecycleMethod(sdkInstance?.features?.GameplayAPI?.start);
+    gameplayStarted = true;
     record('gameplay-start', {
       source,
       hasGameplayApi: Boolean(sdkInstance?.features?.GameplayAPI),
     });
   };
 
-  const stopGameplay = async (source: 'pause' | 'dispose'): Promise<void> => {
+  const stopGameplay = async (source: 'pause' | 'dispose' | 'bootstrap-failure'): Promise<void> => {
     await invokeLifecycleMethod(sdkInstance?.features?.GameplayAPI?.stop);
+    gameplayStarted = false;
     record('gameplay-stop', {
       source,
       hasGameplayApi: Boolean(sdkInstance?.features?.GameplayAPI),
@@ -281,33 +354,66 @@ export function createPlatformYandexModule(
         });
       }
 
-      record('sdk-init-start');
-      sdkInstance = await resolveSdk();
-      record('sdk-init-success');
+      try {
+        if (!options.resolveSdkInstance) {
+          assertTrustedSdkScriptSrc(sdkScriptSrc);
+        }
 
-      await invokeLifecycleMethod(sdkInstance.features?.LoadingAPI?.ready);
-      record('loading-ready', {
-        hasLoadingApi: Boolean(sdkInstance.features?.LoadingAPI),
-      });
+        record('sdk-init-start');
+        sdkInstance = await resolveSdk();
+        record('sdk-init-success');
 
-      await startGameplay('bootstrap');
+        await invokeLifecycleMethod(sdkInstance.features?.LoadingAPI?.ready);
+        record('loading-ready', {
+          hasLoadingApi: Boolean(sdkInstance.features?.LoadingAPI),
+        });
 
-      if (sdkInstance.on && sdkInstance.off) {
-        sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
-        sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
+        await startGameplay('bootstrap');
 
-        unsubscribeLifecycleEvents = () => {
-          sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
-          sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
-        };
+        if (sdkInstance.on && sdkInstance.off) {
+          sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
+          sdkInstance.on(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
+
+          unsubscribeLifecycleEvents = () => {
+            sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.pause, handlePause);
+            sdkInstance?.off?.(YANDEX_LIFECYCLE_EVENTS.resume, handleResume);
+          };
+        }
+
+        const runtimeReadyResult = commandBus.dispatch({ type: 'RuntimeReady' });
+        assertCommandResultOk(runtimeReadyResult, 'RuntimeReady');
+        record('runtime-ready-dispatched');
+
+        bootstrapped = true;
+        record('bootstrap-complete');
+      } catch (error: unknown) {
+        record('bootstrap-failed', {
+          reason: toErrorMessage(error),
+        });
+
+        unsubscribeLifecycleEvents?.();
+        unsubscribeLifecycleEvents = null;
+
+        if (sdkInstance && gameplayStarted) {
+          try {
+            await stopGameplay('bootstrap-failure');
+          } catch (stopError: unknown) {
+            record('gameplay-stop-error', {
+              source: 'bootstrap-failure',
+              reason: toErrorMessage(stopError),
+            });
+          }
+        }
+
+        unsubscribeApplicationEvents?.();
+        unsubscribeApplicationEvents = null;
+
+        sdkInstance = null;
+        gameplayStarted = false;
+        bootstrapped = false;
+
+        throw error;
       }
-
-      const runtimeReadyResult = commandBus.dispatch({ type: 'RuntimeReady' });
-      assertCommandResultOk(runtimeReadyResult, 'RuntimeReady');
-      record('runtime-ready-dispatched');
-
-      bootstrapped = true;
-      record('bootstrap-complete');
     },
     dispose: () => {
       unsubscribeLifecycleEvents?.();
@@ -316,7 +422,7 @@ export function createPlatformYandexModule(
       unsubscribeApplicationEvents?.();
       unsubscribeApplicationEvents = null;
 
-      if (sdkInstance) {
+      if (sdkInstance && gameplayStarted) {
         void stopGameplay('dispose').catch((error: unknown) => {
           record('gameplay-stop-error', {
             source: 'dispose',
@@ -326,6 +432,7 @@ export function createPlatformYandexModule(
       }
 
       sdkInstance = null;
+      gameplayStarted = false;
       bootstrapped = false;
 
       record('dispose');
