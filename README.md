@@ -101,7 +101,7 @@ src/            Исходный код приложения
   types/        Глобальные типы браузерного runtime
 tests/          Smoke unit tests
 ADR/            Архитектурные решения
-docs/           Технические документы и security-checklists
+docs/           Технические документы (security-checklists, data schema)
 tasks/          Отчёты по выполненным задачам
 ```
 
@@ -124,6 +124,7 @@ flowchart TD
 - `WordValidation` — доменная классификация слова (`target|bonus|repeat|invalid`).
 - `LevelGenerator` — заготовка генерации уровня (seed/grid contract).
 - `HelpEconomy` — контракт окна бесплатной помощи.
+- `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
 - `RenderMotion` — рендер-адаптер Pixi и текстовый scene snapshot.
 - `PlatformYandex` — bootstrap YaGames SDK, lifecycle hooks (`ready/start/stop/pause/resume`) и lifecycle-log адаптера.
 - `Persistence` — restore/flush контракт snapshot-слоя (stub до DATA/SEC этапов).
@@ -140,6 +141,13 @@ flowchart TD
   - `domainError`
   - `infraError`
 - Формат ошибки единый: `{ code, message, retryable, context }`.
+
+## Data Model Schema (DATA-001)
+
+- Версионированная схема состояния игры и runtime-конструкторы реализованы в:
+  - `src/domain/GameState/index.ts`
+- Документация по полям сущностей и snapshot-контракту:
+  - `docs/data/game-state-schema.md`
 
 ## Security Checklist (INIT-093)
 
@@ -160,3 +168,5 @@ flowchart TD
 - INIT-091: убран неиспользуемый bootstrap wiring (`WordValidation`/`LevelGenerator`) из application entry-контура, зависимости init-слоя сведены к фактически используемым.
 - INIT-092: устранено дублирование bootstrap-констант YaGames и dev/proxy runtime-конфигурации.
 - INIT-093: выполнен security-review init-слоя, добавлен checklist и hardening bootstrap fail-closed сценариев.
+- INIT-094: init-код приведён к единому стандарту через shared-константы и общие утилиты.
+- DATA-001: реализована доменная state-модель с runtime-конструкторами и snapshot serialization/deserialization.

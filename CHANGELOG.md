@@ -2,6 +2,21 @@
 
 ## 2026-02-25
 
+### [DATA]-[001] Доменные сущности состояния игры
+- Добавлен модуль [`src/domain/GameState/index.ts`](src/domain/GameState/index.ts) как единый source of truth для state-модели:
+  - `GameState`, `LevelSession`, `HelpWindow`, `PendingHelpRequest`, `PendingOperation`, `LeaderboardSyncState`, `WordEntry`.
+- Реализованы runtime-конструкторы всех сущностей с fail-fast проверками типов и безопасными default-полями snapshot (`schemaVersion`, `stateVersion`, `pendingOps`).
+- Добавлен JSON snapshot контракт:
+  - `serializeGameState` / `deserializeGameState`;
+  - `serializeWordEntry` / `deserializeWordEntry`.
+- Добавлен новый тестовый suite [`tests/game-state.model.test.ts`](tests/game-state.model.test.ts) с проверками:
+  - runtime-конструкторов;
+  - deep-copy поведения;
+  - round-trip сериализации/десериализации без потери структуры;
+  - controlled-failure на malformed payload.
+- Документация схемы добавлена в [`docs/data/game-state-schema.md`](docs/data/game-state-schema.md), README синхронизирован с новым data-модулем.
+- Полная верификация выполнена: `npm run ci:baseline` green + Playwright smoke (`$WEB_GAME_CLIENT`) с артефактами в `output/web-game-data001-smoke` и без `errors-*.json`.
+
 ### [INIT]-[094] Приведение кода этапа к единому стандарту
 - Введён единый shared-слой init-стандарта: добавлены `src/shared/errors.ts` (единый `toErrorMessage`) и `src/shared/module-ids.ts` (единый реестр идентификаторов модулей).
 - Устранены дубли утилиты обработки ошибок в `main`, `application` и `PlatformYandex`; все три контура используют общий helper из `src/shared/errors.ts`.
