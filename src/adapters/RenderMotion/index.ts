@@ -10,16 +10,22 @@ import type {
 import { GAME_VIEWPORT } from '../../config/viewport';
 import { computeGameLayout, type GameLayout, type LayoutRect } from '../../shared/game-layout';
 import { MODULE_IDS } from '../../shared/module-ids';
+import {
+  HINT_META_REVEAL_COUNT_KEY,
+  HINT_META_TARGET_WORD_KEY,
+  WORD_GRID_CELL_COUNT,
+  WORD_GRID_SIDE,
+  findWordPathInGrid,
+  sortWordsByDifficulty,
+} from '../../shared/word-grid';
 
-const GRID_SIZE = 5;
-const GRID_CELL_COUNT = GRID_SIZE * GRID_SIZE;
+const GRID_SIZE = WORD_GRID_SIDE;
+const GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
 const FRAME_DURATION_MS = 1000 / 60;
 const WORD_SUCCESS_ACK_DELAY_MS = 360;
 const LEVEL_TRANSITION_ACK_DELAY_MS = 900;
 const TOAST_DURATION_MS = 2_200;
 const MAX_ACK_TRACKING = 128;
-const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
-const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
 const HELP_BUTTON_TOAST_LOCK_TEXT = 'Занято';
 const DEV_TARGET_WORDS_CONSOLE_LOG_ENABLED = import.meta.env.DEV;
 const DEV_TARGET_WORDS_CONSOLE_PREFIX = '[dev][target-words]';
@@ -245,22 +251,6 @@ function addToBoundedSet(
   }
 }
 
-function compareWordDifficulty(left: string, right: string): number {
-  if (left.length !== right.length) {
-    return left.length - right.length;
-  }
-
-  if (left < right) {
-    return -1;
-  }
-
-  if (left > right) {
-    return 1;
-  }
-
-  return 0;
-}
-
 function buildDevTargetWordsSignature(
   levelId: string,
   targetWords: readonly string[],
@@ -269,80 +259,15 @@ function buildDevTargetWordsSignature(
   return JSON.stringify([levelId, targetWords, foundTargets]);
 }
 
-function findHintPath(grid: readonly string[], targetWord: string): readonly GridCellRef[] | null {
-  if (targetWord.length === 0 || grid.length !== GRID_CELL_COUNT) {
-    return null;
-  }
-
-  const directions = [
-    { rowOffset: -1, colOffset: -1 },
-    { rowOffset: -1, colOffset: 0 },
-    { rowOffset: -1, colOffset: 1 },
-    { rowOffset: 0, colOffset: -1 },
-    { rowOffset: 0, colOffset: 1 },
-    { rowOffset: 1, colOffset: -1 },
-    { rowOffset: 1, colOffset: 0 },
-    { rowOffset: 1, colOffset: 1 },
-  ] as const;
-
-  const path: GridCellRef[] = [];
-  const visited = new Set<number>();
-
-  const dfs = (row: number, col: number, letterIndex: number): boolean => {
-    if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) {
-      return false;
-    }
-
-    const cellIndex = toGridCellIndex(row, col);
-    if (visited.has(cellIndex)) {
-      return false;
-    }
-
-    if (grid[cellIndex] !== targetWord[letterIndex]) {
-      return false;
-    }
-
-    visited.add(cellIndex);
-    path.push({ row, col });
-
-    if (letterIndex === targetWord.length - 1) {
-      return true;
-    }
-
-    for (const direction of directions) {
-      if (dfs(row + direction.rowOffset, col + direction.colOffset, letterIndex + 1)) {
-        return true;
-      }
-    }
-
-    path.pop();
-    visited.delete(cellIndex);
-    return false;
-  };
-
-  for (let row = 0; row < GRID_SIZE; row += 1) {
-    for (let col = 0; col < GRID_SIZE; col += 1) {
-      if (dfs(row, col, 0)) {
-        return [...path];
-      }
-
-      path.length = 0;
-      visited.clear();
-    }
-  }
-
-  return null;
-}
-
 function resolveHintPreviewPath(
   grid: readonly string[],
   targetWords: readonly string[],
   foundTargets: readonly string[],
   meta: Readonly<Record<string, unknown>>,
 ): readonly GridCellRef[] {
-  const remainingTargets = targetWords
-    .filter((targetWord) => !foundTargets.includes(targetWord))
-    .sort(compareWordDifficulty);
+  const remainingTargets = sortWordsByDifficulty(
+    targetWords.filter((targetWord) => !foundTargets.includes(targetWord)),
+  );
 
   if (remainingTargets.length === 0) {
     return [];
@@ -368,7 +293,7 @@ function resolveHintPreviewPath(
     return [];
   }
 
-  const fullPath = findHintPath(grid, hintTargetWord);
+  const fullPath = findWordPathInGrid(grid, hintTargetWord);
   if (!fullPath) {
     return [];
   }

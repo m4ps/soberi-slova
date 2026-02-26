@@ -18,6 +18,7 @@ import type {
   RoutedCommandType,
 } from './contracts';
 import { toErrorMessage } from '../shared/errors';
+import { parseNonNegativeSafeInteger } from '../shared/runtime-guards';
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported command: ${JSON.stringify(value)}`);
@@ -107,10 +108,6 @@ function resolveHelpAdToastMessage(
   return HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE;
 }
 
-function isNonNegativeSafeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
 function normalizePersistedHelpWindow(
   snapshot: PersistedSessionSnapshot | null | undefined,
 ): PersistedHelpWindowSnapshot | null {
@@ -119,22 +116,24 @@ function normalizePersistedHelpWindow(
   }
 
   const helpWindow = snapshot.helpWindow;
-  if (!isNonNegativeSafeInteger(helpWindow.windowStartTs)) {
+  const windowStartTs = parseNonNegativeSafeInteger(helpWindow.windowStartTs);
+  if (windowStartTs === null) {
     return null;
   }
 
   return {
-    windowStartTs: helpWindow.windowStartTs,
+    windowStartTs,
     freeActionAvailable: helpWindow.freeActionAvailable === true,
   };
 }
 
 function resolveSnapshotCapturedAt(snapshot: PersistedSessionSnapshot | null | undefined): number {
-  if (!snapshot || !isNonNegativeSafeInteger(snapshot.capturedAt)) {
+  if (!snapshot) {
     return -1;
   }
 
-  return snapshot.capturedAt;
+  const capturedAt = parseNonNegativeSafeInteger(snapshot.capturedAt);
+  return capturedAt === null ? -1 : capturedAt;
 }
 
 function resolveRestoreHelpWindow(

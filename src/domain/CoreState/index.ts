@@ -1,4 +1,12 @@
 import { MODULE_IDS } from '../../shared/module-ids';
+import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
+import {
+  HINT_META_REVEAL_COUNT_KEY,
+  HINT_META_TARGET_WORD_KEY,
+  WORD_GRID_CELL_COUNT,
+  findWordPathInGrid,
+  sortWordsByDifficulty,
+} from '../../shared/word-grid';
 import type { HelpKind } from '../HelpEconomy';
 import {
   createGameState,
@@ -21,8 +29,6 @@ import {
 
 export type RuntimeMode = 'bootstrapping' | 'ready';
 
-const GRID_SIDE = 5;
-const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
 const DEFAULT_LEVEL_ID = 'level-1';
 const DEFAULT_LEVEL_TARGET_WORDS = ['дом', 'нос', 'сон'] as const;
 const DEFAULT_DICTIONARY_WORDS = [...DEFAULT_LEVEL_TARGET_WORDS, 'том', 'тон'] as const;
@@ -42,26 +48,11 @@ const RESTORE_FALLBACK_LEVEL_META_SOURCE = 'core-state-restore-fallback';
 const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
 const MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX = 'reshuffle';
 const RESTORE_FALLBACK_LEVEL_ID_SUFFIX = 'restore';
-const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
-const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
 const HINT_INITIAL_REVEAL_COUNT = 2;
 const RECENT_TARGET_WORDS_MAX = 64;
 const PROCESSED_HELP_OPERATION_IDS_MAX = 128;
 const WORD_SCORE_EMPTY = 0;
 const OPERATION_RETRY_COUNT_DEFAULT = 0;
-const GRID_DIRECTIONS: readonly Readonly<{
-  readonly rowOffset: number;
-  readonly colOffset: number;
-}>[] = [
-  { rowOffset: -1, colOffset: -1 },
-  { rowOffset: -1, colOffset: 0 },
-  { rowOffset: -1, colOffset: 1 },
-  { rowOffset: 0, colOffset: -1 },
-  { rowOffset: 0, colOffset: 1 },
-  { rowOffset: 1, colOffset: -1 },
-  { rowOffset: 1, colOffset: 0 },
-  { rowOffset: 1, colOffset: 1 },
-];
 
 const DEFAULT_LEVEL_GRID: readonly string[] = [
   'д',
@@ -242,8 +233,8 @@ export interface CoreStateModule {
 }
 
 function createDefaultLevelGrid(): readonly string[] {
-  if (DEFAULT_LEVEL_GRID.length !== GRID_CELL_COUNT) {
-    throw new Error(`Invalid default grid length: expected ${GRID_CELL_COUNT} cells.`);
+  if (DEFAULT_LEVEL_GRID.length !== WORD_GRID_CELL_COUNT) {
+    throw new Error(`Invalid default grid length: expected ${WORD_GRID_CELL_COUNT} cells.`);
   }
 
   return [...DEFAULT_LEVEL_GRID];
@@ -426,22 +417,6 @@ function createRestoreFallbackLevelId(currentLevelId: string, fallbackSequence: 
   return `${currentLevelId}-${RESTORE_FALLBACK_LEVEL_ID_SUFFIX}-${fallbackSequence}`;
 }
 
-function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null;
-}
-
-function parseNonNegativeSafeInteger(value: unknown): number | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
-
-  if (!Number.isSafeInteger(value) || value < 0) {
-    return null;
-  }
-
-  return Math.trunc(value);
-}
-
 interface ParsedCoreStateRestoreSnapshot {
   readonly gameState: GameState | null;
   readonly allTimeScoreHint: number | null;
@@ -535,91 +510,6 @@ function createRestoreLeaderboardSync(
     lastAckScore,
     lastSubmitTs,
   };
-}
-
-function compareWordsByDifficulty(left: string, right: string): number {
-  if (left.length !== right.length) {
-    return left.length - right.length;
-  }
-
-  if (left < right) {
-    return -1;
-  }
-
-  if (left > right) {
-    return 1;
-  }
-
-  return 0;
-}
-
-function sortWordsByDifficulty(words: readonly string[]): readonly string[] {
-  return [...words].sort(compareWordsByDifficulty);
-}
-
-function isGridCellInsideBounds(row: number, col: number): boolean {
-  return row >= 0 && row < GRID_SIDE && col >= 0 && col < GRID_SIDE;
-}
-
-function toGridCellIndex(row: number, col: number): number {
-  return row * GRID_SIDE + col;
-}
-
-function findPathForTargetWord(
-  grid: readonly string[],
-  targetWord: string,
-): readonly WordPathCellRef[] | null {
-  if (targetWord.length === 0 || grid.length !== GRID_CELL_COUNT) {
-    return null;
-  }
-
-  const path: WordPathCellRef[] = [];
-  const visited = new Set<number>();
-
-  const dfs = (row: number, col: number, letterIndex: number): boolean => {
-    if (!isGridCellInsideBounds(row, col)) {
-      return false;
-    }
-
-    const cellIndex = toGridCellIndex(row, col);
-    if (visited.has(cellIndex)) {
-      return false;
-    }
-
-    if (grid[cellIndex] !== targetWord[letterIndex]) {
-      return false;
-    }
-
-    visited.add(cellIndex);
-    path.push({ row, col });
-
-    if (letterIndex === targetWord.length - 1) {
-      return true;
-    }
-
-    for (const direction of GRID_DIRECTIONS) {
-      if (dfs(row + direction.rowOffset, col + direction.colOffset, letterIndex + 1)) {
-        return true;
-      }
-    }
-
-    path.pop();
-    visited.delete(cellIndex);
-    return false;
-  };
-
-  for (let row = 0; row < GRID_SIDE; row += 1) {
-    for (let col = 0; col < GRID_SIDE; col += 1) {
-      if (dfs(row, col, 0)) {
-        return [...path];
-      }
-
-      path.length = 0;
-      visited.clear();
-    }
-  }
-
-  return null;
 }
 
 function resolveHintTargetWord(levelSession: LevelSession): string | null {
@@ -1183,7 +1073,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
           );
         }
 
-        const targetPath = findPathForTargetWord(currentLevelSession.grid, hintTargetWord);
+        const targetPath = findWordPathInGrid(currentLevelSession.grid, hintTargetWord);
         if (!targetPath) {
           return createHelpApplyResult(
             normalizedOperationId,

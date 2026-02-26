@@ -20,6 +20,7 @@ import {
 } from '../../config/platform-yandex';
 import { MODULE_IDS } from '../../shared/module-ids';
 import { toErrorMessage } from '../../shared/errors';
+import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
 
 interface YandexLoadingAPI {
   ready: () => void | Promise<void>;
@@ -343,10 +344,6 @@ async function invokeLifecycleMethod(
   await method();
 }
 
-function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null;
-}
-
 const NO_FILL_ERROR_MARKERS = ['no fill', 'no-fill', 'nofill', 'no_fill', 'limit reached'];
 
 function resolveRewardedAdOutcome(error: unknown): RewardedAdOutcome {
@@ -372,18 +369,6 @@ function resolveRewardedAdOutcome(error: unknown): RewardedAdOutcome {
 
   const normalized = messageParts.join(' ');
   return NO_FILL_ERROR_MARKERS.some((marker) => normalized.includes(marker)) ? 'no-fill' : 'error';
-}
-
-function parseNonNegativeSafeInteger(value: unknown): number | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
-
-  if (!Number.isSafeInteger(value) || value < 0) {
-    return null;
-  }
-
-  return Math.trunc(value);
 }
 
 function parseSerializedSnapshot(value: unknown): string | null {

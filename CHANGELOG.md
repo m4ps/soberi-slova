@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## 2026-02-26
+
+### [CODE]-[292] Удаление дублирования логики в domain/application/ui
+
+- Вынесена общая hint/grid-логика в `src/shared/word-grid.ts`:
+  - `findWordPathInGrid` для DFS-поиска пути слова в `5x5`;
+  - `sortWordsByDifficulty` / `compareWordsByDifficulty`;
+  - единые ключи hint-метаданных `HINT_META_TARGET_WORD_KEY` и `HINT_META_REVEAL_COUNT_KEY`.
+- `CoreState` и `RenderMotion` переведены на shared helper'ы, локальные дубли удалены.
+- Вынесены общие runtime guards в `src/shared/runtime-guards.ts`:
+  - `isRecordLike`;
+  - `parseNonNegativeSafeInteger`.
+- На shared guards переведены `CoreState`, `Application`, `Persistence`, `PlatformYandex`.
+- Добавлены unit-тесты:
+  - `tests/shared.word-grid.test.ts`;
+  - `tests/shared.runtime-guards.test.ts`.
+- Для стабильного lint в многориговом workspace обновлён `eslint.config.mjs`:
+  - задан `tsconfigRootDir`;
+  - служебный контур `soberi_slova/**` исключён из lint-скоупа.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - Playwright smoke (`$WEB_GAME_CLIENT`) — passed, артефакты:
+    `output/web-game-code292-smoke/shot-0.png`, `shot-1.png`, `state-0.json`, `state-1.json`;
+    `errors-*.json` отсутствуют.
+
 ## 2026-02-25
 
 ### [FIX] Bonus-слово `горох` не засчитывалось

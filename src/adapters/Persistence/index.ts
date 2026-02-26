@@ -6,6 +6,7 @@ import type {
   PersistedSessionSnapshot,
 } from '../../application';
 import { MODULE_IDS } from '../../shared/module-ids';
+import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
 import type { PlatformYandexModule } from '../PlatformYandex';
 
 const PERSISTENCE_SNAPSHOT_SCHEMA_VERSION = 1;
@@ -40,22 +41,6 @@ export interface PersistenceModule {
   flush: () => Promise<void>;
   dispose: () => void;
   getLastSnapshot: () => PersistenceSnapshot | null;
-}
-
-function isRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null;
-}
-
-function parseNonNegativeSafeInteger(value: unknown): number | null {
-  if (typeof value !== 'number') {
-    return null;
-  }
-
-  if (!Number.isSafeInteger(value) || value < 0) {
-    return null;
-  }
-
-  return Math.trunc(value);
 }
 
 function parsePersistedSessionSnapshot(
