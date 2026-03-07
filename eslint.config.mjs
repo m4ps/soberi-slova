@@ -9,7 +9,7 @@ const TSCONFIG_ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'output/**', 'soberi_slova/**'],
+    ignores: ['.tools/**', 'dist/**', 'node_modules/**', 'output/**', 'soberi_slova/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

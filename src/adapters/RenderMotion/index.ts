@@ -11,8 +11,6 @@ import { GAME_VIEWPORT } from '../../config/viewport';
 import { computeGameLayout, type GameLayout, type LayoutRect } from '../../shared/game-layout';
 import { MODULE_IDS } from '../../shared/module-ids';
 import {
-  HINT_META_REVEAL_COUNT_KEY,
-  HINT_META_TARGET_WORD_KEY,
   WORD_GRID_CELL_COUNT,
   WORD_GRID_SIDE,
   findWordPathInGrid,
@@ -263,7 +261,8 @@ function resolveHintPreviewPath(
   grid: readonly string[],
   targetWords: readonly string[],
   foundTargets: readonly string[],
-  meta: Readonly<Record<string, unknown>>,
+  currentDisplayedTargetId: string | null,
+  currentHintPathProgress: number,
 ): readonly GridCellRef[] {
   const remainingTargets = sortWordsByDifficulty(
     targetWords.filter((targetWord) => !foundTargets.includes(targetWord)),
@@ -273,21 +272,18 @@ function resolveHintPreviewPath(
     return [];
   }
 
-  const hintTargetFromMeta = meta[HINT_META_TARGET_WORD_KEY];
   const hintTargetWord =
-    typeof hintTargetFromMeta === 'string' && remainingTargets.includes(hintTargetFromMeta)
-      ? hintTargetFromMeta
+    currentDisplayedTargetId && remainingTargets.includes(currentDisplayedTargetId)
+      ? currentDisplayedTargetId
       : (remainingTargets[0] ?? null);
 
   if (!hintTargetWord) {
     return [];
   }
 
-  const hintRevealRaw = meta[HINT_META_REVEAL_COUNT_KEY];
-  const hintRevealCount =
-    typeof hintRevealRaw === 'number' && Number.isSafeInteger(hintRevealRaw)
-      ? clamp(Math.trunc(hintRevealRaw), 1, hintTargetWord.length)
-      : 0;
+  const hintRevealCount = Number.isSafeInteger(currentHintPathProgress)
+    ? clamp(Math.trunc(currentHintPathProgress), 1, hintTargetWord.length)
+    : 0;
 
   if (hintRevealCount <= 0) {
     return [];
@@ -856,7 +852,8 @@ export function createRenderMotionModule(
           latestCoreState.gameState.currentLevelSession.grid,
           latestCoreState.gameState.currentLevelSession.targetWords,
           latestCoreState.gameState.currentLevelSession.foundTargets,
-          latestCoreState.gameState.currentLevelSession.meta,
+          latestCoreState.gameState.currentDisplayedTargetId,
+          latestCoreState.gameState.currentHintPathProgress,
         );
 
         hintLayer.clear();

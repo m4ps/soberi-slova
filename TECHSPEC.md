@@ -112,7 +112,7 @@ flowchart TD
 
 Сущности:
 - `GameState`: `schemaVersion`, `stateVersion`, `updatedAt`, `allTimeScore`, `currentLevelSession`, `currentDisplayedTargetId`, `currentHintPathProgress`, `helpWindow`, `pendingOps`, `leaderboardSync`.
-- `LevelSession`: `levelId`, `grid[25]`, `targetWords[]`, `foundTargets`, `foundBonuses`, `status`, `seed`, `readabilityScore`.
+- `LevelSession`: `levelId`, `grid[25]`, `targetWords[]`, `foundTargets`, `foundBonuses`, `status`, `seed`, `readabilityScore`, `meta`.
 - `WordEntry`: `id`, `bare`, `rank`, `type`, `normalized`.
 - `HelpWindow`: `windowStartTs`, `freeActionAvailable`, `pendingHelpRequest`.
 - `PendingOperation`: `operationId`, `kind`, `status`, `retryCount`, `createdAt`, `updatedAt`.
@@ -125,7 +125,9 @@ flowchart TD
 - Преобладают короткие/средние слова; длинные не обязательны [PRD: 7.3].
 - Любое слово засчитывается максимум один раз за уровень [PRD: 9.2].
 - После `completed` бонусные слова не начисляются [PRD: 9.2].
-- `currentDisplayedTargetId` всегда указывает на ещё не найденное слово, если такие есть [PRD: 5, 14.1, 25].
+- `currentDisplayedTargetId` либо `null`, либо указывает на ещё не найденное target-слово текущего уровня; при устаревании auto-normalize на ближайшую валидную цель [PRD: 5, 14.1, 25].
+- `currentHintPathProgress` хранит число уже раскрытых клеток для `currentDisplayedTargetId` и сбрасывается при смене guided target или уровня.
+- `readabilityScore` сериализуется вместе со snapshot, остаётся неотрицательной finite-оценкой текущего `LevelSession` и восстанавливается через миграции.
 
 Scoring model:
 - `targetPoints = 4 + wordLength`
@@ -136,17 +138,19 @@ Difficulty model:
 - Приоритет: длина слова -> rank -> читаемость пути в конкретной сетке [PRD: 8.2].
 
 Хранилища:
-- Local immediate: `safeStorage` snapshot для всех пользователей.
-- Cloud mirror: `player.setData/getData` + `setStats/getStats/incrementStats` при доступности.
-- Persistence model: snapshot-only [PRD: 16].
+- Local immediate: `safeStorage` (`ysdk.getStorage`) для snapshot всех пользователей.
+- Cloud mirror: `player.setData/getData` для состояния, `player.setStats/incrementStats/getStats` для score при доступности `Player`.
+- Snapshot-only persistence: без event sourcing [PRD: 16].
+
+Схемы и миграции:
+- Snapshot содержит `schemaVersion` и `stateVersion`.
+- При несовпадении `schemaVersion` применяется deterministic migration chain `vN -> vN+1`.
+- `v2 -> v3` переносит legacy hint-meta (`hintTargetWord`, `hintRevealCount`) в явные поля `GameState` и достраивает `LevelSession.readabilityScore`.
+- Нет legacy миграций на старте (greenfield), но forward migrations обязательны.
 
 Restore/merge policy:
 - LWW по `stateVersion`, затем по `updatedAt`, затем local tie-break.
 - При неполном restore уровня сохраняются score и free-action timer state [PRD: 16.2].
-
-Миграции:
-- Snapshot versioned by `schemaVersion`.
-- Миграции выполняются deterministic chain `vN -> vN+1`.
 
 ## 5. Interfaces
 

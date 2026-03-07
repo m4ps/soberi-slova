@@ -67,7 +67,7 @@ Task DOD: Восстановление состояния воспроизвод
 Task Context: Определи event envelope `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }` и минимальные domain events для word success, level clear, help, persistence, leaderboard sync.
 Task DOD: Все ключевые операции публикуют типизированные события; correlationId проходит через цепочку operation end-to-end; схема событий документирована.
 
-- [ ] [DATA]-[006] Мигрировать модель состояния к guided target-word loop v1.1
+- [x] [DATA]-[006] Мигрировать модель состояния к guided target-word loop v1.1
 Task Context: Расширь `GameState` и `LevelSession` полями `currentDisplayedTargetId`, `currentHintPathProgress` и `readabilityScore`; подготовь backward-compatible snapshot migration, чтобы ранее сохраненные состояния восстанавливались без потери `allTimeScore` и `free-action timer`.
 Task DOD: Схема состояния соответствует `TECHSPEC v1.1`; migration tests покрывают переход на новую модель; restore не теряет очки, таймер помощи и новый guided-target state.
 
@@ -78,7 +78,6 @@ Task DOD: Невалидные уровни и состояния отклоня
 - [ ] [DATA]-[008] Расширить доменные события под guided loop и hint progression
 Task Context: Добавь в event model обязательные события `TargetWordAccepted`, `BonusWordAccepted`, `DisplayedTargetChanged`, `HintPathProgressAdvanced`, `LevelCompleted`, `HelpActionApplied`, `HelpActionFailed`, `StatePersisted`; сохрани `correlationId` и versioning.
 Task DOD: Все новые события типизированы и задокументированы; события публикуются из соответствующих use-cases и доступны для telemetry/render/persistence цепочек.
-
 - [x] [DATA]-[190] Приборка этапа модели данных
 Task Context: Удали временные data-fixtures, отладочные dump-файлы, промежуточные миграционные черновики и неиспользуемые CSV-утилиты.
 Task DOD: В репозитории остаются только рабочие модели, миграции и актуальные тестовые фикстуры; нет “одноразовых” артефактов.

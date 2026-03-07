@@ -1,8 +1,6 @@
 import { MODULE_IDS } from '../../shared/module-ids';
 import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
 import {
-  HINT_META_REVEAL_COUNT_KEY,
-  HINT_META_TARGET_WORD_KEY,
   WORD_GRID_CELL_COUNT,
   findWordPathInGrid,
   sortWordsByDifficulty,
@@ -276,6 +274,8 @@ function toGameStateInput(state: GameState): GameStateInput {
     stateVersion: state.stateVersion,
     updatedAt: state.updatedAt,
     allTimeScore: state.allTimeScore,
+    currentDisplayedTargetId: state.currentDisplayedTargetId,
+    currentHintPathProgress: state.currentHintPathProgress,
     currentLevelSession: {
       levelId: state.currentLevelSession.levelId,
       grid: [...state.currentLevelSession.grid],
@@ -284,6 +284,7 @@ function toGameStateInput(state: GameState): GameStateInput {
       foundBonuses: [...state.currentLevelSession.foundBonuses],
       status: state.currentLevelSession.status,
       seed: state.currentLevelSession.seed,
+      readabilityScore: state.currentLevelSession.readabilityScore,
       meta: { ...state.currentLevelSession.meta },
     },
     helpWindow: {
@@ -512,40 +513,38 @@ function createRestoreLeaderboardSync(
   };
 }
 
-function resolveHintTargetWord(levelSession: LevelSession): string | null {
-  const remainingTargets = levelSession.targetWords.filter((targetWord) => {
-    return !levelSession.foundTargets.includes(targetWord);
-  });
+function resolveHintTargetWord(gameState: GameState): string | null {
+  const levelSession = gameState.currentLevelSession;
+  const remainingTargets = sortWordsByDifficulty(
+    levelSession.targetWords.filter((targetWord) => {
+      return !levelSession.foundTargets.includes(targetWord);
+    }),
+  );
 
   if (remainingTargets.length === 0) {
     return null;
   }
 
-  const currentHintTarget = levelSession.meta[HINT_META_TARGET_WORD_KEY];
-  if (typeof currentHintTarget === 'string' && remainingTargets.includes(currentHintTarget)) {
-    return currentHintTarget;
+  if (
+    gameState.currentDisplayedTargetId &&
+    remainingTargets.includes(gameState.currentDisplayedTargetId)
+  ) {
+    return gameState.currentDisplayedTargetId;
   }
 
-  const [easiestTargetWord] = sortWordsByDifficulty(remainingTargets);
+  const [easiestTargetWord] = remainingTargets;
   return easiestTargetWord ?? null;
 }
 
-function resolveNextHintRevealCount(levelSession: LevelSession, targetWord: string): number {
-  const currentHintTarget = levelSession.meta[HINT_META_TARGET_WORD_KEY];
-  const currentRevealCount = levelSession.meta[HINT_META_REVEAL_COUNT_KEY];
-  const normalizedCurrentRevealCount =
-    typeof currentRevealCount === 'number' && Number.isSafeInteger(currentRevealCount)
-      ? Math.max(0, Math.trunc(currentRevealCount))
-      : 0;
-
+function resolveNextHintRevealCount(gameState: GameState, targetWord: string): number {
   const startsFromInitialReveal = Math.min(HINT_INITIAL_REVEAL_COUNT, targetWord.length);
-  if (currentHintTarget !== targetWord) {
+  if (gameState.currentDisplayedTargetId !== targetWord) {
     return startsFromInitialReveal;
   }
 
   return Math.min(
     targetWord.length,
-    Math.max(startsFromInitialReveal, normalizedCurrentRevealCount + 1),
+    Math.max(startsFromInitialReveal, gameState.currentHintPathProgress + 1),
   );
 }
 
@@ -1062,7 +1061,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       }
 
       if (kind === 'hint') {
-        const hintTargetWord = resolveHintTargetWord(currentLevelSession);
+        const hintTargetWord = resolveHintTargetWord(gameState);
         if (!hintTargetWord) {
           return createHelpApplyResult(
             normalizedOperationId,
@@ -1084,20 +1083,14 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
           );
         }
 
-        const revealCount = resolveNextHintRevealCount(currentLevelSession, hintTargetWord);
+        const revealCount = resolveNextHintRevealCount(gameState, hintTargetWord);
         const nextState = createGameState(
           {
             ...toGameStateInput(gameState),
             stateVersion: gameState.stateVersion + 1,
             updatedAt: nowTs,
-            currentLevelSession: {
-              ...currentLevelSession,
-              meta: {
-                ...currentLevelSession.meta,
-                [HINT_META_TARGET_WORD_KEY]: hintTargetWord,
-                [HINT_META_REVEAL_COUNT_KEY]: revealCount,
-              },
-            },
+            currentDisplayedTargetId: hintTargetWord,
+            currentHintPathProgress: revealCount,
           },
           {
             previousState: gameState,

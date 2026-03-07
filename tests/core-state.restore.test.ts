@@ -45,6 +45,8 @@ function createRestoreFixtureState(): GameStateInput {
       seed: 17,
       meta: {
         source: 'restore-test',
+        hintTargetWord: 'сон',
+        hintRevealCount: 2,
       },
     },
     helpWindow: {
@@ -114,6 +116,11 @@ describe('core state restore session', () => {
       allTimeScore: 95,
       levelStatus: 'active',
     });
+    expect(snapshot.gameState).toMatchObject({
+      currentDisplayedTargetId: 'сон',
+      currentHintPathProgress: 2,
+    });
+    expect(snapshot.gameState.currentLevelSession.readabilityScore).toBe(3);
   });
 
   it('falls back to a fresh active level when restored level is not restorable', () => {
@@ -167,5 +174,7 @@ describe('core state restore session', () => {
       levelStatus: 'active',
     });
     expect(snapshot.gameState.pendingOps).toEqual([]);
+    expect(snapshot.gameState.currentDisplayedTargetId).toBeTruthy();
+    expect(snapshot.gameState.currentHintPathProgress).toBe(0);
   });
 });

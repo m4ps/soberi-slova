@@ -131,7 +131,10 @@ describe('game state model', () => {
 
     expect(state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(state.stateVersion).toBe(0);
+    expect(state.currentDisplayedTargetId).toBe('ночь');
+    expect(state.currentHintPathProgress).toBe(0);
     expect(state.currentLevelSession.levelId).toBe('level-42');
+    expect(state.currentLevelSession.readabilityScore).toBe(4);
     expect(state.helpWindow.pendingHelpRequest?.kind).toBe('hint');
     expect(state.pendingOps).toHaveLength(2);
   });
@@ -207,9 +210,13 @@ describe('game state model', () => {
     expect(firstMigration.appliedMigrations).toEqual([
       { fromVersion: 0, toVersion: 1 },
       { fromVersion: 1, toVersion: 2 },
+      { fromVersion: 2, toVersion: 3 },
     ]);
     expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(firstMigration.state.stateVersion).toBe(0);
+    expect(firstMigration.state.currentDisplayedTargetId).toBe('ночь');
+    expect(firstMigration.state.currentHintPathProgress).toBe(0);
+    expect(firstMigration.state.currentLevelSession.readabilityScore).toBe(4);
     expect(firstMigration.state.pendingOps).toEqual([]);
   });
 
@@ -242,8 +249,14 @@ describe('game state model', () => {
 
     const migration = migrateGameStateSnapshot(legacyV1Snapshot);
 
-    expect(migration.appliedMigrations).toEqual([{ fromVersion: 1, toVersion: 2 }]);
+    expect(migration.appliedMigrations).toEqual([
+      { fromVersion: 1, toVersion: 2 },
+      { fromVersion: 2, toVersion: 3 },
+    ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(migration.state.currentDisplayedTargetId).toBe('ночь');
+    expect(migration.state.currentHintPathProgress).toBe(0);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(4);
     expect(migration.state.helpWindow.pendingHelpRequest).toEqual({
       operationId: 'help-op-legacy',
       kind: 'hint',
@@ -251,6 +264,31 @@ describe('game state model', () => {
     expect(migration.state).not.toHaveProperty('sessionScore');
     expect(migration.state.currentLevelSession).not.toHaveProperty('sessionScore');
     expect(migration.state.currentLevelSession).not.toHaveProperty('tutorialTrace');
+  });
+
+  it('migrates v2 hint meta into explicit guided-target fields', () => {
+    const baseInput = createFixtureGameStateInput();
+    const legacyV2Snapshot: Record<string, unknown> = {
+      ...baseInput,
+      schemaVersion: 2,
+      stateVersion: 9,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        meta: {
+          ...baseInput.currentLevelSession.meta,
+          hintTargetWord: 'слово',
+          hintRevealCount: 3,
+        },
+      },
+    };
+
+    const migration = migrateGameStateSnapshot(legacyV2Snapshot);
+
+    expect(migration.appliedMigrations).toEqual([{ fromVersion: 2, toVersion: 3 }]);
+    expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
+    expect(migration.state.currentDisplayedTargetId).toBe('слово');
+    expect(migration.state.currentHintPathProgress).toBe(3);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(4);
   });
 
   it('rejects snapshots from unsupported future schema versions', () => {

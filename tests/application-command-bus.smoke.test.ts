@@ -357,6 +357,11 @@ describe('application command/query bus smoke', () => {
           foundTargets: ['дом'],
           foundBonuses: ['том'],
           status: 'active',
+          meta: {
+            ...createScoringFixtureState().currentLevelSession.meta,
+            hintTargetWord: 'нос',
+            hintRevealCount: 2,
+          },
         },
         helpWindow: {
           windowStartTs: 9_500,
@@ -402,6 +407,11 @@ describe('application command/query bus smoke', () => {
       });
       expect(restoredCoreState.gameplay.foundTargets).toEqual(['дом']);
       expect(restoredCoreState.gameplay.foundBonuses).toEqual(['том']);
+      expect(restoredCoreState.gameState).toMatchObject({
+        currentDisplayedTargetId: 'нос',
+        currentHintPathProgress: 2,
+      });
+      expect(restoredCoreState.gameState.currentLevelSession.readabilityScore).toBe(3);
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
       expect(restoredHelpWindow.windowStartTs).toBe(9_500);

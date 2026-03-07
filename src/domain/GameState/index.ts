@@ -1,4 +1,9 @@
 import { toErrorMessage } from '../../shared/errors';
+import {
+  HINT_META_REVEAL_COUNT_KEY,
+  HINT_META_TARGET_WORD_KEY,
+  sortWordsByDifficulty,
+} from '../../shared/word-grid';
 import type { HelpKind } from '../HelpEconomy';
 import {
   isLengthInRange,
@@ -9,12 +14,13 @@ import {
 const SNAPSHOT_SCHEMA_VERSION_V0 = 0;
 const SNAPSHOT_SCHEMA_VERSION_V1 = 1;
 const SNAPSHOT_SCHEMA_VERSION_V2 = 2;
+const SNAPSHOT_SCHEMA_VERSION_V3 = 3;
 const DEFAULT_STATE_VERSION = 0;
 const LEADERBOARD_EMPTY_SCORE = 0;
 const LEADERBOARD_EMPTY_SUBMIT_TS = 0;
 const MIGRATION_VERSION_STEP = 1;
 
-export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V2;
+export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V3;
 
 export type LevelSessionStatus = 'active' | 'completed' | 'reshuffling';
 
@@ -35,6 +41,8 @@ export interface WordEntry {
   readonly type: string;
   readonly normalized: string;
 }
+
+export type TargetWordId = string;
 
 export interface PendingHelpRequest {
   readonly operationId: string;
@@ -72,6 +80,7 @@ export interface LevelSession {
   readonly foundBonuses: readonly string[];
   readonly status: LevelSessionStatus;
   readonly seed: number;
+  readonly readabilityScore: number;
   readonly meta: Readonly<Record<string, LevelSessionMetaValue>>;
 }
 
@@ -80,6 +89,8 @@ export interface GameState {
   readonly stateVersion: number;
   readonly updatedAt: number;
   readonly allTimeScore: number;
+  readonly currentDisplayedTargetId: TargetWordId | null;
+  readonly currentHintPathProgress: number;
   readonly currentLevelSession: LevelSession;
   readonly helpWindow: HelpWindow;
   readonly pendingOps: readonly PendingOperation[];
@@ -98,16 +109,25 @@ export type PendingOperationInput = PendingOperation;
 
 export type LeaderboardSyncStateInput = LeaderboardSyncState;
 
-export interface LevelSessionInput extends Omit<LevelSession, 'meta'> {
+export interface LevelSessionInput extends Omit<LevelSession, 'meta' | 'readabilityScore'> {
+  readonly readabilityScore?: number;
   readonly meta?: Readonly<Record<string, LevelSessionMetaValue>>;
 }
 
 export interface GameStateInput extends Omit<
   GameState,
-  'schemaVersion' | 'stateVersion' | 'currentLevelSession' | 'helpWindow' | 'pendingOps'
+  | 'schemaVersion'
+  | 'stateVersion'
+  | 'currentDisplayedTargetId'
+  | 'currentHintPathProgress'
+  | 'currentLevelSession'
+  | 'helpWindow'
+  | 'pendingOps'
 > {
   readonly schemaVersion?: number;
   readonly stateVersion?: number;
+  readonly currentDisplayedTargetId?: TargetWordId | null;
+  readonly currentHintPathProgress?: number;
   readonly currentLevelSession: LevelSessionInput;
   readonly helpWindow: HelpWindowInput;
   readonly pendingOps?: readonly PendingOperationInput[];
@@ -220,6 +240,49 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
       ...snapshot,
       schemaVersion: SNAPSHOT_SCHEMA_VERSION_V2,
     }),
+  },
+  {
+    fromVersion: SNAPSHOT_SCHEMA_VERSION_V2,
+    toVersion: SNAPSHOT_SCHEMA_VERSION_V3,
+    migrate: (snapshot) => {
+      const nextSnapshot: Record<string, unknown> = {
+        ...snapshot,
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION_V3,
+      };
+
+      if (nextSnapshot.currentDisplayedTargetId === undefined) {
+        const levelSession = snapshot.currentLevelSession;
+        if (levelSession && typeof levelSession === 'object' && !Array.isArray(levelSession)) {
+          const meta = (levelSession as Record<string, unknown>).meta;
+          if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+            const hintTargetWord = (meta as Record<string, unknown>)[HINT_META_TARGET_WORD_KEY];
+            if (typeof hintTargetWord === 'string' && hintTargetWord.trim().length > 0) {
+              nextSnapshot.currentDisplayedTargetId = hintTargetWord.trim();
+            }
+          }
+        }
+      }
+
+      if (nextSnapshot.currentHintPathProgress === undefined) {
+        const levelSession = snapshot.currentLevelSession;
+        if (levelSession && typeof levelSession === 'object' && !Array.isArray(levelSession)) {
+          const meta = (levelSession as Record<string, unknown>).meta;
+          if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+            const hintRevealCount = (meta as Record<string, unknown>)[HINT_META_REVEAL_COUNT_KEY];
+            if (
+              typeof hintRevealCount === 'number' &&
+              Number.isFinite(hintRevealCount) &&
+              Number.isSafeInteger(hintRevealCount) &&
+              hintRevealCount >= 0
+            ) {
+              nextSnapshot.currentHintPathProgress = hintRevealCount;
+            }
+          }
+        }
+      }
+
+      return nextSnapshot;
+    },
   },
 ];
 
@@ -523,6 +586,87 @@ function assertLevelSessionMeta(
   return result;
 }
 
+function resolveRemainingTargetWords(
+  targetWords: readonly string[],
+  foundTargets: readonly string[],
+): readonly string[] {
+  return sortWordsByDifficulty(
+    targetWords.filter((targetWord) => !foundTargets.includes(targetWord)),
+  );
+}
+
+function calculateReadabilityScore(targetWords: readonly string[]): number {
+  if (targetWords.length === 0) {
+    return 0;
+  }
+
+  const totalLetters = targetWords.reduce((sum, targetWord) => {
+    return sum + targetWord.length;
+  }, 0);
+
+  return Number((totalLetters / targetWords.length).toFixed(2));
+}
+
+function assertOptionalTargetWordId(
+  value: unknown,
+  fieldName: string,
+): TargetWordId | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  return assertCyrillicWord(assertNonEmptyString(value, fieldName), fieldName);
+}
+
+function resolveGuidedTargetState(
+  levelSession: LevelSession,
+  targetWordIdCandidate: unknown,
+  hintPathProgressCandidate: unknown,
+): Pick<GameState, 'currentDisplayedTargetId' | 'currentHintPathProgress'> {
+  const remainingTargets = resolveRemainingTargetWords(
+    levelSession.targetWords,
+    levelSession.foundTargets,
+  );
+  if (remainingTargets.length === 0) {
+    return {
+      currentDisplayedTargetId: null,
+      currentHintPathProgress: 0,
+    };
+  }
+
+  const preferredTargetWordId = assertOptionalTargetWordId(
+    targetWordIdCandidate,
+    'gameState.currentDisplayedTargetId',
+  );
+  const currentDisplayedTargetId =
+    preferredTargetWordId && remainingTargets.includes(preferredTargetWordId)
+      ? preferredTargetWordId
+      : (remainingTargets[0] ?? null);
+  const rawHintPathProgress =
+    hintPathProgressCandidate === undefined
+      ? 0
+      : assertNonNegativeSafeInteger(
+          hintPathProgressCandidate,
+          'gameState.currentHintPathProgress',
+        );
+
+  if (!currentDisplayedTargetId || currentDisplayedTargetId !== preferredTargetWordId) {
+    return {
+      currentDisplayedTargetId,
+      currentHintPathProgress: 0,
+    };
+  }
+
+  return {
+    currentDisplayedTargetId,
+    currentHintPathProgress: Math.min(rawHintPathProgress, currentDisplayedTargetId.length),
+  };
+}
+
 function assertPendingOperationTimeline(operation: PendingOperation): void {
   if (operation.updatedAt < operation.createdAt) {
     throw parseError(
@@ -662,14 +806,21 @@ export function createLeaderboardSyncState(input: LeaderboardSyncStateInput): Le
 }
 
 export function createLevelSession(input: LevelSessionInput): LevelSession {
+  const targetWords = assertCyrillicWordArray(input.targetWords, 'levelSession.targetWords');
+  const foundTargets = assertCyrillicWordArray(input.foundTargets, 'levelSession.foundTargets');
+  const foundBonuses = assertCyrillicWordArray(input.foundBonuses, 'levelSession.foundBonuses');
   const levelSession: LevelSession = {
     levelId: assertNonEmptyString(input.levelId, 'levelSession.levelId'),
     grid: assertGrid(input.grid, 'levelSession.grid'),
-    targetWords: assertCyrillicWordArray(input.targetWords, 'levelSession.targetWords'),
-    foundTargets: assertCyrillicWordArray(input.foundTargets, 'levelSession.foundTargets'),
-    foundBonuses: assertCyrillicWordArray(input.foundBonuses, 'levelSession.foundBonuses'),
+    targetWords,
+    foundTargets,
+    foundBonuses,
     status: assertLiteral(input.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
     seed: assertFiniteNumber(input.seed, 'levelSession.seed'),
+    readabilityScore:
+      input.readabilityScore === undefined
+        ? calculateReadabilityScore(targetWords)
+        : assertNonNegativeNumber(input.readabilityScore, 'levelSession.readabilityScore'),
     meta: assertLevelSessionMeta(input.meta, 'levelSession.meta'),
   };
 
@@ -777,18 +928,27 @@ export function createGameState(
   input: GameStateInput,
   options: GameStateCreationOptions = {},
 ): GameState {
+  const currentLevelSession = createLevelSession(input.currentLevelSession);
+  const guidedTargetState = resolveGuidedTargetState(
+    currentLevelSession,
+    input.currentDisplayedTargetId,
+    input.currentHintPathProgress,
+  );
+  const requestedSchemaVersion = assertNonNegativeSafeInteger(
+    input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
+    'gameState.schemaVersion',
+  );
   const nextState: GameState = {
-    schemaVersion: assertNonNegativeSafeInteger(
-      input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
-      'gameState.schemaVersion',
-    ),
+    schemaVersion: Math.max(requestedSchemaVersion, GAME_STATE_SCHEMA_VERSION),
     stateVersion: assertNonNegativeSafeInteger(
       input.stateVersion ?? DEFAULT_STATE_VERSION,
       'gameState.stateVersion',
     ),
     updatedAt: assertNonNegativeSafeInteger(input.updatedAt, 'gameState.updatedAt'),
     allTimeScore: assertNonNegativeSafeInteger(input.allTimeScore, 'gameState.allTimeScore'),
-    currentLevelSession: createLevelSession(input.currentLevelSession),
+    currentDisplayedTargetId: guidedTargetState.currentDisplayedTargetId,
+    currentHintPathProgress: guidedTargetState.currentHintPathProgress,
+    currentLevelSession,
     helpWindow: createHelpWindow(input.helpWindow),
     pendingOps: (input.pendingOps ?? []).map((operation) => createPendingOperation(operation)),
     leaderboardSync: createLeaderboardSyncState(input.leaderboardSync),
@@ -852,6 +1012,16 @@ function toGameStateInput(value: unknown): GameStateInput {
     stateVersion: assertNonNegativeSafeInteger(source.stateVersion, 'gameState.stateVersion'),
     updatedAt: assertNonNegativeSafeInteger(source.updatedAt, 'gameState.updatedAt'),
     allTimeScore: assertNonNegativeSafeInteger(source.allTimeScore, 'gameState.allTimeScore'),
+    ...(source.currentDisplayedTargetId === undefined
+      ? {}
+      : {
+          currentDisplayedTargetId: source.currentDisplayedTargetId as TargetWordId | null,
+        }),
+    ...(source.currentHintPathProgress === undefined
+      ? {}
+      : {
+          currentHintPathProgress: source.currentHintPathProgress as number,
+        }),
     currentLevelSession: toLevelSessionInput(source.currentLevelSession),
     helpWindow: toHelpWindowInput(source.helpWindow),
     pendingOps,

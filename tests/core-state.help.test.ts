@@ -89,6 +89,10 @@ describe('core state help actions', () => {
         { row: 0, col: 1 },
       ],
     });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 2,
+    });
 
     const secondHint = coreState.applyHelp('hint', 'hint-op-2', 5_002);
     expect(secondHint).toMatchObject({
@@ -103,6 +107,10 @@ describe('core state help actions', () => {
       targetWord: 'дом',
       revealCount: 3,
       revealedLetters: 'дом',
+    });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 3,
     });
 
     coreState.submitPath(
@@ -127,6 +135,10 @@ describe('core state help actions', () => {
       targetWord: 'нос',
       revealCount: 2,
       revealedLetters: 'но',
+    });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'нос',
+      currentHintPathProgress: 2,
     });
   });
 
@@ -166,6 +178,8 @@ describe('core state help actions', () => {
     expect(snapshot.gameplay.foundTargets).toHaveLength(0);
     expect(snapshot.gameplay.foundBonuses).toHaveLength(0);
     expect(snapshot.gameplay.progress.foundTargets).toBe(0);
+    expect(snapshot.gameState.currentDisplayedTargetId).toBeTruthy();
+    expect(snapshot.gameState.currentHintPathProgress).toBe(0);
 
     const duplicateOperation = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_003);
     expect(duplicateOperation).toMatchObject({

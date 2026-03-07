@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## 2026-03-08
+
+### [DATA]-[006] Миграция state-модели к guided target-word loop v1.1
+
+- `src/domain/GameState/index.ts` переведён на `schemaVersion=3`:
+  - добавлены явные guided-state поля `GameState.currentDisplayedTargetId` и `GameState.currentHintPathProgress`;
+  - в `LevelSession` добавлен `readabilityScore`;
+  - runtime-конструкторы auto-normalize guided target state и достраивают `readabilityScore`, если поле отсутствует в старом snapshot.
+- Добавлена backward-compatible миграция `v2 -> v3`:
+  - legacy hint-state из `LevelSession.meta` (`hintTargetWord`, `hintRevealCount`) переносится в новые явные поля `GameState`;
+  - старые snapshot продолжают восстанавливаться без потери `allTimeScore`.
+- `src/domain/CoreState/index.ts` и `src/adapters/RenderMotion/index.ts` переведены на новые explicit guided fields вместо зависимости от hint-ключей в `LevelSession.meta`.
+- Расширено покрытие restore/migration:
+  - `tests/game-state.model.test.ts` проверяет `v0/v1/v2 -> v3`, включая перенос legacy hint-state;
+  - `tests/core-state.help.test.ts` фиксирует обновление guided-state при hint/reshuffle;
+  - `tests/core-state.restore.test.ts` и `tests/application-command-bus.smoke.test.ts` подтверждают, что restore сохраняет очки, free-action timer и guided-target state.
+- Синхронизированы `TECHSPEC.md`, `README.md` и `BACKLOG.md`.
+- Верификация:
+  - `npm run ci:baseline` — passed.
+  - Попытка skill-smoke через Playwright client не выполнена из-за sandbox-ограничения на локальный HTTP listener (`listen EPERM`); прямой `file://` fallback также заблокирован средой.
+
 ## 2026-02-26
 
 ### [CODE]-[292] Удаление дублирования логики в domain/application/ui

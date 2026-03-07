@@ -228,8 +228,12 @@ flowchart TD
 - Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
-- Текущая `schemaVersion=2`: переход `v1 -> v2` нормализует версию snapshot, а strict runtime-конструкторы `GameState` игнорируют неизвестные legacy поля (включая поля из out-of-scope cut-list), сохраняя только v1-контракт схемы.
-- Версии схемы/миграций и default-сентинелы (`v0/v1/v2`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
+- Текущая `schemaVersion=3`: переход `v2 -> v3` переносит legacy hint-state из `LevelSession.meta` в явные guided-state поля `GameState` (`currentDisplayedTargetId`, `currentHintPathProgress`) и достраивает `LevelSession.readabilityScore` для старых snapshot.
+- Runtime-конструкторы `GameState`/`LevelSession` auto-normalize guided target state:
+  - невалидный или устаревший `currentDisplayedTargetId` переводится на ближайшее оставшееся target-слово;
+  - `currentHintPathProgress` обрезается по длине текущей цели и сбрасывается при смене target/уровня;
+  - `readabilityScore` вычисляется детерминированно, если отсутствует в старом snapshot.
+- Версии схемы/миграций и default-сентинелы (`v0/v1/v2/v3`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
