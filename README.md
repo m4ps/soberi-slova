@@ -21,6 +21,37 @@ npm run dev:proxy
 
 Откройте `http://localhost:8080` (SDK будет доступен как `/sdk.js` через proxy).
 
+## Symphony (оркестрация задач)
+
+В репозиторий добавлена базовая конфигурация для [OpenAI Symphony](https://github.com/openai/symphony):
+
+- `WORKFLOW.md` в корне проекта (workflow для Linear + Codex app-server).
+- `scripts/symphony-bootstrap.sh` (клонирование и сборка `openai/symphony` через `mise`).
+- `scripts/symphony-start.sh` (запуск Symphony с текущим `WORKFLOW.md`).
+
+Перед запуском:
+
+1. Установите `mise` (нужен для Elixir/Erlang runtime) и убедитесь, что доступен `codex`.
+2. Создайте `.env.symphony` на основе `.env.symphony.example` и заполните значения.
+3. В `WORKFLOW.md` задайте `tracker.project_slug` вашего проекта в Linear.
+
+Запуск:
+
+```bash
+set -a
+source .env.symphony
+set +a
+
+npm run symphony:bootstrap
+npm run symphony:start
+```
+
+Запуск с observability-портом:
+
+```bash
+npm run symphony:start -- --port 4000
+```
+
 ## Скрипты
 
 - `npm run dev` — локальный запуск в режиме разработки.
@@ -34,6 +65,8 @@ npm run dev:proxy
 - `npm run format` — форматирование baseline-файлов (Prettier).
 - `npm run format:check` — проверка форматирования (для CI/pre-merge).
 - `npm run preview` — локальный preview production-сборки.
+- `npm run symphony:bootstrap` — bootstrap и сборка локального экземпляра OpenAI Symphony в `.tools/symphony`.
+- `npm run symphony:start` — запуск Symphony с workflow из `WORKFLOW.md`.
 - `npm run typecheck` — проверка TypeScript типов.
 - `npm run test` — запуск smoke unit tests (Vitest).
 - `npm run test:watch` — Vitest в watch-режиме.

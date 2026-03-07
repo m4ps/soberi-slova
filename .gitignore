@@ -1,9 +1,11 @@
 node_modules/
 dist/
 output/
+.tools/
 .DS_Store
 *.log
 progress.md
+.env.symphony
 data/*.tmp.csv
 data/*.tmp.json
 data/*.dump.csv

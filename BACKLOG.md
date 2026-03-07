@@ -1,6 +1,7 @@
-# BACKLOG — Endless Word Grid v1
+# BACKLOG — Endless Word Grid v1.1
 
 Ниже задачи расположены в оптимальном порядке исполнения по этапам: сначала фундамент и контракты, затем реализация core-loop, затем верификация и финальное security-hardening.
+Отмеченные `[x]` пункты отражают уже выполненный baseline. Неотмеченные `[ ]` пункты и обновленные формулировки ниже являются источником истины для доведения проекта до `TECHSPEC v1.1`.
 
 ## Этап 1: Инициализация
 
@@ -29,7 +30,7 @@ Task Context: Удали черновые файлы, экспериментал
 Task DOD: В репозитории нет временных файлов/директорий от инициализации; рабочее дерево содержит только целевые исходники и документацию.
 
 - [x] [INIT]-[091] Удаление ненужного кода и зависимостей этапа
-Task Context: Проведи ревизию зависимостей и стартового кода; исключи пакеты и модули, не участвующие в v1 scope (включая вырезанный MVP cut-list функционал).
+Task Context: Проведи ревизию зависимостей и стартового кода; исключи пакеты и модули, не участвующие в `v1.1` scope (включая вырезанный MVP cut-list функционал).
 Task DOD: `package`-зависимости минимальны и обоснованы; неиспользуемые exports/модули удалены; размер baseline-бандла не вырос из-за мертвого кода.
 
 - [x] [INIT]-[092] Удаление дублирования в конфигурации и bootstrap-логике
@@ -51,7 +52,7 @@ Task Context: Реализуй типы `GameState`, `LevelSession`, `HelpWindow
 Task DOD: Все сущности представлены типами и runtime-конструкторами; сериализация/десериализация сохраняет структуру без потерь; схема отражена в документации.
 
 - [x] [DATA]-[002] Закрепить инварианты и валидаторы состояния
-Task Context: Реализуй runtime-валидацию инвариантов: grid 5x5, только кириллица и отдельная `ё`, target count 3..7, отсутствие дублей, непересечение found sets, однонаправленные level state transitions.
+Task Context: Реализуй runtime-валидацию базовых инвариантов: grid 5x5, только кириллица и отдельная `ё`, отсутствие дублей, непересечение found sets, однонаправленные level state transitions.
 Task DOD: Попытки создать невалидное состояние отклоняются с доменной ошибкой; есть набор unit-тестов на каждое критичное правило инварианта.
 
 - [x] [DATA]-[003] Построить pipeline словаря из `data/dictionary.csv` (normalization + filtering)
@@ -66,13 +67,25 @@ Task DOD: Восстановление состояния воспроизвод
 Task Context: Определи event envelope `{ eventId, eventType, eventVersion, occurredAt, correlationId, payload }` и минимальные domain events для word success, level clear, help, persistence, leaderboard sync.
 Task DOD: Все ключевые операции публикуют типизированные события; correlationId проходит через цепочку operation end-to-end; схема событий документирована.
 
+- [ ] [DATA]-[006] Мигрировать модель состояния к guided target-word loop v1.1
+Task Context: Расширь `GameState` и `LevelSession` полями `currentDisplayedTargetId`, `currentHintPathProgress` и `readabilityScore`; подготовь backward-compatible snapshot migration, чтобы ранее сохраненные состояния восстанавливались без потери `allTimeScore` и `free-action timer`.
+Task DOD: Схема состояния соответствует `TECHSPEC v1.1`; migration tests покрывают переход на новую модель; restore не теряет очки, таймер помощи и новый guided-target state.
+
+- [ ] [DATA]-[007] Зафиксировать инварианты v1.1 для target-count, readability и displayed-target pointer
+Task Context: Добавь runtime-валидацию инвариантов `N=10..15`, minimum `10` target-слов, преобладание коротких/средних слов, читаемость уровня и правило, что `currentDisplayedTargetId` всегда указывает на еще не найденное слово, если такие слова есть.
+Task DOD: Невалидные уровни и состояния отклоняются до входа в gameplay; unit-тесты покрывают target-count bounds, readability constraints и корректность displayed-target pointer.
+
+- [ ] [DATA]-[008] Расширить доменные события под guided loop и hint progression
+Task Context: Добавь в event model обязательные события `TargetWordAccepted`, `BonusWordAccepted`, `DisplayedTargetChanged`, `HintPathProgressAdvanced`, `LevelCompleted`, `HelpActionApplied`, `HelpActionFailed`, `StatePersisted`; сохрани `correlationId` и versioning.
+Task DOD: Все новые события типизированы и задокументированы; события публикуются из соответствующих use-cases и доступны для telemetry/render/persistence цепочек.
+
 - [x] [DATA]-[190] Приборка этапа модели данных
 Task Context: Удали временные data-fixtures, отладочные dump-файлы, промежуточные миграционные черновики и неиспользуемые CSV-утилиты.
 Task DOD: В репозитории остаются только рабочие модели, миграции и актуальные тестовые фикстуры; нет “одноразовых” артефактов.
 
 - [x] [DATA]-[191] Удаление ненужных структур и полей данных
-Task Context: Проведи ревизию схемы и выбрось поля, не требуемые PRD v1 (например, session score, achievements, daily quests, tutorial traces и т.п.).
-Task DOD: Модель данных строго соответствует v1 scope; лишние поля удалены из типов, сериализации и тестов.
+Task Context: Проведи ревизию схемы и выбрось поля, не требуемые PRD v1.1 (например, session score, achievements, daily quests, tutorial traces и т.п.).
+Task DOD: Модель данных строго соответствует `v1.1` scope; лишние поля удалены из типов, сериализации и тестов.
 
 - [x] [DATA]-[192] Удаление дублирования схем, DTO и валидаторов
 Task Context: Устрани повтор типизаций между domain/entity/dto слоями; вынеси общие validator helpers, чтобы не дублировать правила кириллицы/`ё`/length/rank.
@@ -88,9 +101,9 @@ Task DOD: Data-layer проходит lint/typecheck/tests; документац
 
 ## Этап 3: Кодирование
 
-- [x] [CODE]-[001] Реализовать LevelGenerator (word-first, 5x5, anti-repeat, rejection rules)
-Task Context: Собери генератор уровней: выбор target-набора 3..7 слов по длине/rank, укладка путями по 8 направлениям с пересечениями, заполнение пустых клеток, fallback-ретраи без полного сброса набора, anti-repeat по недавним уровням и rejection редких букв.
-Task DOD: Каждый сгенерированный уровень валиден по инвариантам; минимум один длинный target присутствует; генератор детерминирован при фиксированном seed.
+- [x] [CODE]-[001] Реализовать базовую инфраструктуру LevelGenerator
+Task Context: Собери детерминированный word-first генератор уровней как основу для дальнейших эвристик отбора target-слов, укладки путями по 8 направлениям, anti-repeat и rejection rules.
+Task DOD: Генератор способен строить валидный уровень по seed; базовая логика отбора слов, укладки и заполнения сетки выделена в отдельный модуль и покрыта тестами.
 
 - [x] [CODE]-[002] Реализовать InputPath для swipe-драг ввода и tail-undo
 Task Context: Реализуй обработку drag-path: только соседние клетки (8 направлений), запрет повторного использования клетки, undo только по последней клетке, невалидные/повторные клетки мягко игнорируются.
@@ -100,16 +113,16 @@ Task DOD: Path engine корректно строит/сворачивает п�
 Task Context: По submit-path собирай слово, нормализуй и проверяй словарь; различай target, bonus, repeat, invalid; повторы в рамках уровня полностью silent ignore без UI/анимации.
 Task DOD: Результат валидации всегда однозначен; повторно найденные слова не меняют state/score; `ё` и `е` обрабатываются как разные буквы.
 
-- [x] [CODE]-[004] Реализовать CoreState scoring/progression в state-first порядке
-Task Context: Имплементируй формулы очков PRD (`target: 10+2*len`, `bonus: 2+len`, `level clear: 30+5*N`), idempotency начислений и прогресс `x/N`; любое начисление фиксируется в state до анимаций.
+- [x] [CODE]-[004] Реализовать state-first scoring/progression foundation
+Task Context: Вынеси scoring и progression в `CoreState` так, чтобы любые начисления и переходы прогресса фиксировались в состоянии до анимаций; формулы очков и level-clear правила должны читаться из централизованного доменного контракта.
 Task DOD: Очки начисляются ровно один раз на событие; бонусы не начисляются после completion; state-first контракт соблюдается во всех submit сценариях.
 
 - [x] [CODE]-[005] Реализовать completion pipeline и автопереход уровня
 Task Context: Для последнего target слова соблюдай порядок: commit score -> success animation event -> progress N/N -> ephemeral congrats -> level clear score -> full lock -> auto-next level.
 Task DOD: Level clear начисляется ровно один раз; во время перехода ввод заблокирован; после перехода стартует новый `active` уровень без потери all-time score.
 
-- [x] [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint progression, manual reshuffle
-Task Context: Реализуй общий пул free-action (`hint`/`reshuffle`) с real-time таймером и shared lock на две кнопки; hint раскрывает 2/3/4+ букв одного слова (самое легкое оставшееся), reshuffle полностью сбрасывает текущий уровень.
+- [x] [CODE]-[006] Реализовать HelpEconomy: free-window 5 минут, hint/reshuffle foundation
+Task Context: Реализуй общий пул free-action (`hint`/`reshuffle`) с real-time таймером и shared lock на две кнопки; help-effects должны применяться только через единый orchestration flow с idempotency и ad outcome handling.
 Task DOD: Бесплатное действие списывается только после успешного применения помощи; при закрытии вкладки таймер корректно восстанавливается; операции помощи re-entrant-safe.
 
 - [x] [CODE]-[007] Интегрировать Rewarded Ads outcomes в help flows
@@ -117,7 +130,7 @@ Task Context: Добавь вызов `showRewardedVideo` и корректну�
 Task DOD: Ни один ad outcome не приводит к двойному применению help; ad-fail не ломает игровой state; telemetry фиксирует outcome и длительность.
 
 - [x] [CODE]-[008] Реализовать RenderMotion и one-screen UI без лишних сущностей
-Task Context: Реализуй liquid/pseudo-liquid feedback: in-drag линия, undo-визуал, success glow (green target / yellow bonus), перелет букв в progress/score; собери UI одного экрана (grid, progress x/N, all-time score, hint, reshuffle, leaderboard) без session score/list/tutorial.
+Task Context: Реализуй liquid/pseudo-liquid feedback: in-drag линия, undo-визуал, success glow, перелет букв в progress/score; собери one-screen UI как основу для дальнейшего guided target-word UX без session score/list/tutorial.
 Task DOD: Весь UI соответствует PRD one-screen contract; анимации запускаются по domain events, а не как источник истины; на малых экранах поле 5x5 остается приоритетным элементом.
 
 - [x] [CODE]-[009] Реализовать PlatformYandex, Persistence, Restore и Leaderboard end-to-end
@@ -132,6 +145,10 @@ Task DOD: На реальных и тестовых жестах диагона�
 Task Context: Для дебага в `dev` режиме выведи список загаданных target-слов справа или слева от игрового экрана с текущим статусом (найдено/не найдено); панель должна быть отключена в production и не влиять на основной one-screen UX в релизе.
 Task DOD: В dev-сборке панель всегда доступна и синхронизирована с состоянием уровня; в production-сборке панель полностью отсутствует (код и UI не активны).
 
+- [ ] [CODE]-[012] Реализовать guided target-word loop и переключение displayed target
+Task Context: Добавь в gameplay основной v1.1 цикл, где над сеткой всегда отображается одно еще не найденное target-слово; после успешной разгадки displayed target переключается только по завершении success-feedback, а при старте/restore всегда рендерится корректное текущее слово.
+Task DOD: UI всегда показывает актуальный `displayed target`; после успешного нахождения слова переключение происходит в правильный момент жизненного цикла; restore возвращает пользователя в тот же guided context.
+
 - [x] [CODE]-[013] Выделить и проверить независимый алгоритм распознавания bonus-слов
 Task Context: Исправь слабое распознавание нецелевых слов: bonus-валидация должна работать независимо от алгоритма генерации уровня и target-набора; используй отдельный словарный lookup/индекс для проверки существования слова и корректной классификации `bonus`.
 Task DOD: Валидное нецелевое слово из словаря стабильно засчитывается как bonus (до завершения уровня) и начисляет очки один раз; повторы и невалидные слова корректно игнорируются.
@@ -140,13 +157,41 @@ Task DOD: Валидное нецелевое слово из словаря с�
 Task Context: После получения воспроизводимого red-сценария в `TEST-012` исправь дефект, при котором целевые слова видны в dev-debug (консоль/панель), но не засчитываются при фактическом свайпе в браузере; найди корневую причину в цепочке `InputPath -> SubmitPath -> WordValidation -> CoreState`.
 Task DOD: После фикса целевые слова стабильно засчитываются именно через браузерную разгадку; прогресс `x/N`, статус найденных слов и очки обновляются корректно; регрессий bonus/repeat/invalid path нет.
 
+- [ ] [CODE]-[015] Адаптировать LevelGenerator к v1.1: 10..15 target-слов и readability-first heuristics
+Task Context: Переведи генератор на `N=10..15`, приоритет коротких/средних слов, minimum `10` target-слов, readability-first selection/placement, anti-repeat и rejection rules по читаемости; длинные слова больше не обязательны.
+Task DOD: Новый генератор стабильно выдает уровни в диапазоне `10..15` target-слов; уровни проходят readability checks и anti-repeat heuristics; deterministic tests по seed остаются зелеными.
+
+- [ ] [CODE]-[016] Реализовать out-of-focus target acceptance без штрафа
+Task Context: Если игрок собирает не текущее отображаемое, а другое еще не найденное target-слово, оно должно засчитываться без штрафа; если displayed target все еще не найден, он должен остаться текущим.
+Task DOD: Out-of-focus target засчитывается как обычный target; displayed target не переключается преждевременно; scoring и progression идентичны обычной target-разгадке.
+
+- [ ] [CODE]-[017] Ребалансировать scoring-контракт на формулы v1.1
+Task Context: Обнови доменные формулы очков до `target = 4 + length`, `bonus = 1 + floor(length / 2)`, `level clear = 10 + N`; убедись, что level clear, repeat-ignore и post-completion rules работают на новых числах без побочных регрессий.
+Task DOD: Все начисления используют новый numeric contract; persisted score и leaderboard sync работают на новой модели; unit/integration tests подтверждают отсутствие двойных начислений.
+
+- [ ] [CODE]-[018] Обновить hint flow до path-reveal текущего displayed target
+Task Context: Переведи подсказку на новый контракт: hint работает только с текущим displayed target, первое использование открывает стартовую клетку, каждое следующее раскрывает еще одну следующую клетку пути, автозачета нет.
+Task DOD: Hint progression идет по клеткам пути текущего target; `currentHintPathProgress` растет на 1 шаг за применение; reshuffle/reset уровня полностью сбрасывает hint progress.
+
+- [ ] [CODE]-[019] Расширить restore/persist под displayed target и hint progress
+Task Context: Сохраняй и восстанавливай не только score и уровень, но и `currentDisplayedTargetId` и `currentHintPathProgress`; при частичном restore guided loop должен оставаться консистентным или безопасно пересобираться по правилам TECHSPEC.
+Task DOD: После refresh/resume пользователь возвращается к тому же displayed target и тому же hint progress, если snapshot валиден; при деградации restore сохраняются score/timer и восстанавливается корректный guided context.
+
+- [ ] [CODE]-[020] Добавить telemetry и product guardrails для guided loop v1.1
+Task Context: Заинструментируй product/technical telemetry под новые метрики: `session length`, `D1`, `help-action share`, `mean time to find displayed target`, `restore success`, `ad outcomes`, `leaderboard sync success`, `error-rate by code`.
+Task DOD: Метрики доступны из кода через typed events/logs с `correlationId`; новые KPI можно собирать без PII; post-launch анализ pacing и scoring гипотез возможен без дописывания клиента.
+
+- [ ] [CODE]-[021] Зафиксировать детерминированную policy для ad technical error
+Task Context: Вынеси продуктовую policy для `showRewardedVideo` technical error в единый domain/config contract: либо deterministic goodwill, либо deterministic отказ с toast/cooldown; поведение должно быть единым во всех help flows.
+Task DOD: Поведение на ad technical error единообразно и тестируемо; код не содержит разрозненных веток goodwill/fail; policy отражена в документации и telemetry.
+
 - [x] [CODE]-[290] Приборка этапа кодирования
 Task Context: Удали временные моки, debug UI, тестовые кнопки, неиспользуемые ассеты и экспериментальные рендер-фичи, добавленные в процессе разработки.
 Task DOD: В production-сборке отсутствуют debug-only элементы; кодовая база содержит только целевой v1 функционал.
 
-- [x] [CODE]-[291] Удаление ненужных реализаций вне v1 scope
+- [x] [CODE]-[291] Удаление ненужных реализаций вне v1.1 scope
 Task Context: Проверь и удаляй код, который заходит в cut-list PRD (sfx, achievements, desktop layout, adaptive difficulty, seasons и т.п.).
-Task DOD: Репозиторий не содержит функционала вне утвержденного v1 scope; зависимости и конфиги синхронизированы с этим ограничением.
+Task DOD: Репозиторий не содержит функционала вне утвержденного `v1.1` scope; зависимости и конфиги синхронизированы с этим ограничением.
 
 - [x] [CODE]-[292] Удаление дублирования логики в domain/application/ui
 Task Context: Найди дубли в scoring, word classification, help locking, timer math, SDK вызовах и унифицируй через shared services/utilities.
@@ -154,7 +199,7 @@ Task DOD: Каждая критичная бизнес-формула опред
 
 - [ ] [CODE]-[293] Анализ безопасности реализованного gameplay-кода
 Task Context: Проведи security-review client logic: tampering через повторные команды, race conditions help/ad, некорректные payload от SDK/storage, защита от некорректных path submissions.
-Task DOD: Выявленные уязвимости закрыты или формально задокументированы как non-goal v1; high-risk issues отсутствуют.
+Task DOD: Выявленные уязвимости закрыты или формально задокументированы как non-goal v1.1; high-risk issues отсутствуют.
 
 - [ ] [CODE]-[294] Приведение игрового кода в порядок перед тестовым этапом
 Task Context: Проведи финальную инженерную чистку: naming consistency, удаление мертвого кода, минимизация сложных функций, обновление модульной документации.
@@ -163,28 +208,28 @@ Task DOD: Код читабелен и поддерживаем; `lint/typecheck
 ## Этап 4: Тесты
 
 - [ ] [TEST]-[001] Unit-тесты CoreState/InputPath/WordValidation на доменные контракты
-Task Context: Покрой тестами scoring formulas, state transitions, idempotency, repeat ignore, adjacency/undo rules, dictionary normalization и `ё`-кейсы.
+Task Context: Покрой тестами scoring formulas v1.1, state transitions, displayed-target pointer semantics, idempotency, repeat ignore, adjacency/undo rules, dictionary normalization и `ё`-кейсы.
 Task DOD: Критичные доменные правила имеют unit coverage; ключевые edge cases из PRD/TECHSPEC зафиксированы тестами и проходят стабильно.
 
 - [ ] [TEST]-[002] Property-based и deterministic тесты LevelGenerator
-Task Context: Добавь генераторные проверки: валидность путей, диапазон target count, присутствие длинного слова, anti-repeat в окне недавних уровней, rejection редких букв и стабильность по seed.
-Task DOD: Генератор проходит deterministic suite без flaky; property-checks подтверждают соблюдение инвариантов на большом числе итераций.
+Task Context: Добавь генераторные проверки: валидность путей, диапазон target count `10..15`, minimum `10` target-слов, читаемость уровня, приоритет коротких/средних слов, anti-repeat, rejection rules и стабильность по seed.
+Task DOD: Генератор проходит deterministic suite без flaky; property-checks подтверждают соблюдение v1.1 инвариантов и readability constraints на большом числе итераций.
 
 - [ ] [TEST]-[003] Интеграционные тесты HelpEconomy + Ads + shared lock
 Task Context: Проверь E2E внутри приложения сценарии free-now/ad-required/no-fill/error/early-close, блокировку обеих help-кнопок, cooldown и корректность списания free action.
 Task DOD: Нет двойного применения help; все ad outcomes приводят к ожидаемым последствиям по контракту; re-entrancy дефекты не воспроизводятся.
 
 - [ ] [TEST]-[004] Интеграционные тесты Persistence/Restore/Leaderboard sync
-Task Context: Протестируй safeStorage/player mirror, LWW merge, fallback на новый уровень при проблемах restore, retry/backoff leaderboard sync и стабильность all-time score.
-Task DOD: Restore contract `score+timer` выдержан; loss of all-time score не воспроизводится; sync leaderboard не ломает игровой поток.
+Task Context: Протестируй safeStorage/player mirror, LWW merge, restore `currentDisplayedTargetId/currentHintPathProgress`, fallback на новый guided context при проблемах restore, retry/backoff leaderboard sync и стабильность all-time score.
+Task DOD: Restore contract `score+timer+guided target state` выдержан; loss of all-time score не воспроизводится; sync leaderboard не ломает игровой поток.
 
 - [ ] [TEST]-[005] Playwright smoke E2E для критических пользовательских потоков
-Task Context: Собери браузерные smoke сценарии: launch, submit target/bonus, level clear auto-next, hint/reshuffle, ad outcome handling, resume after reload; запуск через dev-proxy окружение.
-Task DOD: Все критичные E2E сценарии проходят; скриншоты/логи/консоль фиксируют отсутствие критичных runtime ошибок.
+Task Context: Собери браузерные smoke сценарии по v1.1: `launch -> restore -> displayed target render`, `submit displayed target -> success feedback -> target switch`, `submit out-of-focus target`, `hint progression`, `reshuffle/ad outcomes`, `level clear`, `resume after reload`; запуск через dev-proxy окружение.
+Task DOD: Все критичные E2E сценарии проходят; скриншоты/логи/консоль фиксируют отсутствие критичных runtime ошибок и корректный guided target-word UX.
 
 - [ ] [TEST]-[006] NFR и release gates: perf/reliability/CI acceptance
-Task Context: Введи проверки порогов TECHSPEC: frame-time p95/p99, input latency, restore success, ad error-rate guardrails; подключи их в CI gates до `Yandex draft`.
-Task DOD: CI блокирует релиз при нарушении порогов; acceptance-отчет показывает соответствие system-level критериям перед production.
+Task Context: Введи проверки порогов TECHSPEC: input/perf guardrails, restore success, ad error-rate, leaderboard sync success и доступность success metrics instrumentation, включая `mean time to find displayed target` и `help-action share`; подключи их в CI/release gates до `Yandex draft`.
+Task DOD: CI блокирует релиз при нарушении порогов; acceptance-отчет показывает соответствие system-level критериям и наличие post-launch метрик перед production.
 
 - [ ] [TEST]-[007] Стабилизировать Playwright smoke в TLS-контуре dev-proxy
 Task Context: Устрани нестабильность smoke-прогона в `sdk-dev-proxy` из-за self-signed сертификата (`ERR_CERT_AUTHORITY_INVALID`); зафиксируй поддерживаемый и воспроизводимый способ запуска `web_game_playwright_client` без временных SDK-моков.
@@ -195,8 +240,8 @@ Task Context: Добавь unit/integration и Playwright-сценарии с of
 Task DOD: Тесты стабильно воспроизводят прежний дефект и подтверждают исправление; диагональный input остается корректным на разных скоростях движения.
 
 - [ ] [TEST]-[009] Проверить multi-path сборку target-слов (порядок важен, путь нет)
-Task Context: Реализуй тесты, где одно target-слово собирается по разным валидным путям; критерий приемки — одинаковая последовательность букв, при этом конкретная траектория может отличаться.
-Task DOD: Все валидные альтернативные пути для target-слова засчитываются; некорректный порядок букв или невалидный путь по-прежнему отклоняются.
+Task Context: Реализуй тесты, где одно target-слово собирается по разным валидным путям; критерий приемки — одинаковая последовательность букв, при этом конкретная траектория может отличаться, включая out-of-focus target сценарии.
+Task DOD: Все валидные альтернативные пути для target-слова засчитываются; некорректный порядок букв или невалидный путь по-прежнему отклоняются; displayed-target semantics не ломаются.
 
 - [ ] [TEST]-[010] Покрыть тестами независимую bonus-валидацию от генератора
 Task Context: Добавь тесты, доказывающие что bonus-слово определяется через отдельный словарный алгоритм, а не через target-набор/маршруты генератора; включи positive/negative/repeat/completed-level кейсы.
@@ -208,15 +253,35 @@ Task DOD: Dev-панель доступна и актуальна в debug-ко�
 
 - [x] [TEST]-[012] Добавить browser E2E-тест зачета target-слов через реальную разгадку
 Task Context: Создай Playwright-сценарий, который в браузере берет целевое слово из dev-debug источника (панель/консоль), выполняет пользовательский свайп по клеткам и проверяет, что слово действительно засчитано; запрещено засчитывать слово через прямые вызовы store/команд вне UI.
-Task DOD: Тест детерминированно проверяет изменение `x/N`, пометку слова как найденного и начисление очков после реального ввода; до фикса воспроизводит текущий дефект, после фикса стабильно зеленый.
+Task DOD: Тест детерминированно проверяет изменение прогресса, пометку слова как найденного, корректность displayed-target state и начисление очков после реального ввода; до фикса воспроизводит дефект, после фикса стабильно зеленый.
+
+- [ ] [TEST]-[013] Проверить displayed target render и переключение после success-feedback
+Task Context: Добавь browser/integration тесты на цепочку `launch/restore -> displayed target shown -> submit displayed target -> success feedback -> displayed target switch`; переключение не должно происходить раньше положенного lifecycle-момента.
+Task DOD: Текущий target всегда видим на старте и после restore; после разгадки переключение происходит строго после success-feedback; race conditions между state и render отсутствуют.
+
+- [ ] [TEST]-[014] Проверить out-of-focus target acceptance без penalty
+Task Context: Добавь E2E/integration сценарии, где игрок собирает не текущее отображаемое слово, а другое еще не найденное target-слово; слово должно засчитываться, но displayed target должен остаться прежним, если он еще не найден.
+Task DOD: Out-of-focus target принимается без штрафа; scoring и progression корректны; displayed target не переключается преждевременно.
+
+- [ ] [TEST]-[015] Проверить hint path progression и его восстановление после reload
+Task Context: Покрой тестами новый hint contract: первое применение раскрывает стартовую клетку текущего displayed target, каждое следующее открывает еще одну клетку пути; состояние должно корректно восстанавливаться после refresh.
+Task DOD: Hint progression строго пошаговый и привязан к текущему displayed target; restore возвращает тот же progress или безопасно деградирует по TECHSPEC; автозачета нет.
+
+- [ ] [TEST]-[016] Проверить scoring rebalance v1.1 и level-clear начисления
+Task Context: Добавь unit/integration acceptance tests для новых формул `target = 4 + length`, `bonus = 1 + floor(length / 2)`, `level clear = 10 + N`, включая repeat-ignore и post-completion behavior.
+Task DOD: Все начисления соответствуют v1.1 numeric contract; повторные и post-completion кейсы не создают лишних очков; leaderboard sync получает уже новые значения.
+
+- [ ] [TEST]-[017] Проверить telemetry availability для guided-loop guardrails
+Task Context: Добавь проверки, что клиент публикует события и метрики, достаточные для post-launch анализа `session length`, `help-action share`, `mean time to find displayed target`, `restore success`, `ad outcomes`, `leaderboard sync success`.
+Task DOD: Success metrics instrumentation доступна и не требует ручного патча клиента перед релизом; события типизированы и содержат `correlationId` без PII.
 
 - [ ] [TEST]-[390] Приборка этапа тестирования
 Task Context: Удали временные тестовые артефакты, устаревшие snapshots, лишние фикстуры и экспериментальные сценарии, не несущие value.
 Task DOD: Тестовый набор компактный и актуальный; неиспользуемые тестовые файлы удалены.
 
 - [ ] [TEST]-[391] Удаление ненужных тестов и устаревших проверок
-Task Context: Проведи ревизию тестов на предмет дублирования и проверки неактуального поведения; исключи тесты на функционал вне v1 scope.
-Task DOD: Каждый тест проверяет релевантный контракт v1; ложноположительные/устаревшие тесты удалены.
+Task Context: Проведи ревизию тестов на предмет дублирования и проверки неактуального поведения; исключи тесты на функционал вне `v1.1` scope.
+Task DOD: Каждый тест проверяет релевантный контракт `v1.1`; ложноположительные/устаревшие тесты удалены.
 
 - [ ] [TEST]-[392] Удаление дублирования тест-кейсов и хелперов
 Task Context: Консолидируй повторяющиеся setup-последовательности, mocks SDK и helper-функции для state factory.
@@ -232,7 +297,7 @@ Task DOD: Тестовый прогон воспроизводим; flaky-tests 
 
 ## Этап 5: Безопасность
 
-- [ ] [SEC]-[001] Провести threat modeling для клиентской архитектуры v1
+- [ ] [SEC]-[001] Провести threat modeling для клиентской архитектуры v1.1
 Task Context: Сформируй модель угроз для client-only игры в Yandex runtime: tampering score/help flows, replay команд, corrupted snapshots, SDK callback misuse, ad abuse, leaderboard misuse.
 Task DOD: Подготовлен threat model с приоритизацией рисков и контрмерами; все P0/P1 риски имеют реализацию или формальное accepted risk-решение.
 
@@ -249,7 +314,7 @@ Task Context: Проведи аудит на отсутствие секрето
 Task DOD: CI падает при обнаружении секретов/критичных уязвимостей; telemetry schema проходит PII deny-list review.
 
 - [ ] [SEC]-[005] Выполнить release security verification перед production
-Task Context: Собери финальный security checklist релиза: hardening конфигов, audit логов ошибок, проверка rollback readiness, документирование residual risks v1.
+Task Context: Собери финальный security checklist релиза: hardening конфигов, audit логов ошибок, проверка rollback readiness, документирование residual risks v1.1.
 Task DOD: Security sign-off зафиксирован; критичных незакрытых уязвимостей нет; release-пакет готов к moderation/production.
 
 - [ ] [SEC]-[490] Приборка security-этапа
@@ -265,7 +330,7 @@ Task Context: Консолидируй повторяющиеся security-check
 Task DOD: Security-проверки определены единообразно; локальный и CI контуры дают эквивалентный результат.
 
 - [ ] [SEC]-[493] Финальный анализ безопасности и residual risks review
-Task Context: Проведи финальный проход по рискам PRD/TECHSPEC (render complexity, restore variability, grind leaderboard fairness) и закрепи, что остается осознанным non-goal v1.
+Task Context: Проведи финальный проход по рискам PRD/TECHSPEC (render complexity, restore variability, guided-loop pacing, grind leaderboard fairness) и закрепи, что остается осознанным non-goal v1.1.
 Task DOD: Подготовлен краткий residual risk register; статус каждого риска прозрачен для релизного решения.
 
 - [ ] [SEC]-[494] Приведение security-документации и кода в порядок
