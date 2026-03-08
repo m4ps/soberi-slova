@@ -4,7 +4,7 @@ import { createPersistenceModule } from './adapters/Persistence';
 import { createPlatformYandexModule } from './adapters/PlatformYandex';
 import { createRenderMotionModule, type RenderMotionRuntime } from './adapters/RenderMotion';
 import { createTelemetryModule } from './adapters/Telemetry';
-import { createVisualSystemModule } from './adapters/VisualSystem';
+import { createVisualSystemModule, type VisualTokens } from './adapters/VisualSystem';
 import { createCoreStateModule, type CoreStateModuleOptions } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
 import { createLevelGeneratorModule } from './domain/LevelGenerator';
@@ -42,7 +42,24 @@ function getRootElement(): HTMLDivElement {
   return rootElement;
 }
 
-function renderBootstrapFailState(rootElement: HTMLDivElement, reason: string): void {
+function applyRuntimeShellVisualTokens(visualTokens: VisualTokens): void {
+  const rootStyle = document.documentElement.style;
+
+  rootStyle.setProperty('--visual-app-background', visualTokens.shell.appBackgroundHex);
+  rootStyle.setProperty('--visual-app-cloud-cool', visualTokens.shell.appCloudCoolHex);
+  rootStyle.setProperty('--visual-app-cloud-mint', visualTokens.shell.appCloudMintHex);
+  rootStyle.setProperty('--visual-app-cloud-warm', visualTokens.shell.appCloudWarmHex);
+  rootStyle.setProperty('--visual-shell-fill', visualTokens.shell.shellFillCss);
+  rootStyle.setProperty('--visual-shell-stroke', visualTokens.shell.shellStrokeHex);
+  rootStyle.setProperty('--visual-shell-shadow', visualTokens.shell.shellShadowCss);
+  rootStyle.setProperty('--visual-font-family', visualTokens.typography.fontFamily);
+}
+
+function renderBootstrapFailState(
+  rootElement: HTMLDivElement,
+  reason: string,
+  visualTokens: VisualTokens,
+): void {
   rootElement.replaceChildren();
 
   const container = document.createElement('section');
@@ -54,10 +71,12 @@ function renderBootstrapFailState(rootElement: HTMLDivElement, reason: string): 
   container.style.height = '100%';
   container.style.padding = '20px';
   container.style.textAlign = 'center';
-  container.style.background = '#0f172a';
-  container.style.color = '#e2e8f0';
-  container.style.fontFamily =
-    '"Manrope", "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", sans-serif';
+  container.style.background = visualTokens.shell.shellFillCss;
+  container.style.border = `1px solid ${visualTokens.panels.currentWord.strokeHex}`;
+  container.style.borderRadius = '24px';
+  container.style.color = visualTokens.text.primaryHex;
+  container.style.fontFamily = visualTokens.typography.fontFamily;
+  container.style.boxShadow = `0 18px 48px ${visualTokens.shell.shellShadowCss}`;
 
   const title = document.createElement('h1');
   title.textContent = 'Runtime unavailable';
@@ -129,6 +148,9 @@ async function bootstrap(): Promise<void> {
   const rootElement = getRootElement();
   clearDiagnosticHooks();
 
+  const visualSystemModule = createVisualSystemModule();
+  applyRuntimeShellVisualTokens(visualSystemModule.tokens);
+
   const coreStateModule = createCoreStateModule(createCoreStateDictionaryDependencies());
   const helpEconomyModule = createHelpEconomyModule();
 
@@ -136,7 +158,6 @@ async function bootstrap(): Promise<void> {
     coreState: coreStateModule,
     helpEconomy: helpEconomyModule,
   });
-  const visualSystemModule = createVisualSystemModule();
 
   const renderMotionModule = createRenderMotionModule(
     application.readModel,
@@ -213,7 +234,7 @@ async function bootstrap(): Promise<void> {
       console.error('[main] Cleanup after bootstrap failure failed.', cleanupError);
     });
 
-    renderBootstrapFailState(rootElement, reason);
+    renderBootstrapFailState(rootElement, reason, visualSystemModule.tokens);
     installFailureHooks(reason);
 
     throw error;

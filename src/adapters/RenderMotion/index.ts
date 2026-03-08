@@ -1,4 +1,4 @@
-import { Application, Color, Container, Graphics, Text } from 'pixi.js';
+import { Application, BlurFilter, Color, Container, FillGradient, Graphics, Text } from 'pixi.js';
 
 import type {
   ApplicationCommandBus,
@@ -17,9 +17,14 @@ import {
 } from '../../shared/word-grid';
 import {
   createVisualSystemModule,
+  type CurrentWordTransitionFrame,
   type GameLayout,
   type LayoutRect,
+  type ProgressBarPulseFrame,
   type VisualButtonId,
+  type VisualButtonState,
+  type VisualButtonStateContract,
+  type VisualPanelContract,
   type VisualSystemModule,
 } from '../VisualSystem';
 
@@ -38,9 +43,33 @@ type SuccessKind = 'target' | 'bonus';
 interface RenderButton {
   readonly id: VisualButtonId;
   readonly container: Container;
+  readonly glow: Graphics;
   readonly background: Graphics;
   readonly label: Text;
   isEnabled: boolean;
+  isHovered: boolean;
+  isPressed: boolean;
+  renderState: ButtonRenderState;
+  targetState: VisualButtonState;
+  animation: ButtonAnimationState | null;
+}
+
+interface ButtonRenderState {
+  readonly fillColor: number;
+  readonly fillAlpha: number;
+  readonly strokeColor: number;
+  readonly strokeAlpha: number;
+  readonly labelColor: number;
+  readonly labelAlpha: number;
+  readonly offsetY: number;
+  readonly glowAlpha: number;
+}
+
+interface ButtonAnimationState {
+  readonly from: ButtonRenderState;
+  readonly to: ButtonRenderState;
+  readonly durationMs: number;
+  elapsedMs: number;
 }
 
 interface PathGlowAnimation {
@@ -69,6 +98,31 @@ interface PendingAcknowledgeJob {
 
 interface UndoPulse {
   readonly cell: GridCellRef;
+  readonly durationMs: number;
+  elapsedMs: number;
+}
+
+interface ProgressBarAnimation {
+  readonly fromRatio: number;
+  readonly toRatio: number;
+  readonly durationMs: number;
+  elapsedMs: number;
+}
+
+interface ProgressBarPulseAnimation {
+  readonly ratio: number;
+  readonly durationMs: number;
+  elapsedMs: number;
+}
+
+interface CurrentWordVisual {
+  readonly text: string;
+  readonly color: number;
+}
+
+interface CurrentWordTransition {
+  readonly from: CurrentWordVisual;
+  readonly to: CurrentWordVisual;
   readonly durationMs: number;
   elapsedMs: number;
 }
@@ -111,6 +165,10 @@ export interface RenderMotionSnapshot {
     readonly activeGlowAnimations: number;
     readonly activeFlyingLetters: number;
     readonly toastMessage: string | null;
+    readonly progressFillRatio: number;
+    readonly progressFillAnimating: boolean;
+    readonly currentWordTransitionActive: boolean;
+    readonly focusedButtonId: VisualButtonId | null;
     readonly hintEnabled: boolean;
     readonly reshuffleEnabled: boolean;
     readonly leaderboardEnabled: boolean;
@@ -189,6 +247,174 @@ function drawPanel(
     .roundRect(rect.x, rect.y, rect.width, rect.height, radius)
     .fill({ color: fillColor, alpha: fillAlpha })
     .stroke({ color: strokeColor, width: 2, alpha: strokeAlpha });
+}
+
+function drawPanelContract(
+  graphics: Graphics,
+  rect: LayoutRect,
+  radius: number,
+  contract: VisualPanelContract,
+): void {
+  drawPanel(
+    graphics,
+    rect,
+    radius,
+    hexToColorNumber(contract.fillHex),
+    contract.fillAlpha,
+    hexToColorNumber(contract.strokeHex),
+    contract.strokeAlpha,
+  );
+}
+
+function hexToColorNumber(hexColor: string): number {
+  return Number.parseInt(hexColor.replace('#', ''), 16);
+}
+
+function lerpColorNumber(start: number, end: number, progress: number): number {
+  const startRed = (start >> 16) & 0xff;
+  const startGreen = (start >> 8) & 0xff;
+  const startBlue = start & 0xff;
+  const endRed = (end >> 16) & 0xff;
+  const endGreen = (end >> 8) & 0xff;
+  const endBlue = end & 0xff;
+
+  return (
+    (Math.round(lerp(startRed, endRed, progress)) << 16) |
+    (Math.round(lerp(startGreen, endGreen, progress)) << 8) |
+    Math.round(lerp(startBlue, endBlue, progress))
+  );
+}
+
+function buttonContractToRenderState(contract: VisualButtonStateContract): ButtonRenderState {
+  return {
+    fillColor: hexToColorNumber(contract.fillHex),
+    fillAlpha: contract.fillAlpha,
+    strokeColor: hexToColorNumber(contract.strokeHex),
+    strokeAlpha: contract.strokeAlpha,
+    labelColor: hexToColorNumber(contract.labelHex),
+    labelAlpha: contract.labelAlpha,
+    offsetY: contract.offsetY,
+    glowAlpha: contract.glowAlpha,
+  };
+}
+
+function interpolateButtonRenderState(
+  from: ButtonRenderState,
+  to: ButtonRenderState,
+  progress: number,
+): ButtonRenderState {
+  return {
+    fillColor: lerpColorNumber(from.fillColor, to.fillColor, progress),
+    fillAlpha: lerp(from.fillAlpha, to.fillAlpha, progress),
+    strokeColor: lerpColorNumber(from.strokeColor, to.strokeColor, progress),
+    strokeAlpha: lerp(from.strokeAlpha, to.strokeAlpha, progress),
+    labelColor: lerpColorNumber(from.labelColor, to.labelColor, progress),
+    labelAlpha: lerp(from.labelAlpha, to.labelAlpha, progress),
+    offsetY: lerp(from.offsetY, to.offsetY, progress),
+    glowAlpha: lerp(from.glowAlpha, to.glowAlpha, progress),
+  };
+}
+
+function resolveCurrentWordVisual(
+  targetWord: string | null,
+  showEphemeralCongrats: boolean,
+  visualSystem: VisualSystemModule,
+): CurrentWordVisual {
+  if (targetWord) {
+    return {
+      text: targetWord,
+      color: hexToColorNumber(visualSystem.tokens.text.currentWordHex),
+    };
+  }
+
+  if (showEphemeralCongrats) {
+    return {
+      text: 'Уровень пройден',
+      color: hexToColorNumber(visualSystem.tokens.text.currentWordCompletedHex),
+    };
+  }
+
+  return {
+    text: '...',
+    color: hexToColorNumber(visualSystem.tokens.text.currentWordPlaceholderHex),
+  };
+}
+
+function resolveProgressRatio(foundTargets: number, totalTargets: number): number {
+  if (!Number.isFinite(foundTargets) || !Number.isFinite(totalTargets) || totalTargets <= 0) {
+    return 0;
+  }
+
+  return clamp(foundTargets / totalTargets, 0, 1);
+}
+
+function drawBackgroundScene(
+  graphics: Graphics,
+  layout: GameLayout,
+  visualSystem: VisualSystemModule,
+): void {
+  const shellTokens = visualSystem.tokens.shell;
+  const width = layout.viewport.width;
+  const height = layout.viewport.height;
+  const baseColor = hexToColorNumber(shellTokens.appBackgroundHex);
+  const coolCloudColor = hexToColorNumber(shellTokens.appCloudCoolHex);
+  const mintCloudColor = hexToColorNumber(shellTokens.appCloudMintHex);
+  const warmCloudColor = hexToColorNumber(shellTokens.appCloudWarmHex);
+  const cloudRadius = Math.min(width, height) * 0.22;
+
+  graphics
+    .clear()
+    .rect(0, 0, width, height)
+    .fill({ color: baseColor })
+    .circle(width * 0.18, height * 0.16, cloudRadius)
+    .fill({ color: coolCloudColor, alpha: 0.42 })
+    .circle(width * 0.84, height * 0.22, cloudRadius * 0.84)
+    .fill({ color: mintCloudColor, alpha: 0.32 })
+    .circle(width * 0.5, height * 0.9, cloudRadius * 1.06)
+    .fill({ color: warmCloudColor, alpha: 0.26 });
+}
+
+function drawProgressBar(
+  graphics: Graphics,
+  rect: LayoutRect,
+  fillRatio: number,
+  pulseFrame: ProgressBarPulseFrame | null,
+  progressFillGradient: FillGradient,
+  visualSystem: VisualSystemModule,
+): void {
+  const progressTokens = visualSystem.tokens.progressBar;
+  const radius = Math.min(rect.height / 2, 14);
+  const clampedFillRatio = clamp(fillRatio, 0, 1);
+  const fillWidth = rect.width * clampedFillRatio;
+
+  graphics
+    .roundRect(rect.x, rect.y, rect.width, rect.height, radius)
+    .fill({
+      color: hexToColorNumber(progressTokens.trackFillHex),
+      alpha: progressTokens.trackFillAlpha,
+    })
+    .stroke({
+      color: hexToColorNumber(progressTokens.trackStrokeHex),
+      width: 2,
+      alpha: progressTokens.trackStrokeAlpha,
+    });
+
+  if (fillWidth > 0) {
+    graphics.roundRect(rect.x, rect.y, fillWidth, rect.height, radius).fill({
+      fill: progressFillGradient,
+      alpha: 1,
+    });
+  }
+
+  if (!pulseFrame || fillWidth <= 0) {
+    return;
+  }
+
+  const glowRadius = Math.max(rect.height * 0.7, rect.height * pulseFrame.glowScale);
+  graphics.circle(rect.x + fillWidth, rect.y + rect.height / 2, glowRadius).fill({
+    color: hexToColorNumber(progressTokens.glowHex),
+    alpha: pulseFrame.glowAlpha,
+  });
 }
 
 function drawPathTrail(
@@ -311,16 +537,20 @@ function createRenderButton(
   id: VisualButtonId,
   labelText: string,
   onTap: () => void,
+  visualSystem: VisualSystemModule,
 ): RenderButton {
+  const baseState = visualSystem.resolveButtonState(id, 'base');
+  const renderState = buttonContractToRenderState(baseState);
   const container = new Container();
+  const glow = new Graphics();
   const background = new Graphics();
   const label = new Text({
     text: labelText,
     style: {
-      fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+      fontFamily: visualSystem.tokens.typography.fontFamily,
       fontSize: 20,
       fontWeight: '700',
-      fill: 0xf8fafc,
+      fill: renderState.labelColor,
       align: 'center',
     },
   });
@@ -328,20 +558,22 @@ function createRenderButton(
   label.anchor.set(0.5);
   container.eventMode = 'static';
   container.cursor = 'pointer';
-  container.addChild(background, label);
+  container.addChild(glow, background, label);
   container.on('pointertap', () => onTap());
 
   return {
     id,
     container,
+    glow,
     background,
     label,
     isEnabled: true,
+    isHovered: false,
+    isPressed: false,
+    renderState,
+    targetState: 'base',
+    animation: null,
   };
-}
-
-function hexToColorNumber(hexColor: string): number {
-  return Number.parseInt(hexColor.replace('#', ''), 16);
 }
 
 export function createRenderMotionModule(
@@ -359,7 +591,7 @@ export function createRenderMotionModule(
         width: GAME_VIEWPORT.width,
         height: GAME_VIEWPORT.height,
         antialias: true,
-        backgroundColor: new Color('#07101d').toNumber(),
+        backgroundColor: new Color(visualSystem.tokens.shell.appBackgroundHex).toNumber(),
         preserveDrawingBuffer: true,
         resizeTo: rootElement,
       });
@@ -375,65 +607,102 @@ export function createRenderMotionModule(
       const dragLayer = new Graphics();
       const undoLayer = new Graphics();
       const controlsLayer = new Graphics();
+      const toastLayer = new Graphics();
       const flightsLayer = new Container();
       const buttonLayer = new Container();
       const textLayer = new Container();
+      const progressFillGradient = new FillGradient({
+        type: 'linear',
+        start: { x: 0, y: 0 },
+        end: { x: 1, y: 0 },
+        textureSpace: 'local',
+        colorStops: [
+          { offset: 0, color: visualSystem.tokens.accents.progressStartHex },
+          { offset: 1, color: visualSystem.tokens.accents.progressEndHex },
+        ],
+      });
+      const currentWordOutgoingBlur = new BlurFilter({
+        strength: visualSystem.tokens.currentWord.blurStrength,
+        quality: 2,
+      });
+      const currentWordIncomingBlur = new BlurFilter({
+        strength: visualSystem.tokens.currentWord.blurStrength,
+        quality: 2,
+      });
 
-      const progressText = new Text({
-        text: 'Цели 0/0',
+      const progressCountText = new Text({
+        text: '0 / 0',
         style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
-          fontSize: 34,
+          fontFamily: visualSystem.tokens.typography.fontFamily,
+          fontSize: 20,
           fontWeight: '700',
-          fill: 0xdbeafe,
+          fill: hexToColorNumber(visualSystem.tokens.text.progressCounterHex),
         },
       });
-      progressText.anchor.set(0, 0.5);
+      progressCountText.anchor.set(0, 1);
 
-      const scoreText = new Text({
-        text: 'Счёт 0',
+      const scoreLabelText = new Text({
+        text: 'Счёт',
         style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontFamily: visualSystem.tokens.typography.fontFamily,
+          fontSize: 14,
+          fontWeight: '700',
+          fill: hexToColorNumber(visualSystem.tokens.text.scoreLabelHex),
+          align: 'right',
+        },
+      });
+      scoreLabelText.anchor.set(1, 0);
+
+      const scoreValueText = new Text({
+        text: '0',
+        style: {
+          fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 28,
           fontWeight: '700',
-          fill: 0xfef9c3,
+          fill: hexToColorNumber(visualSystem.tokens.text.scoreValueHex),
+          align: 'right',
         },
       });
-      scoreText.anchor.set(1, 0.5);
+      scoreValueText.anchor.set(1, 1);
 
-      const targetLabelText = new Text({
-        text: 'Текущая цель',
-        style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
-          fontSize: 16,
-          fontWeight: '700',
-          fill: 0x7dd3fc,
-          align: 'center',
-        },
-      });
-      targetLabelText.anchor.set(0.5, 0);
-
-      const targetWordText = new Text({
+      const currentWordPrimaryText = new Text({
         text: '',
         style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 30,
           fontWeight: '700',
-          fill: 0xf8fafc,
+          fill: hexToColorNumber(visualSystem.tokens.text.currentWordHex),
           align: 'center',
           wordWrap: true,
           wordWrapWidth: 260,
         },
       });
-      targetWordText.anchor.set(0.5, 0);
+      currentWordPrimaryText.anchor.set(0.5);
+      currentWordPrimaryText.filters = [currentWordIncomingBlur];
+
+      const currentWordSecondaryText = new Text({
+        text: '',
+        style: {
+          fontFamily: visualSystem.tokens.typography.fontFamily,
+          fontSize: 30,
+          fontWeight: '700',
+          fill: hexToColorNumber(visualSystem.tokens.text.currentWordHex),
+          align: 'center',
+          wordWrap: true,
+          wordWrapWidth: 260,
+        },
+      });
+      currentWordSecondaryText.anchor.set(0.5);
+      currentWordSecondaryText.filters = [currentWordOutgoingBlur];
+      currentWordSecondaryText.visible = false;
 
       const congratsText = new Text({
         text: 'Уровень пройден',
         style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 28,
           fontWeight: '700',
-          fill: 0x86efac,
+          fill: hexToColorNumber(visualSystem.tokens.text.currentWordCompletedHex),
           align: 'center',
         },
       });
@@ -443,10 +712,10 @@ export function createRenderMotionModule(
       const toastText = new Text({
         text: '',
         style: {
-          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 21,
           fontWeight: '700',
-          fill: 0xfef3c7,
+          fill: hexToColorNumber(visualSystem.tokens.text.toastHex),
           align: 'center',
         },
       });
@@ -457,10 +726,10 @@ export function createRenderMotionModule(
         const letterText = new Text({
           text: '',
           style: {
-            fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+            fontFamily: visualSystem.tokens.typography.fontFamily,
             fontSize: 44,
             fontWeight: '700',
-            fill: 0xe2e8f0,
+            fill: hexToColorNumber(visualSystem.tokens.text.letterHex),
             align: 'center',
           },
         });
@@ -474,21 +743,37 @@ export function createRenderMotionModule(
         commandBus.dispatch({ type });
       };
 
-      const hintButton = createRenderButton('hint', 'Подсказка', () => {
-        if (hintButton.isEnabled) {
-          dispatchCommand('RequestHint');
-        }
-      });
-      const reshuffleButton = createRenderButton('reshuffle', 'Пересобрать', () => {
-        if (reshuffleButton.isEnabled) {
-          dispatchCommand('RequestReshuffle');
-        }
-      });
-      const leaderboardButton = createRenderButton('leaderboard', 'Лидерборд', () => {
-        if (leaderboardButton.isEnabled) {
-          dispatchCommand('SyncLeaderboard');
-        }
-      });
+      const hintButton = createRenderButton(
+        'hint',
+        'Подсказка',
+        () => {
+          if (hintButton.isEnabled) {
+            dispatchCommand('RequestHint');
+          }
+        },
+        visualSystem,
+      );
+      const reshuffleButton = createRenderButton(
+        'reshuffle',
+        'Пересобрать',
+        () => {
+          if (reshuffleButton.isEnabled) {
+            dispatchCommand('RequestReshuffle');
+          }
+        },
+        visualSystem,
+      );
+      const leaderboardButton = createRenderButton(
+        'leaderboard',
+        'Лидерборд',
+        () => {
+          if (leaderboardButton.isEnabled) {
+            dispatchCommand('SyncLeaderboard');
+          }
+        },
+        visualSystem,
+      );
+      const buttons = [hintButton, reshuffleButton, leaderboardButton] as const;
 
       buttonLayer.addChild(
         hintButton.container,
@@ -496,10 +781,11 @@ export function createRenderMotionModule(
         leaderboardButton.container,
       );
       textLayer.addChild(
-        progressText,
-        scoreText,
-        targetLabelText,
-        targetWordText,
+        progressCountText,
+        scoreLabelText,
+        scoreValueText,
+        currentWordSecondaryText,
+        currentWordPrimaryText,
         congratsText,
         toastText,
         ...letterTexts,
@@ -514,6 +800,7 @@ export function createRenderMotionModule(
         dragLayer,
         undoLayer,
         controlsLayer,
+        toastLayer,
         flightsLayer,
         buttonLayer,
         textLayer,
@@ -526,7 +813,20 @@ export function createRenderMotionModule(
       let latestCoreState = readModel.getCoreState();
       let latestHelpState = readModel.getHelpWindowState();
       let displayedTargetWord = latestCoreState.gameState.currentDisplayedTargetId;
+      let displayedProgressRatio = resolveProgressRatio(
+        latestCoreState.gameplay.progress.foundTargets,
+        latestCoreState.gameplay.progress.totalTargets,
+      );
+      let progressBarAnimation: ProgressBarAnimation | null = null;
+      let progressBarPulse: ProgressBarPulseAnimation | null = null;
+      let focusedButtonId: VisualButtonId | null = null;
+      let currentWordTransition: CurrentWordTransition | null = null;
       let lastDevTargetWordsSignature: string | null = null;
+      let currentWordVisual = resolveCurrentWordVisual(
+        displayedTargetWord,
+        latestCoreState.gameplay.showEphemeralCongrats,
+        visualSystem,
+      );
 
       const pathGlowAnimations: PathGlowAnimation[] = [];
       const flyingLetterAnimations: FlyingLetterAnimation[] = [];
@@ -537,51 +837,136 @@ export function createRenderMotionModule(
       const acknowledgedTransitionOperations = new Set<string>();
       const acknowledgedTransitionQueue: string[] = [];
 
-      const applyButtonVisualState = (
+      const syncButtonVisualState = (
         button: RenderButton,
         rect: LayoutRect,
         enabled: boolean,
         labelText: string,
+        deltaMs: number,
       ): void => {
+        if (!enabled) {
+          button.isHovered = false;
+          button.isPressed = false;
+          if (focusedButtonId === button.id) {
+            focusedButtonId = null;
+          }
+        }
+
+        const nextState: VisualButtonState = !enabled
+          ? 'disabled'
+          : button.isPressed
+            ? 'pressed'
+            : focusedButtonId === button.id
+              ? 'focus'
+              : button.isHovered
+                ? 'hover'
+                : 'base';
+        if (nextState !== button.targetState) {
+          const durationMs =
+            nextState === 'pressed' || button.targetState === 'pressed'
+              ? visualSystem.tokens.motion.buttonPressDurationMs
+              : visualSystem.tokens.motion.buttonHoverDurationMs;
+          button.targetState = nextState;
+          button.animation = {
+            from: button.renderState,
+            to: buttonContractToRenderState(visualSystem.resolveButtonState(button.id, nextState)),
+            durationMs,
+            elapsedMs: 0,
+          };
+        }
+
+        if (button.animation) {
+          button.animation.elapsedMs += deltaMs;
+          const animationProgress = clamp(
+            button.animation.elapsedMs / button.animation.durationMs,
+            0,
+            1,
+          );
+          button.renderState = interpolateButtonRenderState(
+            button.animation.from,
+            button.animation.to,
+            easeOutCubic(animationProgress),
+          );
+          if (animationProgress >= 1) {
+            button.animation = null;
+          }
+        }
+
         button.isEnabled = enabled;
         button.container.eventMode = enabled ? 'static' : 'none';
         button.container.cursor = enabled ? 'pointer' : 'default';
-        button.container.position.set(rect.x, rect.y);
+        button.container.position.set(rect.x, rect.y + button.renderState.offsetY);
         button.label.text = labelText;
         button.label.position.set(rect.width / 2, rect.height / 2);
-        const buttonState = visualSystem.resolveButtonState(
-          button.id,
-          enabled ? 'base' : 'disabled',
-        );
-        button.label.alpha = buttonState.labelAlpha;
-        button.label.tint = hexToColorNumber(buttonState.labelHex);
-        button.container.y = rect.y + buttonState.offsetY;
+        button.label.alpha = button.renderState.labelAlpha;
+        button.label.tint = button.renderState.labelColor;
+
+        const glowRadius = Math.min(rect.height, rect.width) * 0.3 + 4;
+        button.glow.clear();
+        if (button.renderState.glowAlpha > 0) {
+          button.glow.roundRect(-3, -3, rect.width + 6, rect.height + 6, glowRadius).stroke({
+            color: button.renderState.strokeColor,
+            width: 2,
+            alpha: button.renderState.glowAlpha,
+          });
+        }
 
         button.background
           .clear()
           .roundRect(0, 0, rect.width, rect.height, Math.min(rect.height, rect.width) * 0.3)
           .fill({
-            color: hexToColorNumber(buttonState.fillHex),
-            alpha: buttonState.fillAlpha,
+            color: button.renderState.fillColor,
+            alpha: button.renderState.fillAlpha,
           })
           .stroke({
-            color: hexToColorNumber(buttonState.strokeHex),
+            color: button.renderState.strokeColor,
             width: 2,
-            alpha: buttonState.strokeAlpha,
+            alpha: button.renderState.strokeAlpha,
           });
       };
 
+      for (const button of buttons) {
+        button.container.on('pointerover', () => {
+          if (button.isEnabled) {
+            button.isHovered = true;
+          }
+        });
+        button.container.on('pointerout', () => {
+          button.isHovered = false;
+          button.isPressed = false;
+        });
+        button.container.on('pointerdown', () => {
+          if (!button.isEnabled) {
+            return;
+          }
+
+          button.isPressed = true;
+          focusedButtonId = button.id;
+        });
+        button.container.on('pointerup', () => {
+          button.isPressed = false;
+        });
+        button.container.on('pointerupoutside', () => {
+          button.isPressed = false;
+        });
+      }
+
       const resolveFlightTargetPoint = (kind: SuccessKind): { x: number; y: number } => {
         if (kind === 'target') {
+          const fillWidth = currentLayout.progressBar.width * displayedProgressRatio;
           return {
-            x: progressText.x + Math.min(progressText.width + 14, currentLayout.hud.width * 0.36),
-            y: progressText.y,
+            x:
+              currentLayout.progressBar.x +
+              Math.max(fillWidth, currentLayout.progressBar.height * 0.8),
+            y: currentLayout.progressBar.y + currentLayout.progressBar.height / 2,
           };
         }
 
         return {
-          x: scoreText.x - Math.min(scoreText.width + 14, currentLayout.hud.width * 0.36),
-          y: scoreText.y,
+          x:
+            scoreValueText.x -
+            Math.min(scoreValueText.width * 0.45, currentLayout.scoreCard.width * 0.2),
+          y: scoreValueText.y,
         };
       };
 
@@ -597,7 +982,11 @@ export function createRenderMotionModule(
         const letters = [...word];
         const letterCount = Math.min(letters.length, pathCells.length);
         const target = resolveFlightTargetPoint(kind);
-        const tint = kind === 'target' ? 0x34d399 : 0xfacc15;
+        const tint = hexToColorNumber(
+          kind === 'target'
+            ? visualSystem.tokens.feedback.targetParticleHex
+            : visualSystem.tokens.feedback.bonusParticleHex,
+        );
 
         for (let letterIndex = 0; letterIndex < letterCount; letterIndex += 1) {
           const cell = pathCells[letterIndex];
@@ -610,7 +999,7 @@ export function createRenderMotionModule(
           const sprite = new Text({
             text: letter,
             style: {
-              fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+              fontFamily: visualSystem.tokens.typography.fontFamily,
               fontSize: 34,
               fontWeight: '700',
               fill: tint,
@@ -671,7 +1060,11 @@ export function createRenderMotionModule(
         ) {
           const kind: SuccessKind =
             event.eventType === 'domain/target-word-accepted' ? 'target' : 'bonus';
-          const color = kind === 'target' ? 0x22c55e : 0xfacc15;
+          const color = hexToColorNumber(
+            kind === 'target'
+              ? visualSystem.tokens.feedback.targetPathHex
+              : visualSystem.tokens.feedback.bonusPathHex,
+          );
 
           if (event.eventType === 'domain/target-word-accepted') {
             const payload = event.payload;
@@ -703,6 +1096,20 @@ export function createRenderMotionModule(
         }
 
         if (event.eventType === 'domain/progress-bar-fill-requested') {
+          progressBarAnimation = {
+            fromRatio: resolveProgressRatio(
+              event.payload.progress.previousFoundTargets,
+              event.payload.progress.totalTargets,
+            ),
+            toRatio: resolveProgressRatio(
+              event.payload.progress.foundTargets,
+              event.payload.progress.totalTargets,
+            ),
+            durationMs: visualSystem.tokens.motion.progressBarFillDurationMs.recommended,
+            elapsedMs: 0,
+          };
+          displayedProgressRatio = progressBarAnimation.fromRatio;
+          progressBarPulse = null;
           queueFlyingLetters(event.payload.targetWord, event.payload.pathCells, 'target');
           return;
         }
@@ -803,7 +1210,89 @@ export function createRenderMotionModule(
           return;
         }
 
-        displayedTargetWord = latestCoreState.gameState.currentDisplayedTargetId;
+        const nextDisplayedTargetWord = latestCoreState.gameState.currentDisplayedTargetId;
+        if (nextDisplayedTargetWord === displayedTargetWord) {
+          return;
+        }
+
+        const nextVisual = resolveCurrentWordVisual(
+          nextDisplayedTargetWord,
+          latestCoreState.gameplay.showEphemeralCongrats,
+          visualSystem,
+        );
+        currentWordTransition = {
+          from: currentWordVisual,
+          to: nextVisual,
+          durationMs: visualSystem.tokens.motion.targetWordTransitionDurationMs.recommended,
+          elapsedMs: 0,
+        };
+        currentWordVisual = nextVisual;
+        displayedTargetWord = nextDisplayedTargetWord;
+      };
+
+      const updateProgressVisuals = (deltaMs: number): ProgressBarPulseFrame | null => {
+        const latestProgressRatio = resolveProgressRatio(
+          latestCoreState.gameplay.progress.foundTargets,
+          latestCoreState.gameplay.progress.totalTargets,
+        );
+
+        if (progressBarAnimation) {
+          progressBarAnimation.elapsedMs += deltaMs;
+          const animationProgress = clamp(
+            progressBarAnimation.elapsedMs / progressBarAnimation.durationMs,
+            0,
+            1,
+          );
+          displayedProgressRatio = lerp(
+            progressBarAnimation.fromRatio,
+            progressBarAnimation.toRatio,
+            easeOutCubic(animationProgress),
+          );
+
+          if (animationProgress >= 1) {
+            displayedProgressRatio = progressBarAnimation.toRatio;
+            progressBarPulse = {
+              ratio: progressBarAnimation.toRatio,
+              durationMs: visualSystem.tokens.motion.progressBarPulseDurationMs,
+              elapsedMs: 0,
+            };
+            progressBarAnimation = null;
+          }
+        } else {
+          displayedProgressRatio = latestProgressRatio;
+        }
+
+        if (!progressBarPulse) {
+          return null;
+        }
+
+        progressBarPulse.elapsedMs += deltaMs;
+        const pulseProgress = clamp(progressBarPulse.elapsedMs / progressBarPulse.durationMs, 0, 1);
+        const pulseFrame = visualSystem.resolveProgressBarPulse(pulseProgress);
+        if (pulseProgress >= 1) {
+          progressBarPulse = null;
+        }
+
+        return pulseFrame;
+      };
+
+      const updateCurrentWordTransition = (deltaMs: number): CurrentWordTransitionFrame | null => {
+        if (!currentWordTransition) {
+          return null;
+        }
+
+        currentWordTransition.elapsedMs += deltaMs;
+        const transitionProgress = clamp(
+          currentWordTransition.elapsedMs / currentWordTransition.durationMs,
+          0,
+          1,
+        );
+        const transitionFrame = visualSystem.resolveCurrentWordTransition(transitionProgress);
+        if (transitionProgress >= 1) {
+          currentWordTransition = null;
+        }
+
+        return transitionFrame;
       };
 
       const renderFrame = (deltaMs: number): void => {
@@ -815,57 +1304,85 @@ export function createRenderMotionModule(
         latestHelpState = readModel.getHelpWindowState();
         syncDisplayedTargetWord();
         logDevTargetWordsToConsole();
+        const progressPulseFrame = updateProgressVisuals(deltaMs);
+        const currentWordTransitionSnapshot = currentWordTransition;
+        const currentWordTransitionFrame = updateCurrentWordTransition(deltaMs);
 
-        backgroundLayer
-          .clear()
-          .rect(0, 0, currentLayout.viewport.width, currentLayout.viewport.height)
-          .fill({ color: 0x07101d })
-          .rect(
-            0,
-            currentLayout.grid.y * 0.45,
-            currentLayout.viewport.width,
-            currentLayout.viewport.height,
-          )
-          .fill({ color: 0x0f172a, alpha: 0.8 });
+        drawBackgroundScene(backgroundLayer, currentLayout, visualSystem);
 
         hudLayer.clear();
-        drawPanel(hudLayer, currentLayout.hud, 22, 0x1e293b, 0.78, 0x7dd3fc, 0.26);
+        drawPanelContract(
+          hudLayer,
+          currentLayout.progressCard,
+          22,
+          visualSystem.tokens.panels.metric,
+        );
+        drawPanelContract(hudLayer, currentLayout.scoreCard, 22, visualSystem.tokens.panels.metric);
+        drawPanelContract(
+          hudLayer,
+          currentLayout.currentWord,
+          24,
+          visualSystem.tokens.panels.currentWord,
+        );
+        drawProgressBar(
+          hudLayer,
+          currentLayout.progressBar,
+          displayedProgressRatio,
+          progressPulseFrame,
+          progressFillGradient,
+          visualSystem,
+        );
 
-        progressText.text = `Цели ${latestCoreState.gameplay.progress.foundTargets}/${latestCoreState.gameplay.progress.totalTargets}`;
-        progressText.position.set(
+        const isCompactHud = currentLayout.progressCard.height < 78;
+        progressCountText.style.fontSize = isCompactHud ? 18 : 20;
+        scoreLabelText.style.fontSize = isCompactHud ? 12 : 14;
+        scoreValueText.style.fontSize = isCompactHud ? 24 : 30;
+        currentWordPrimaryText.style.fontSize = currentLayout.currentWord.height < 64 ? 24 : 32;
+        currentWordSecondaryText.style.fontSize = currentWordPrimaryText.style.fontSize;
+        currentWordPrimaryText.style.wordWrapWidth = currentLayout.currentWord.width * 0.82;
+        currentWordSecondaryText.style.wordWrapWidth = currentWordPrimaryText.style.wordWrapWidth;
+
+        progressCountText.text = `${latestCoreState.gameplay.progress.foundTargets} / ${latestCoreState.gameplay.progress.totalTargets}`;
+        progressCountText.position.set(
           currentLayout.progressAnchor.x,
-          currentLayout.hud.y + currentLayout.hud.height * 0.28,
+          currentLayout.progressCard.y + currentLayout.progressCard.height - 14,
         );
 
-        scoreText.text = `Счёт ${latestCoreState.gameplay.allTimeScore}`;
-        scoreText.position.set(
+        scoreLabelText.position.set(currentLayout.scoreAnchor.x, currentLayout.scoreCard.y + 12);
+        scoreValueText.text = `${latestCoreState.gameplay.allTimeScore}`;
+        scoreValueText.position.set(
           currentLayout.scoreAnchor.x,
-          currentLayout.hud.y + currentLayout.hud.height * 0.28,
+          currentLayout.scoreCard.y + currentLayout.scoreCard.height - 12,
         );
 
-        const isCompactHud = currentLayout.hud.height < 84;
-        progressText.style.fontSize = isCompactHud ? 22 : 28;
-        scoreText.style.fontSize = isCompactHud ? 22 : 28;
-        targetLabelText.style.fontSize = isCompactHud ? 13 : 16;
-        targetWordText.style.fontSize = isCompactHud ? 24 : 30;
-        targetWordText.style.wordWrapWidth = currentLayout.hud.width * 0.74;
+        const currentWordCenterX =
+          currentLayout.currentWord.x + currentLayout.currentWord.width / 2;
+        const currentWordCenterY =
+          currentLayout.currentWord.y + currentLayout.currentWord.height / 2;
+        currentWordPrimaryText.position.set(currentWordCenterX, currentWordCenterY);
+        currentWordSecondaryText.position.set(currentWordCenterX, currentWordCenterY);
 
-        const targetText =
-          displayedTargetWord ??
-          (latestCoreState.gameplay.showEphemeralCongrats ? 'Уровень пройден' : '...');
-        targetLabelText.visible = true;
-        targetWordText.visible = true;
-        targetLabelText.position.set(
-          currentLayout.viewport.width / 2,
-          currentLayout.hud.y + currentLayout.hud.height * 0.44,
-        );
-        targetWordText.text = targetText;
-        targetWordText.position.set(
-          currentLayout.viewport.width / 2,
-          currentLayout.hud.y + currentLayout.hud.height * 0.56,
-        );
-        targetWordText.tint = displayedTargetWord ? 0xf8fafc : 0x86efac;
-        targetWordText.alpha = displayedTargetWord ? 1 : 0.9;
+        if (currentWordTransitionSnapshot && currentWordTransitionFrame) {
+          currentWordSecondaryText.visible = true;
+          currentWordSecondaryText.text = currentWordTransitionSnapshot.from.text;
+          currentWordSecondaryText.tint = currentWordTransitionSnapshot.from.color;
+          currentWordSecondaryText.alpha = currentWordTransitionFrame.outgoingAlpha;
+          currentWordOutgoingBlur.strength = currentWordTransitionFrame.outgoingBlurStrength;
+
+          currentWordPrimaryText.text = currentWordTransitionSnapshot.to.text;
+          currentWordPrimaryText.tint = currentWordTransitionSnapshot.to.color;
+          currentWordPrimaryText.alpha = currentWordTransitionFrame.incomingAlpha;
+          currentWordIncomingBlur.strength = currentWordTransitionFrame.incomingBlurStrength;
+        } else {
+          currentWordSecondaryText.visible = false;
+          currentWordSecondaryText.alpha = 0;
+          currentWordOutgoingBlur.strength = 0;
+
+          currentWordPrimaryText.text = currentWordVisual.text;
+          currentWordPrimaryText.tint = currentWordVisual.color;
+          currentWordPrimaryText.alpha = 1;
+          currentWordIncomingBlur.strength = 0;
+        }
 
         const helpButtonsEnabled =
           !latestCoreState.gameplay.isInputLocked &&
@@ -874,25 +1391,33 @@ export function createRenderMotionModule(
         const reshuffleLabel = 'Пересобрать';
 
         controlsLayer.clear();
-        drawPanel(controlsLayer, currentLayout.controls, 22, 0x0b1220, 0.82, 0x93c5fd, 0.22);
+        drawPanelContract(
+          controlsLayer,
+          currentLayout.controls,
+          22,
+          visualSystem.tokens.panels.controls,
+        );
 
-        applyButtonVisualState(
+        syncButtonVisualState(
           hintButton,
           currentLayout.buttons.hint,
           helpButtonsEnabled,
           hintLabel,
+          deltaMs,
         );
-        applyButtonVisualState(
+        syncButtonVisualState(
           reshuffleButton,
           currentLayout.buttons.reshuffle,
           helpButtonsEnabled,
           reshuffleLabel,
+          deltaMs,
         );
-        applyButtonVisualState(
+        syncButtonVisualState(
           leaderboardButton,
           currentLayout.buttons.leaderboard,
           true,
           'Лидерборд',
+          deltaMs,
         );
 
         const grid = latestCoreState.gameState.currentLevelSession.grid;
@@ -901,7 +1426,7 @@ export function createRenderMotionModule(
         );
 
         gridLayer.clear();
-        drawPanel(gridLayer, currentLayout.grid, 26, 0x111827, 0.94, 0x67e8f9, 0.28);
+        drawPanelContract(gridLayer, currentLayout.grid, 26, visualSystem.tokens.grid.panel);
 
         for (let row = 0; row < GRID_SIZE; row += 1) {
           for (let col = 0; col < GRID_SIZE; col += 1) {
@@ -909,8 +1434,22 @@ export function createRenderMotionModule(
             const cellBounds = resolveCellBounds(currentLayout, row, col);
             const cellPadding = Math.max(2, cellBounds.width * 0.05);
             const isPathCell = activePathIndices.has(cellIndex);
-            const cellFill = isPathCell ? 0x164e63 : 0x1f2937;
-            const cellStroke = isPathCell ? 0x5eead4 : 0x334155;
+            const cellFill = hexToColorNumber(
+              isPathCell
+                ? visualSystem.tokens.grid.cellActiveFillHex
+                : visualSystem.tokens.grid.cellFillHex,
+            );
+            const cellStroke = hexToColorNumber(
+              isPathCell
+                ? visualSystem.tokens.grid.cellActiveStrokeHex
+                : visualSystem.tokens.grid.cellStrokeHex,
+            );
+            const cellFillAlpha = isPathCell
+              ? visualSystem.tokens.grid.cellActiveFillAlpha
+              : visualSystem.tokens.grid.cellFillAlpha;
+            const cellStrokeAlpha = isPathCell
+              ? visualSystem.tokens.grid.cellActiveStrokeAlpha
+              : visualSystem.tokens.grid.cellStrokeAlpha;
 
             gridLayer
               .roundRect(
@@ -920,8 +1459,8 @@ export function createRenderMotionModule(
                 cellBounds.height - cellPadding * 2,
                 Math.max(8, cellBounds.width * 0.15),
               )
-              .fill({ color: cellFill, alpha: isPathCell ? 0.96 : 0.92 })
-              .stroke({ color: cellStroke, width: 2, alpha: isPathCell ? 0.78 : 0.35 });
+              .fill({ color: cellFill, alpha: cellFillAlpha })
+              .stroke({ color: cellStroke, width: 2, alpha: cellStrokeAlpha });
 
             const letterText = letterTexts[cellIndex];
             if (!letterText) {
@@ -934,7 +1473,11 @@ export function createRenderMotionModule(
               cellBounds.x + cellBounds.width / 2,
               cellBounds.y + cellBounds.height / 2,
             );
-            letterText.tint = isPathCell ? 0xccfbf1 : 0xe2e8f0;
+            letterText.tint = hexToColorNumber(
+              isPathCell
+                ? visualSystem.tokens.text.activeLetterHex
+                : visualSystem.tokens.text.letterHex,
+            );
             letterText.alpha = isPathCell ? 1 : 0.95;
           }
         }
@@ -954,8 +1497,15 @@ export function createRenderMotionModule(
             const center = resolveCellCenter(currentLayout, cell);
             hintLayer
               .circle(center.x, center.y, hintRadius)
-              .fill({ color: 0x38bdf8, alpha: 0.26 })
-              .stroke({ color: 0x7dd3fc, width: 2, alpha: 0.44 });
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.grid.hintFillHex),
+                alpha: visualSystem.tokens.grid.hintFillAlpha,
+              })
+              .stroke({
+                color: hexToColorNumber(visualSystem.tokens.grid.hintStrokeHex),
+                width: 2,
+                alpha: visualSystem.tokens.grid.hintStrokeAlpha,
+              });
           }
         }
 
@@ -966,8 +1516,8 @@ export function createRenderMotionModule(
             dragLayer,
             currentLayout,
             activePath,
-            0x5eead4,
-            0.5,
+            hexToColorNumber(visualSystem.tokens.grid.pathHex),
+            0.56,
             cellSize * 0.28,
             cellSize * 0.2,
           );
@@ -979,9 +1529,11 @@ export function createRenderMotionModule(
           const progress = clamp(undoPulse.elapsedMs / undoPulse.durationMs, 0, 1);
           const center = resolveCellCenter(currentLayout, undoPulse.cell);
           const radius = (currentLayout.grid.width / GRID_SIZE) * (0.2 + progress * 0.2);
-          undoLayer
-            .circle(center.x, center.y, radius)
-            .stroke({ color: 0x22d3ee, width: 2, alpha: (1 - progress) * 0.8 });
+          undoLayer.circle(center.x, center.y, radius).stroke({
+            color: hexToColorNumber(visualSystem.tokens.grid.undoStrokeHex),
+            width: 2,
+            alpha: (1 - progress) * 0.8,
+          });
 
           if (progress >= 1) {
             undoPulse = null;
@@ -1049,6 +1601,7 @@ export function createRenderMotionModule(
           }
         }
 
+        toastLayer.clear();
         congratsText.visible = latestCoreState.gameplay.showEphemeralCongrats;
         if (congratsText.visible) {
           congratsText.position.set(
@@ -1064,10 +1617,28 @@ export function createRenderMotionModule(
             toastMessage = null;
             toastText.visible = false;
           } else {
+            const toastOpacity = clamp(toastMessage.remainingMs / TOAST_DURATION_MS, 0.35, 1);
             toastText.visible = true;
             toastText.text = toastMessage.text;
             toastText.position.set(currentLayout.viewport.width / 2, currentLayout.controls.y - 18);
-            toastText.alpha = clamp(toastMessage.remainingMs / TOAST_DURATION_MS, 0.35, 1);
+            toastText.alpha = toastOpacity;
+            toastLayer
+              .roundRect(
+                toastText.x - toastText.width / 2 - 18,
+                toastText.y - toastText.height / 2 - 10,
+                toastText.width + 36,
+                toastText.height + 20,
+                18,
+              )
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.feedback.toastFillHex),
+                alpha: visualSystem.tokens.feedback.toastFillAlpha * toastOpacity,
+              })
+              .stroke({
+                color: hexToColorNumber(visualSystem.tokens.feedback.toastStrokeHex),
+                width: 2,
+                alpha: visualSystem.tokens.feedback.toastStrokeAlpha * toastOpacity,
+              });
           }
         } else {
           toastText.visible = false;
@@ -1152,6 +1723,10 @@ export function createRenderMotionModule(
             activeGlowAnimations: pathGlowAnimations.length,
             activeFlyingLetters: flyingLetterAnimations.length,
             toastMessage: toastMessage?.text ?? null,
+            progressFillRatio: displayedProgressRatio,
+            progressFillAnimating: progressBarAnimation !== null,
+            currentWordTransitionActive: currentWordTransition !== null,
+            focusedButtonId,
             hintEnabled: hintButton.isEnabled,
             reshuffleEnabled: reshuffleButton.isEnabled,
             leaderboardEnabled: leaderboardButton.isEnabled,

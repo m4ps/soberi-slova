@@ -2,6 +2,28 @@
 
 ## 2026-03-08
 
+### [CODE]-[029] VisualSystem внедрён как единый runtime contract для визуала
+
+- `src/adapters/VisualSystem/index.ts` расширен до реального source of truth для runtime-визуала:
+  - добавлены централизованные shell/panel/grid/progress/current-word tokens;
+  - layout теперь явно фиксирует `metricsRow`, `progressCard`, `scoreCard`, `currentWord` и `progressBar`;
+  - публичный API дополнен helper-контрактами для `current-word transition` и `progress pulse`.
+- `src/adapters/RenderMotion/index.ts` переведён на чтение visual contract из `VisualSystem`:
+  - верхняя строка разбита на отдельные glass-блоки прогресса и счёта;
+  - реализован полноценный progress bar с анимированным fill/pulse;
+  - current-word block получил `crossfade + blur-to-sharp` transition;
+  - button states (`base/hover/focus/pressed/disabled`) и их timings больше не захардкожены локально;
+  - локальная тёмная палитра runtime заменена на light/pastel shell из DESIGN.
+- `src/main.ts` и `src/style.css` синхронизированы с `visualTokens`:
+  - DOM-shell и bootstrap fail state читают те же shell tokens через CSS custom properties;
+  - вокруг canvas больше нет отдельного ad hoc тёмного визуального слоя.
+- Обновлены контракты и документация:
+  - `tests/visual-system.contract.test.ts` и `tests/render-layout.test.ts` закрепили новый layout и runtime visual helpers;
+  - добавлен `ADR/ADR-049-runtime-visual-tokens-source-of-truth-code-029.md`.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npm test -- --run tests/visual-system.contract.test.ts tests/render-layout.test.ts tests/input-path.adapter.test.ts` — passed.
+
 ### [CODE]-[028] Persistence/restore очищены от legacy `helpWindow` и free-timer assumptions
 
 - `src/domain/GameState/index.ts` переведён на cleanup schema `v5`:
