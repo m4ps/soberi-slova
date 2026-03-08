@@ -2,6 +2,27 @@
 
 ## 2026-03-08
 
+### [INIT]-[006] Добавлен отдельный модуль VisualSystem
+
+- Введён новый adapter-модуль `src/adapters/VisualSystem/index.ts`:
+  - `VisualSystem` оформлен как отдельный публичный контракт для visual hierarchy, layout, design tokens, button states и motion timings;
+  - добавлены `VISUAL_LAYOUT_HIERARCHY`, `visualTokens`, `visualButtonStateContracts`, `createVisualSystemModule()` и `computeGameLayout(...)`;
+  - `src/shared/module-ids.ts` дополнен идентификатором `VisualSystem`.
+- Текущие visual-зависимости переведены на новый модуль:
+  - `src/adapters/RenderMotion/index.ts` теперь получает layout и button state через `VisualSystem`;
+  - `src/adapters/InputPath/index.ts` использует `VisualSystem` как источник grid bounds;
+  - `src/main.ts` собирает `VisualSystem` в composition root;
+  - прежний `src/shared/game-layout.ts` удалён, чтобы layout contract больше не жил в `shared`.
+- Добавлена автоматическая фиксация контракта:
+  - новый `tests/visual-system.contract.test.ts` проверяет layout hierarchy, accent tokens и button/motion contracts;
+  - `tests/render-layout.test.ts` и `tests/input-path.adapter.test.ts` переведены на импорт из `VisualSystem`.
+- Обновлена архитектурная документация:
+  - добавлен `ADR/ADR-043-visual-system-module-init-006.md` с решением о выделении `VisualSystem` в отдельный adapter-модуль;
+  - `BACKLOG.md` синхронизирован: задача `[INIT]-[006]` отмечена выполненной.
+- Верификация:
+  - `npm test -- --run tests/visual-system.contract.test.ts tests/render-layout.test.ts tests/input-path.adapter.test.ts tests/architecture-boundaries.test.ts` — passed;
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[019] Restore/persist расширен под displayed target и hint progress
 
 - `src/adapters/Persistence/index.ts` переведён на partial-restore normalizer для persisted envelope:

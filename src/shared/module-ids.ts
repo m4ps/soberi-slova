@@ -8,4 +8,5 @@ export const MODULE_IDS = Object.freeze({
   platformYandex: 'PlatformYandex',
   renderMotion: 'RenderMotion',
   telemetry: 'Telemetry',
+  visualSystem: 'VisualSystem',
 });

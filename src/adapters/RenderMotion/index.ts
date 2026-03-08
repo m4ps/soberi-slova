@@ -8,7 +8,6 @@ import type {
   GridCellRef,
 } from '../../application';
 import { GAME_VIEWPORT } from '../../config/viewport';
-import { computeGameLayout, type GameLayout, type LayoutRect } from '../../shared/game-layout';
 import { MODULE_IDS } from '../../shared/module-ids';
 import {
   WORD_GRID_CELL_COUNT,
@@ -16,6 +15,13 @@ import {
   findWordPathInGrid,
   sortWordsByDifficulty,
 } from '../../shared/word-grid';
+import {
+  createVisualSystemModule,
+  type GameLayout,
+  type LayoutRect,
+  type VisualButtonId,
+  type VisualSystemModule,
+} from '../VisualSystem';
 
 const GRID_SIZE = WORD_GRID_SIDE;
 const GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
@@ -30,14 +36,11 @@ const DEV_TARGET_WORDS_CONSOLE_PREFIX = '[dev][target-words]';
 
 type SuccessKind = 'target' | 'bonus';
 
-type RenderButtonId = 'hint' | 'reshuffle' | 'leaderboard';
-
 interface RenderButton {
-  readonly id: RenderButtonId;
+  readonly id: VisualButtonId;
   readonly container: Container;
   readonly background: Graphics;
   readonly label: Text;
-  readonly accentColor: number;
   isEnabled: boolean;
 }
 
@@ -300,8 +303,7 @@ function resolveHintPreviewPath(
 }
 
 function createRenderButton(
-  id: RenderButtonId,
-  accentColor: number,
+  id: VisualButtonId,
   labelText: string,
   onTap: () => void,
 ): RenderButton {
@@ -329,15 +331,19 @@ function createRenderButton(
     container,
     background,
     label,
-    accentColor,
     isEnabled: true,
   };
+}
+
+function hexToColorNumber(hexColor: string): number {
+  return Number.parseInt(hexColor.replace('#', ''), 16);
 }
 
 export function createRenderMotionModule(
   readModel: ApplicationReadModel,
   commandBus: ApplicationCommandBus,
   eventBus: ApplicationEventBus,
+  visualSystem: VisualSystemModule = createVisualSystemModule(),
 ): RenderMotionModule {
   return {
     moduleName: MODULE_IDS.renderMotion,
@@ -463,17 +469,17 @@ export function createRenderMotionModule(
         commandBus.dispatch({ type });
       };
 
-      const hintButton = createRenderButton('hint', 0x22c55e, 'Подсказка', () => {
+      const hintButton = createRenderButton('hint', 'Подсказка', () => {
         if (hintButton.isEnabled) {
           dispatchCommand('RequestHint');
         }
       });
-      const reshuffleButton = createRenderButton('reshuffle', 0x0284c7, 'Пересобрать', () => {
+      const reshuffleButton = createRenderButton('reshuffle', 'Пересобрать', () => {
         if (reshuffleButton.isEnabled) {
           dispatchCommand('RequestReshuffle');
         }
       });
-      const leaderboardButton = createRenderButton('leaderboard', 0xf97316, 'Лидерборд', () => {
+      const leaderboardButton = createRenderButton('leaderboard', 'Лидерборд', () => {
         if (leaderboardButton.isEnabled) {
           dispatchCommand('SyncLeaderboard');
         }
@@ -508,7 +514,7 @@ export function createRenderMotionModule(
         textLayer,
       );
 
-      let currentLayout = computeGameLayout(app.screen.width, app.screen.height);
+      let currentLayout = visualSystem.computeLayout(app.screen.width, app.screen.height);
       let activePath: readonly GridCellRef[] = [];
       let undoPulse: UndoPulse | null = null;
       let toastMessage: { text: string; remainingMs: number } | null = null;
@@ -538,19 +544,25 @@ export function createRenderMotionModule(
         button.container.position.set(rect.x, rect.y);
         button.label.text = labelText;
         button.label.position.set(rect.width / 2, rect.height / 2);
-        button.label.alpha = enabled ? 1 : 0.82;
+        const buttonState = visualSystem.resolveButtonState(
+          button.id,
+          enabled ? 'base' : 'disabled',
+        );
+        button.label.alpha = buttonState.labelAlpha;
+        button.label.tint = hexToColorNumber(buttonState.labelHex);
+        button.container.y = rect.y + buttonState.offsetY;
 
         button.background
           .clear()
           .roundRect(0, 0, rect.width, rect.height, Math.min(rect.height, rect.width) * 0.3)
           .fill({
-            color: button.accentColor,
-            alpha: enabled ? 0.72 : 0.34,
+            color: hexToColorNumber(buttonState.fillHex),
+            alpha: buttonState.fillAlpha,
           })
           .stroke({
-            color: enabled ? 0xffffff : 0x94a3b8,
+            color: hexToColorNumber(buttonState.strokeHex),
             width: 2,
-            alpha: enabled ? 0.66 : 0.36,
+            alpha: buttonState.strokeAlpha,
           });
       };
 
@@ -788,7 +800,7 @@ export function createRenderMotionModule(
       const renderFrame = (deltaMs: number): void => {
         latestCoreState = readModel.getCoreState();
         latestHelpState = readModel.getHelpWindowState();
-        currentLayout = computeGameLayout(app.screen.width, app.screen.height);
+        currentLayout = visualSystem.computeLayout(app.screen.width, app.screen.height);
         updatePendingAcknowledgeJobs(deltaMs);
         latestCoreState = readModel.getCoreState();
         latestHelpState = readModel.getHelpWindowState();

@@ -27,7 +27,7 @@
       Task Context: Добавь quality-гейты для раннего контроля: `lint`, `typecheck`, `build`, `test` (пусть пока smoke); подготовь скрипты для CI в последовательности, совместимой с TECHSPEC gates.
       Task DOD: Все baseline-команды проходят на чистом проекте; CI-конфиг валиден; документация описывает обязательный pre-merge pipeline.
 
-- [ ] [INIT]-[006] Добавить VisualSystem как отдельный модуль архитектуры v1.1
+- [x] [INIT]-[006] Добавить VisualSystem как отдельный модуль архитектуры v1.1
       Task Context: Ранее архитектурный baseline был собран без выделенного `VisualSystem`, но текущий `TECHSPEC.md` требует отдельный runtime/build-time модуль для design tokens, layout hierarchy и button/motion contracts. Добавь модуль и публичные контракты, не переписывая историю выполненных init-задач.
       Task DOD: В архитектуре есть отдельный `VisualSystem` модуль; его границы задокументированы и не нарушают strict layered model; остальные слои могут зависеть от него только по утвержденному контракту.
 

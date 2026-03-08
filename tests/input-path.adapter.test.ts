@@ -11,7 +11,7 @@ import {
   createInputPathModule,
   resolveGridCellFromPointer,
 } from '../src/adapters/InputPath';
-import { computeGameLayout } from '../src/shared/game-layout';
+import { computeGameLayout } from '../src/adapters/VisualSystem';
 
 type PointerListener = (event: PointerEvent) => void;
 

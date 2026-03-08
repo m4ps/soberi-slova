@@ -1,6 +1,6 @@
 import type { ApplicationCommandBus, GridCellRef } from '../../application';
-import { computeGameLayout } from '../../shared/game-layout';
 import { MODULE_IDS } from '../../shared/module-ids';
+import { createVisualSystemModule, type VisualSystemModule } from '../VisualSystem';
 
 const GRID_SIZE = 5;
 const GRID_MIN_INDEX = 0;
@@ -20,6 +20,7 @@ export interface InputPathModule {
 
 export interface InputPathModuleOptions {
   readonly onPathChanged?: (path: readonly GridCellRef[]) => void;
+  readonly visualSystem?: Pick<VisualSystemModule, 'computeLayout'>;
 }
 
 interface PointerPoint {
@@ -400,9 +401,12 @@ export function resolveGridCellFromPointer(
   return { row, col };
 }
 
-function resolveGridBoundsFromCanvas(canvas: HTMLCanvasElement): BoundsLike {
+function resolveGridBoundsFromCanvas(
+  canvas: HTMLCanvasElement,
+  visualSystem: Pick<VisualSystemModule, 'computeLayout'>,
+): BoundsLike {
   const canvasBounds = canvas.getBoundingClientRect();
-  const layout = computeGameLayout(canvasBounds.width, canvasBounds.height);
+  const layout = visualSystem.computeLayout(canvasBounds.width, canvasBounds.height);
 
   return {
     left: canvasBounds.left + layout.grid.x,
@@ -416,6 +420,7 @@ export function createInputPathModule(
   commandBus: ApplicationCommandBus,
   options: InputPathModuleOptions = {},
 ): InputPathModule {
+  const visualSystem = options.visualSystem ?? createVisualSystemModule();
   let boundCanvas: HTMLCanvasElement | null = null;
   let activePointerId: number | null = null;
   let lastPointerPoint: PointerPoint | null = null;
@@ -431,7 +436,10 @@ export function createInputPathModule(
       return null;
     }
 
-    return resolveGridCellFromPointer(event, resolveGridBoundsFromCanvas(boundCanvas));
+    return resolveGridCellFromPointer(
+      event,
+      resolveGridBoundsFromCanvas(boundCanvas, visualSystem),
+    );
   };
 
   const releaseCapture = (pointerId: number): void => {
@@ -518,7 +526,7 @@ export function createInputPathModule(
       return;
     }
 
-    const bounds = resolveGridBoundsFromCanvas(boundCanvas);
+    const bounds = resolveGridBoundsFromCanvas(boundCanvas, visualSystem);
     const sampleStart = lastPointerPoint ?? point;
     const samples = createInterpolatedPointerSamples(sampleStart, point, bounds);
     let previousSample = sampleStart;

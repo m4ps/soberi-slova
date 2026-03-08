@@ -4,6 +4,7 @@ import { createPersistenceModule } from './adapters/Persistence';
 import { createPlatformYandexModule } from './adapters/PlatformYandex';
 import { createRenderMotionModule, type RenderMotionRuntime } from './adapters/RenderMotion';
 import { createTelemetryModule } from './adapters/Telemetry';
+import { createVisualSystemModule } from './adapters/VisualSystem';
 import { createCoreStateModule, type CoreStateModuleOptions } from './domain/CoreState';
 import { createHelpEconomyModule } from './domain/HelpEconomy';
 import { createLevelGeneratorModule } from './domain/LevelGenerator';
@@ -139,17 +140,20 @@ async function bootstrap(): Promise<void> {
     coreState: coreStateModule,
     helpEconomy: helpEconomyModule,
   });
+  const visualSystemModule = createVisualSystemModule();
 
   const renderMotionModule = createRenderMotionModule(
     application.readModel,
     application.commands,
     application.events,
+    visualSystemModule,
   );
   let renderMotionRuntime: RenderMotionRuntime | null = null;
   const inputPathModule = createInputPathModule(application.commands, {
     onPathChanged: (path) => {
       renderMotionRuntime?.setInputPath(path);
     },
+    visualSystem: visualSystemModule,
   });
   const telemetryModule = createTelemetryModule(application.events);
   const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
