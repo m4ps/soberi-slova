@@ -46,12 +46,21 @@ function applyRuntimeShellVisualTokens(visualTokens: VisualTokens): void {
   const rootStyle = document.documentElement.style;
 
   rootStyle.setProperty('--visual-app-background', visualTokens.shell.appBackgroundHex);
+  rootStyle.setProperty('--visual-app-background-end', visualTokens.shell.appBackgroundEndHex);
   rootStyle.setProperty('--visual-app-cloud-cool', visualTokens.shell.appCloudCoolHex);
   rootStyle.setProperty('--visual-app-cloud-mint', visualTokens.shell.appCloudMintHex);
   rootStyle.setProperty('--visual-app-cloud-warm', visualTokens.shell.appCloudWarmHex);
+  rootStyle.setProperty('--visual-app-ambient-bloom', visualTokens.shell.appAmbientBloomHex);
   rootStyle.setProperty('--visual-shell-fill', visualTokens.shell.shellFillCss);
   rootStyle.setProperty('--visual-shell-stroke', visualTokens.shell.shellStrokeHex);
   rootStyle.setProperty('--visual-shell-shadow', visualTokens.shell.shellShadowCss);
+  rootStyle.setProperty(
+    '--visual-shell-shadow-elevated',
+    visualTokens.shell.shellElevatedShadowCss,
+  );
+  rootStyle.setProperty('--visual-shell-blur', `${visualTokens.shell.shellBackdropBlurPx}px`);
+  rootStyle.setProperty('--visual-shell-radius', `${visualTokens.shell.shellBorderRadiusPx}px`);
+  rootStyle.setProperty('--visual-shell-stroke-width', `${visualTokens.stroke.shellWidth}px`);
   rootStyle.setProperty('--visual-font-family', visualTokens.typography.fontFamily);
 }
 
@@ -72,17 +81,18 @@ function renderBootstrapFailState(
   container.style.padding = '20px';
   container.style.textAlign = 'center';
   container.style.background = visualTokens.shell.shellFillCss;
-  container.style.border = `1px solid ${visualTokens.panels.currentWord.strokeHex}`;
-  container.style.borderRadius = '24px';
+  container.style.border = `${visualTokens.stroke.shellWidth}px solid ${visualTokens.panels.currentWord.strokeHex}`;
+  container.style.borderRadius = `${visualTokens.shell.shellBorderRadiusPx - 4}px`;
   container.style.color = visualTokens.text.primaryHex;
   container.style.fontFamily = visualTokens.typography.fontFamily;
-  container.style.boxShadow = `0 18px 48px ${visualTokens.shell.shellShadowCss}`;
+  container.style.boxShadow = `0 16px 42px ${visualTokens.shell.shellShadowCss}, 0 28px 56px ${visualTokens.shell.shellElevatedShadowCss}`;
+  container.style.backdropFilter = `blur(${visualTokens.shell.shellBackdropBlurPx}px)`;
 
   const title = document.createElement('h1');
   title.textContent = 'Runtime unavailable';
   title.style.margin = '0';
   title.style.fontSize = '20px';
-  title.style.fontWeight = '700';
+  title.style.fontWeight = String(visualTokens.typography.valueWeight);
 
   const description = document.createElement('p');
   description.textContent =

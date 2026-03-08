@@ -25,6 +25,7 @@ import {
   type VisualButtonState,
   type VisualButtonStateContract,
   type VisualPanelContract,
+  type VisualSurfaceTreatmentTokens,
   type VisualSystemModule,
 } from '../VisualSystem';
 
@@ -242,11 +243,53 @@ function drawPanel(
   fillAlpha: number,
   strokeColor: number,
   strokeAlpha: number,
+  strokeWidth: number,
 ): void {
   graphics
     .roundRect(rect.x, rect.y, rect.width, rect.height, radius)
     .fill({ color: fillColor, alpha: fillAlpha })
-    .stroke({ color: strokeColor, width: 2, alpha: strokeAlpha });
+    .stroke({ color: strokeColor, width: strokeWidth, alpha: strokeAlpha });
+}
+
+function drawGlassTreatment(
+  graphics: Graphics,
+  rect: LayoutRect,
+  radius: number,
+  surface: VisualSurfaceTreatmentTokens,
+): void {
+  const highlightInset = Math.max(1.5, radius * 0.08);
+  const bloomInset = Math.max(2, radius * 0.1);
+  const bloomHeight = Math.max(14, rect.height * 0.46);
+
+  graphics
+    .roundRect(rect.x, rect.y + surface.shadowOffsetY, rect.width, rect.height, radius)
+    .fill({
+      color: hexToColorNumber(surface.shadowHex),
+      alpha: surface.shadowAlpha,
+    })
+    .roundRect(
+      rect.x + bloomInset,
+      rect.y + bloomInset,
+      Math.max(0, rect.width - bloomInset * 2),
+      Math.max(0, bloomHeight),
+      Math.max(6, radius - bloomInset),
+    )
+    .fill({
+      color: hexToColorNumber(surface.bloomHex),
+      alpha: surface.bloomAlpha,
+    })
+    .roundRect(
+      rect.x + highlightInset,
+      rect.y + highlightInset,
+      Math.max(0, rect.width - highlightInset * 2),
+      Math.max(0, rect.height - highlightInset * 2),
+      Math.max(6, radius - highlightInset),
+    )
+    .stroke({
+      color: hexToColorNumber(surface.highlightHex),
+      width: 1,
+      alpha: surface.highlightAlpha,
+    });
 }
 
 function drawPanelContract(
@@ -254,7 +297,10 @@ function drawPanelContract(
   rect: LayoutRect,
   radius: number,
   contract: VisualPanelContract,
+  surface: VisualSurfaceTreatmentTokens,
+  strokeWidth: number,
 ): void {
+  drawGlassTreatment(graphics, rect, radius, surface);
   drawPanel(
     graphics,
     rect,
@@ -263,6 +309,7 @@ function drawPanelContract(
     contract.fillAlpha,
     hexToColorNumber(contract.strokeHex),
     contract.strokeAlpha,
+    strokeWidth,
   );
 }
 
@@ -357,21 +404,27 @@ function drawBackgroundScene(
   const width = layout.viewport.width;
   const height = layout.viewport.height;
   const baseColor = hexToColorNumber(shellTokens.appBackgroundHex);
+  const baseEndColor = hexToColorNumber(shellTokens.appBackgroundEndHex);
   const coolCloudColor = hexToColorNumber(shellTokens.appCloudCoolHex);
   const mintCloudColor = hexToColorNumber(shellTokens.appCloudMintHex);
   const warmCloudColor = hexToColorNumber(shellTokens.appCloudWarmHex);
+  const ambientBloomColor = hexToColorNumber(shellTokens.appAmbientBloomHex);
   const cloudRadius = Math.min(width, height) * 0.22;
 
   graphics
     .clear()
     .rect(0, 0, width, height)
     .fill({ color: baseColor })
+    .circle(width * 0.54, height * 0.1, cloudRadius * 1.22)
+    .fill({ color: ambientBloomColor, alpha: shellTokens.appAmbientBloomAlpha })
+    .circle(width * 0.5, height * 1.08, cloudRadius * 1.3)
+    .fill({ color: baseEndColor, alpha: 0.96 })
     .circle(width * 0.18, height * 0.16, cloudRadius)
-    .fill({ color: coolCloudColor, alpha: 0.42 })
+    .fill({ color: coolCloudColor, alpha: shellTokens.appCloudCoolAlpha })
     .circle(width * 0.84, height * 0.22, cloudRadius * 0.84)
-    .fill({ color: mintCloudColor, alpha: 0.32 })
+    .fill({ color: mintCloudColor, alpha: shellTokens.appCloudMintAlpha })
     .circle(width * 0.5, height * 0.9, cloudRadius * 1.06)
-    .fill({ color: warmCloudColor, alpha: 0.26 });
+    .fill({ color: warmCloudColor, alpha: shellTokens.appCloudWarmAlpha });
 }
 
 function drawProgressBar(
@@ -387,6 +440,7 @@ function drawProgressBar(
   const clampedFillRatio = clamp(fillRatio, 0, 1);
   const fillWidth = rect.width * clampedFillRatio;
 
+  drawGlassTreatment(graphics, rect, radius, visualSystem.tokens.surfaces.progressBar);
   graphics
     .roundRect(rect.x, rect.y, rect.width, rect.height, radius)
     .fill({
@@ -395,7 +449,7 @@ function drawProgressBar(
     })
     .stroke({
       color: hexToColorNumber(progressTokens.trackStrokeHex),
-      width: 2,
+      width: visualSystem.tokens.stroke.panelWidth,
       alpha: progressTokens.trackStrokeAlpha,
     });
 
@@ -549,7 +603,7 @@ function createRenderButton(
     style: {
       fontFamily: visualSystem.tokens.typography.fontFamily,
       fontSize: 20,
-      fontWeight: '700',
+      fontWeight: visualSystem.tokens.typography.labelWeight,
       fill: renderState.labelColor,
       align: 'center',
     },
@@ -635,7 +689,7 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 20,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.progressCounterHex),
         },
       });
@@ -646,7 +700,7 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 14,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.labelWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.scoreLabelHex),
           align: 'right',
         },
@@ -658,7 +712,7 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 28,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.scoreValueHex),
           align: 'right',
         },
@@ -670,7 +724,8 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 30,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.currentWordWeight,
+          letterSpacing: visualSystem.tokens.typography.currentWordLetterSpacing,
           fill: hexToColorNumber(visualSystem.tokens.text.currentWordHex),
           align: 'center',
           wordWrap: true,
@@ -685,7 +740,8 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 30,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.currentWordWeight,
+          letterSpacing: visualSystem.tokens.typography.currentWordLetterSpacing,
           fill: hexToColorNumber(visualSystem.tokens.text.currentWordHex),
           align: 'center',
           wordWrap: true,
@@ -701,7 +757,7 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 28,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.currentWordCompletedHex),
           align: 'center',
         },
@@ -714,7 +770,7 @@ export function createRenderMotionModule(
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 21,
-          fontWeight: '700',
+          fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.toastHex),
           align: 'center',
         },
@@ -728,7 +784,8 @@ export function createRenderMotionModule(
           style: {
             fontFamily: visualSystem.tokens.typography.fontFamily,
             fontSize: 44,
-            fontWeight: '700',
+            fontWeight: visualSystem.tokens.typography.letterWeight,
+            letterSpacing: visualSystem.tokens.typography.letterSpacing,
             fill: hexToColorNumber(visualSystem.tokens.text.letterHex),
             align: 'center',
           },
@@ -907,21 +964,55 @@ export function createRenderMotionModule(
         if (button.renderState.glowAlpha > 0) {
           button.glow.roundRect(-3, -3, rect.width + 6, rect.height + 6, glowRadius).stroke({
             color: button.renderState.strokeColor,
-            width: 2,
+            width: visualSystem.tokens.stroke.focusWidth,
             alpha: button.renderState.glowAlpha,
           });
         }
 
         button.background
           .clear()
+          .roundRect(
+            0,
+            visualSystem.tokens.surfaces.button.shadowOffsetY,
+            rect.width,
+            rect.height,
+            Math.min(rect.height, rect.width) * 0.3,
+          )
+          .fill({
+            color: hexToColorNumber(visualSystem.tokens.surfaces.button.shadowHex),
+            alpha: visualSystem.tokens.surfaces.button.shadowAlpha,
+          })
           .roundRect(0, 0, rect.width, rect.height, Math.min(rect.height, rect.width) * 0.3)
           .fill({
             color: button.renderState.fillColor,
             alpha: button.renderState.fillAlpha,
           })
+          .roundRect(
+            2,
+            2,
+            Math.max(0, rect.width - 4),
+            Math.max(0, rect.height * 0.48),
+            Math.max(6, Math.min(rect.height, rect.width) * 0.26),
+          )
+          .fill({
+            color: hexToColorNumber(visualSystem.tokens.surfaces.button.bloomHex),
+            alpha: visualSystem.tokens.surfaces.button.bloomAlpha,
+          })
+          .roundRect(
+            1.5,
+            1.5,
+            Math.max(0, rect.width - 3),
+            Math.max(0, rect.height - 3),
+            Math.min(rect.height, rect.width) * 0.28,
+          )
+          .stroke({
+            color: hexToColorNumber(visualSystem.tokens.surfaces.button.highlightHex),
+            width: 1,
+            alpha: visualSystem.tokens.surfaces.button.highlightAlpha,
+          })
           .stroke({
             color: button.renderState.strokeColor,
-            width: 2,
+            width: visualSystem.tokens.stroke.panelWidth,
             alpha: button.renderState.strokeAlpha,
           });
       };
@@ -1317,13 +1408,24 @@ export function createRenderMotionModule(
           currentLayout.progressCard,
           22,
           visualSystem.tokens.panels.metric,
+          visualSystem.tokens.surfaces.metric,
+          visualSystem.tokens.stroke.panelWidth,
         );
-        drawPanelContract(hudLayer, currentLayout.scoreCard, 22, visualSystem.tokens.panels.metric);
+        drawPanelContract(
+          hudLayer,
+          currentLayout.scoreCard,
+          22,
+          visualSystem.tokens.panels.metric,
+          visualSystem.tokens.surfaces.metric,
+          visualSystem.tokens.stroke.panelWidth,
+        );
         drawPanelContract(
           hudLayer,
           currentLayout.currentWord,
           24,
           visualSystem.tokens.panels.currentWord,
+          visualSystem.tokens.surfaces.currentWord,
+          visualSystem.tokens.stroke.panelWidth,
         );
         drawProgressBar(
           hudLayer,
@@ -1405,6 +1507,8 @@ export function createRenderMotionModule(
           currentLayout.controls,
           22,
           visualSystem.tokens.panels.controls,
+          visualSystem.tokens.surfaces.controls,
+          visualSystem.tokens.stroke.panelWidth,
         );
 
         syncButtonVisualState(
@@ -1435,7 +1539,14 @@ export function createRenderMotionModule(
         );
 
         gridLayer.clear();
-        drawPanelContract(gridLayer, currentLayout.grid, 26, visualSystem.tokens.grid.panel);
+        drawPanelContract(
+          gridLayer,
+          currentLayout.grid,
+          26,
+          visualSystem.tokens.grid.panel,
+          visualSystem.tokens.surfaces.gridPanel,
+          visualSystem.tokens.stroke.panelWidth,
+        );
 
         for (let row = 0; row < GRID_SIZE; row += 1) {
           for (let col = 0; col < GRID_SIZE; col += 1) {
@@ -1463,13 +1574,53 @@ export function createRenderMotionModule(
             gridLayer
               .roundRect(
                 cellBounds.x + cellPadding,
+                cellBounds.y + cellPadding + visualSystem.tokens.surfaces.gridCell.shadowOffsetY,
+                cellBounds.width - cellPadding * 2,
+                cellBounds.height - cellPadding * 2,
+                Math.max(8, cellBounds.width * 0.15),
+              )
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.gridCell.shadowHex),
+                alpha: visualSystem.tokens.surfaces.gridCell.shadowAlpha,
+              })
+              .roundRect(
+                cellBounds.x + cellPadding,
                 cellBounds.y + cellPadding,
                 cellBounds.width - cellPadding * 2,
                 cellBounds.height - cellPadding * 2,
                 Math.max(8, cellBounds.width * 0.15),
               )
               .fill({ color: cellFill, alpha: cellFillAlpha })
-              .stroke({ color: cellStroke, width: 2, alpha: cellStrokeAlpha });
+              .roundRect(
+                cellBounds.x + cellPadding + 2,
+                cellBounds.y + cellPadding + 2,
+                Math.max(0, cellBounds.width - cellPadding * 2 - 4),
+                Math.max(0, cellBounds.height * 0.42),
+                Math.max(6, cellBounds.width * 0.12),
+              )
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.gridCell.bloomHex),
+                alpha:
+                  visualSystem.tokens.surfaces.gridCell.bloomAlpha * (isPathCell ? 0.92 : 0.76),
+              })
+              .roundRect(
+                cellBounds.x + cellPadding + 1.5,
+                cellBounds.y + cellPadding + 1.5,
+                Math.max(0, cellBounds.width - cellPadding * 2 - 3),
+                Math.max(0, cellBounds.height - cellPadding * 2 - 3),
+                Math.max(6, cellBounds.width * 0.13),
+              )
+              .stroke({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.gridCell.highlightHex),
+                width: 1,
+                alpha:
+                  visualSystem.tokens.surfaces.gridCell.highlightAlpha * (isPathCell ? 1 : 0.9),
+              })
+              .stroke({
+                color: cellStroke,
+                width: visualSystem.tokens.stroke.gridCellWidth,
+                alpha: cellStrokeAlpha,
+              });
 
             const letterText = letterTexts[cellIndex];
             if (!letterText) {
@@ -1512,7 +1663,7 @@ export function createRenderMotionModule(
               })
               .stroke({
                 color: hexToColorNumber(visualSystem.tokens.grid.hintStrokeHex),
-                width: 2,
+                width: visualSystem.tokens.stroke.hintWidth,
                 alpha: visualSystem.tokens.grid.hintStrokeAlpha,
               });
           }
@@ -1525,8 +1676,17 @@ export function createRenderMotionModule(
             dragLayer,
             currentLayout,
             activePath,
+            hexToColorNumber(visualSystem.tokens.accents.progressStartHex),
+            0.24,
+            cellSize * 0.42,
+            cellSize * 0.24,
+          );
+          drawPathTrail(
+            dragLayer,
+            currentLayout,
+            activePath,
             hexToColorNumber(visualSystem.tokens.grid.pathHex),
-            0.56,
+            0.72,
             cellSize * 0.28,
             cellSize * 0.2,
           );
@@ -1540,7 +1700,7 @@ export function createRenderMotionModule(
           const radius = (currentLayout.grid.width / GRID_SIZE) * (0.2 + progress * 0.2);
           undoLayer.circle(center.x, center.y, radius).stroke({
             color: hexToColorNumber(visualSystem.tokens.grid.undoStrokeHex),
-            width: 2,
+            width: visualSystem.tokens.stroke.hintWidth,
             alpha: (1 - progress) * 0.8,
           });
 
@@ -1634,6 +1794,20 @@ export function createRenderMotionModule(
             toastLayer
               .roundRect(
                 toastText.x - toastText.width / 2 - 18,
+                toastText.y -
+                  toastText.height / 2 -
+                  10 +
+                  visualSystem.tokens.surfaces.toast.shadowOffsetY,
+                toastText.width + 36,
+                toastText.height + 20,
+                18,
+              )
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.toast.shadowHex),
+                alpha: visualSystem.tokens.surfaces.toast.shadowAlpha * toastOpacity,
+              })
+              .roundRect(
+                toastText.x - toastText.width / 2 - 18,
                 toastText.y - toastText.height / 2 - 10,
                 toastText.width + 36,
                 toastText.height + 20,
@@ -1643,9 +1817,32 @@ export function createRenderMotionModule(
                 color: hexToColorNumber(visualSystem.tokens.feedback.toastFillHex),
                 alpha: visualSystem.tokens.feedback.toastFillAlpha * toastOpacity,
               })
+              .roundRect(
+                toastText.x - toastText.width / 2 - 15,
+                toastText.y - toastText.height / 2 - 8,
+                toastText.width + 30,
+                Math.max(12, (toastText.height + 20) * 0.48),
+                16,
+              )
+              .fill({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.toast.bloomHex),
+                alpha: visualSystem.tokens.surfaces.toast.bloomAlpha * toastOpacity,
+              })
+              .roundRect(
+                toastText.x - toastText.width / 2 - 16.5,
+                toastText.y - toastText.height / 2 - 8.5,
+                toastText.width + 33,
+                toastText.height + 17,
+                17,
+              )
+              .stroke({
+                color: hexToColorNumber(visualSystem.tokens.surfaces.toast.highlightHex),
+                width: 1,
+                alpha: visualSystem.tokens.surfaces.toast.highlightAlpha * toastOpacity,
+              })
               .stroke({
                 color: hexToColorNumber(visualSystem.tokens.feedback.toastStrokeHex),
-                width: 2,
+                width: visualSystem.tokens.stroke.toastWidth,
                 alpha: visualSystem.tokens.feedback.toastStrokeAlpha * toastOpacity,
               });
           }
