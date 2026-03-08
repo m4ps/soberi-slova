@@ -94,20 +94,43 @@ function parsePersistedSessionSnapshot(
   };
 }
 
-function shouldFlushForEvent(event: ApplicationEvent): boolean {
-  if (event.eventType === 'domain/help') {
-    return true;
+function resolvePersistTrigger(
+  event: ApplicationEvent,
+):
+  | Extract<
+      ApplicationEvent,
+      { eventType: 'domain/state-persisted' }
+    >['payload']['triggerEventType']
+  | null {
+  if (event.eventType === 'domain/help-action-applied') {
+    return event.eventType;
   }
 
-  if (event.eventType === 'domain/word-submitted') {
-    return event.payload.scoreDelta.totalScore > 0;
+  if (event.eventType === 'domain/help-action-failed') {
+    return event.eventType;
+  }
+
+  if (event.eventType === 'domain/level-completed') {
+    return event.eventType;
+  }
+
+  if (event.eventType === 'domain/target-word-accepted') {
+    return event.payload.scoreDelta.totalScore > 0 ? event.eventType : null;
+  }
+
+  if (event.eventType === 'domain/bonus-word-accepted') {
+    return event.payload.scoreDelta.totalScore > 0 ? event.eventType : null;
   }
 
   if (event.eventType === 'domain/word-success') {
-    return event.payload.scoreDelta.totalScore > 0;
+    return event.payload.scoreDelta.totalScore > 0 ? event.eventType : null;
   }
 
-  return event.eventType === 'domain/level-clear';
+  if (event.eventType === 'domain/level-clear') {
+    return event.eventType;
+  }
+
+  return null;
 }
 
 export function createPersistenceModule(
@@ -119,6 +142,7 @@ export function createPersistenceModule(
   let disposed = false;
   let lastSnapshot: PersistenceSnapshot | null = null;
   let flushQueue: Promise<void> = Promise.resolve();
+  let persistenceEventSequence = 0;
 
   const captureSnapshot = (): {
     persisted: PersistedSessionSnapshot;
@@ -165,7 +189,41 @@ export function createPersistenceModule(
     };
   };
 
-  const enqueueFlush = (): Promise<void> => {
+  const publishStatePersisted = (
+    correlationId: string,
+    triggerEventType: Extract<
+      ApplicationEvent,
+      { eventType: 'domain/state-persisted' }
+    >['payload']['triggerEventType'],
+    snapshot: PersistenceSnapshot,
+  ): void => {
+    persistenceEventSequence += 1;
+    options.eventBus.publish({
+      eventId: `evt-persist-${snapshot.capturedAt}-${persistenceEventSequence}`,
+      eventType: 'domain/state-persisted',
+      eventVersion: 1,
+      occurredAt: snapshot.capturedAt,
+      correlationId,
+      payload: {
+        operation: 'flush',
+        triggerEventType,
+        runtimeMode: snapshot.runtimeMode,
+        capturedAt: snapshot.capturedAt,
+        stateVersion: snapshot.stateVersion,
+        allTimeScore: snapshot.allTimeScore,
+        levelId: snapshot.levelId,
+        serializedLength: snapshot.serializedLength,
+      },
+    });
+  };
+
+  const enqueueFlush = (trigger?: {
+    readonly correlationId: string;
+    readonly eventType: Extract<
+      ApplicationEvent,
+      { eventType: 'domain/state-persisted' }
+    >['payload']['triggerEventType'];
+  }): Promise<void> => {
     flushQueue = flushQueue
       .then(async () => {
         if (disposed) {
@@ -178,6 +236,9 @@ export function createPersistenceModule(
           allTimeScore: snapshot.allTimeScore,
         });
         lastSnapshot = snapshot;
+        if (trigger) {
+          publishStatePersisted(trigger.correlationId, trigger.eventType, snapshot);
+        }
       })
       .catch(() => {
         // Persistence is best-effort; errors are surfaced via platform lifecycle logs.
@@ -187,11 +248,15 @@ export function createPersistenceModule(
   };
 
   const unsubscribeEvents = options.eventBus.subscribe((event) => {
-    if (!shouldFlushForEvent(event)) {
+    const triggerEventType = resolvePersistTrigger(event);
+    if (!triggerEventType) {
       return;
     }
 
-    void enqueueFlush();
+    void enqueueFlush({
+      correlationId: event.correlationId,
+      eventType: triggerEventType,
+    });
   });
 
   return {
@@ -213,7 +278,10 @@ export function createPersistenceModule(
         throw new Error(`RestoreSession command failed: ${restoreResult.error.code}`);
       }
 
-      await enqueueFlush();
+      await enqueueFlush({
+        correlationId: restoreResult.value.correlationId,
+        eventType: 'domain/persistence',
+      });
     },
     flush: async () => {
       await enqueueFlush();

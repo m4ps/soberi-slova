@@ -2,6 +2,26 @@
 
 ## 2026-03-08
 
+### [DATA]-[008] Расширение доменных событий под guided loop и hint progression
+
+- `src/application/contracts.ts` и `src/application/index.ts` расширены новым semantic event-model для `v1.1`:
+  - добавлены typed versioned события `domain/target-word-accepted`, `domain/bonus-word-accepted`, `domain/displayed-target-changed`, `domain/hint-path-progress-advanced`, `domain/level-completed`, `domain/help-action-applied`, `domain/help-action-failed`, `domain/state-persisted`;
+  - сохранён единый envelope с обязательными `eventId/eventType/eventVersion/occurredAt/correlationId/payload`;
+  - новые события публикуются из `SubmitPath`, help-flow, restore и level-transition use-cases без потери `correlationId`.
+- `src/adapters/RenderMotion/index.ts` переведён на новые semantic events:
+  - success-анимации теперь запускаются от `target/bonus accepted`;
+  - help-toast больше не зависит от фазового `domain/help`, а берётся из `domain/help-action-failed`.
+- `src/adapters/Persistence/index.ts` теперь публикует `domain/state-persisted` только после фактической записи snapshot и наследует `correlationId` события-триггера;
+  auto-flush переведён на новые score/help/completion события guided loop.
+- `src/adapters/PlatformYandex/index.ts` переведён на auto leaderboard sync от `target/bonus accepted`, при этом существующие transport-события для ad/manual sync сохранены.
+- Обновлено покрытие:
+  - `tests/application-command-bus.smoke.test.ts` проверяет новые help/target/level/displayed-target события и сквозную корреляцию;
+  - `tests/persistence.adapter.test.ts` фиксирует публикацию `domain/state-persisted` после post-restore flush.
+- Синхронизирован `BACKLOG.md`: закрыты `[DATA]-[007]` и `[DATA]-[008]`.
+- Добавлен `ADR/ADR-041-guided-loop-domain-events-data-008.md` с решением о semantic event-taxonomy поверх единого envelope.
+- Верификация:
+  - `npm run ci:baseline` — passed.
+
 ### [DATA]-[007] Runtime-инварианты v1.1 для target-count, readability и displayed-target pointer
 
 - `src/domain/GameState/index.ts` ужесточён до `v1.1` level-contract:

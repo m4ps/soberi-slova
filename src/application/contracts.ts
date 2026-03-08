@@ -1,4 +1,9 @@
-import type { CoreStateModule, CoreStateSnapshot } from '../domain/CoreState';
+import type {
+  CoreStateHelpApplyResultReason,
+  CoreStateHelpEffect,
+  CoreStateModule,
+  CoreStateSnapshot,
+} from '../domain/CoreState';
 import type { HelpEconomyModule, HelpKind, HelpWindowState } from '../domain/HelpEconomy';
 
 export interface DomainModules {
@@ -159,6 +164,167 @@ export type WordSubmittedEvent = EventEnvelope<
   }
 >;
 
+export type DisplayedTargetChangedCommandType =
+  | 'SubmitPath'
+  | 'RequestHint'
+  | 'RequestReshuffle'
+  | 'AcknowledgeAdResult'
+  | 'RestoreSession'
+  | 'AcknowledgeLevelTransitionDone';
+
+export type DisplayedTargetChangedReason =
+  | 'target-accepted'
+  | 'hint-applied'
+  | 'reshuffle-applied'
+  | 'restore-session'
+  | 'level-transition';
+
+export type HelpActionCommandType = 'RequestHint' | 'RequestReshuffle' | 'AcknowledgeAdResult';
+
+export type HelpActionSource = 'free' | 'rewarded-ad';
+
+export type HelpActionFailureReason =
+  | CoreStateHelpApplyResultReason
+  | 'ad-close'
+  | 'ad-error'
+  | 'ad-no-fill'
+  | 'ad-reward-not-applied';
+
+export type TargetWordAcceptedEvent = EventEnvelope<
+  'domain/target-word-accepted',
+  {
+    readonly commandType: 'SubmitPath';
+    readonly targetWord: string;
+    readonly pathCells: readonly GridCellRef[];
+    readonly wordSuccessOperationId: string | null;
+    readonly levelCompleted: boolean;
+    readonly levelId: string;
+    readonly stateVersion: number;
+    readonly displayedTargetId: string | null;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly allTimeScore: number;
+  }
+>;
+
+export type BonusWordAcceptedEvent = EventEnvelope<
+  'domain/bonus-word-accepted',
+  {
+    readonly commandType: 'SubmitPath';
+    readonly bonusWord: string;
+    readonly pathCells: readonly GridCellRef[];
+    readonly levelId: string;
+    readonly stateVersion: number;
+    readonly displayedTargetId: string | null;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly allTimeScore: number;
+  }
+>;
+
+export type DisplayedTargetChangedEvent = EventEnvelope<
+  'domain/displayed-target-changed',
+  {
+    readonly commandType: DisplayedTargetChangedCommandType;
+    readonly reason: DisplayedTargetChangedReason;
+    readonly previousLevelId: string;
+    readonly nextLevelId: string;
+    readonly previousTargetWordId: string | null;
+    readonly nextTargetWordId: string | null;
+    readonly previousHintPathProgress: number;
+    readonly nextHintPathProgress: number;
+    readonly stateVersion: number;
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+  }
+>;
+
+export type HintPathProgressAdvancedEvent = EventEnvelope<
+  'domain/hint-path-progress-advanced',
+  {
+    readonly commandType: 'RequestHint' | 'AcknowledgeAdResult';
+    readonly operationId: string;
+    readonly targetWord: string;
+    readonly revealCount: number;
+    readonly revealedLetters: string;
+    readonly revealedPathCells: readonly GridCellRef[];
+    readonly levelId: string;
+    readonly stateVersion: number;
+  }
+>;
+
+export type LevelCompletedEvent = EventEnvelope<
+  'domain/level-completed',
+  {
+    readonly commandType: 'SubmitPath';
+    readonly levelId: string;
+    readonly completedWord: string;
+    readonly wordSuccessOperationId: string;
+    readonly stateVersion: number;
+    readonly displayedTargetId: string | null;
+    readonly scoreDelta: {
+      readonly wordScore: number;
+      readonly levelClearScore: number;
+      readonly totalScore: number;
+    };
+    readonly progress: {
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly allTimeScore: number;
+  }
+>;
+
+export type HelpActionAppliedEvent = EventEnvelope<
+  'domain/help-action-applied',
+  {
+    readonly commandType: HelpActionCommandType;
+    readonly operationId: string;
+    readonly helpKind: HelpKind;
+    readonly source: HelpActionSource;
+    readonly levelId: string;
+    readonly stateVersion: number;
+    readonly allTimeScore: number;
+    readonly effect: CoreStateHelpEffect;
+  }
+>;
+
+export type HelpActionFailedEvent = EventEnvelope<
+  'domain/help-action-failed',
+  {
+    readonly commandType: HelpActionCommandType;
+    readonly operationId: string;
+    readonly helpKind: HelpKind;
+    readonly source: HelpActionSource;
+    readonly reason: HelpActionFailureReason;
+    readonly levelId: string;
+    readonly stateVersion: number;
+    readonly allTimeScore: number;
+    readonly outcome: RewardedAdOutcome | null;
+    readonly durationMs: number | null;
+    readonly outcomeContext: string | null;
+    readonly cooldownApplied: boolean;
+    readonly cooldownDurationMs: number;
+    readonly toastMessage: string | null;
+  }
+>;
+
 export type WordSuccessEvent = EventEnvelope<
   'domain/word-success',
   {
@@ -215,6 +381,30 @@ export type PersistenceEvent = EventEnvelope<
   }
 >;
 
+export type StatePersistedTriggerEventType =
+  | 'domain/persistence'
+  | 'domain/target-word-accepted'
+  | 'domain/bonus-word-accepted'
+  | 'domain/level-completed'
+  | 'domain/help-action-applied'
+  | 'domain/help-action-failed'
+  | 'domain/word-success'
+  | 'domain/level-clear';
+
+export type StatePersistedEvent = EventEnvelope<
+  'domain/state-persisted',
+  {
+    readonly operation: 'flush';
+    readonly triggerEventType: StatePersistedTriggerEventType;
+    readonly runtimeMode: string;
+    readonly capturedAt: number;
+    readonly stateVersion: number;
+    readonly allTimeScore: number;
+    readonly levelId: string;
+    readonly serializedLength: number;
+  }
+>;
+
 export type LeaderboardSyncEvent = EventEnvelope<
   'domain/leaderboard-sync',
   {
@@ -229,10 +419,18 @@ export type ApplicationEvent =
   | TickEvent
   | CommandRoutedEvent
   | WordSubmittedEvent
+  | TargetWordAcceptedEvent
+  | BonusWordAcceptedEvent
+  | DisplayedTargetChangedEvent
+  | HintPathProgressAdvancedEvent
+  | LevelCompletedEvent
+  | HelpActionAppliedEvent
+  | HelpActionFailedEvent
   | WordSuccessEvent
   | LevelClearEvent
   | HelpEvent
   | PersistenceEvent
+  | StatePersistedEvent
   | LeaderboardSyncEvent;
 
 export type ApplicationEventListener = (event: ApplicationEvent) => void;
