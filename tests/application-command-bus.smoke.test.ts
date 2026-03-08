@@ -407,6 +407,59 @@ describe('application command/query bus smoke', () => {
     }
   });
 
+  it('publishes typed command failure and restore outcome telemetry events', () => {
+    const application = createSmokeApplication();
+    const events: ApplicationEvent[] = [];
+    application.events.subscribe((event) => {
+      events.push(event);
+    });
+
+    const invalidSubmit = application.commands.dispatch({ type: 'SubmitPath', pathCells: [] });
+    expect(invalidSubmit.type).toBe('domainError');
+
+    const restoreResult = application.commands.dispatch({
+      type: 'RestoreSession',
+      payload: {
+        localSnapshot: null,
+        cloudSnapshot: null,
+        cloudAllTimeScore: null,
+      },
+    });
+    expect(restoreResult.type).toBe('ok');
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'application/command-failed',
+        payload: {
+          commandType: 'SubmitPath',
+          errorType: 'domainError',
+          code: 'submit-path.empty',
+          retryable: false,
+        },
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/persistence',
+        payload: expect.objectContaining({
+          commandType: 'RestoreSession',
+          operation: 'restore-session',
+          restored: false,
+          levelRestored: false,
+          source: 'none',
+          localSnapshotAvailable: false,
+          cloudSnapshotAvailable: false,
+          cloudAllTimeScoreAvailable: false,
+          restoredAllTimeScore: 0,
+          restoredStateVersion: expect.any(Number),
+          restoredLevelId: expect.any(String),
+          restoredDisplayedTargetId: expect.any(String),
+          restoredHintPathProgress: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
   it('restores persisted score and level while dropping legacy help timer state', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(10_000);
 

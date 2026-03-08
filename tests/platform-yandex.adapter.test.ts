@@ -682,6 +682,64 @@ describe('PlatformYandex adapter', () => {
     }
   });
 
+  it('publishes typed leaderboard sync result events with trigger correlationId', async () => {
+    const sdkRuntime = createRichSdkRuntime();
+    const { commandBus } = createCommandBusSpy();
+    const eventBus = createEventBus();
+    const observedEvents: ApplicationEvent[] = [];
+    eventBus.subscribe((event) => {
+      observedEvents.push(event);
+    });
+    const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => 5_500,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await platformModule.bootstrap();
+    eventBus.publish({
+      eventId: 'evt-sync-telemetry',
+      eventType: 'domain/leaderboard-sync',
+      eventVersion: 1,
+      occurredAt: 5_500,
+      correlationId: 'sync-telemetry',
+      payload: {
+        commandType: 'SyncLeaderboard',
+        operation: 'sync-score',
+        requestedScore: 64,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        observedEvents.find((event) => {
+          return (
+            event.eventType === 'platform/leaderboard-sync-result' &&
+            event.correlationId === 'sync-telemetry'
+          );
+        }),
+      ).toBeDefined();
+    });
+
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: 'platform/leaderboard-sync-result',
+        correlationId: 'sync-telemetry',
+        payload: {
+          trigger: 'manual',
+          triggerEventType: 'domain/leaderboard-sync',
+          score: 64,
+          status: 'success',
+          attempt: 1,
+          totalAttempts: 4,
+          reason: null,
+        },
+      }),
+    );
+  });
+
   it('auto-syncs rebalance scores once per new total and skips stale duplicates', async () => {
     const sdkRuntime = createRichSdkRuntime();
     const { commandBus } = createCommandBusSpy();
