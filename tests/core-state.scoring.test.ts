@@ -8,74 +8,28 @@ import {
   createWordValidationModule,
   type WordPathCellRef,
 } from '../src/domain/WordValidation';
+import {
+  createDefaultDictionaryWords,
+  createNearCompletionFixtureState,
+} from './helpers/game-state-fixtures';
 
 function cell(row: number, col: number): WordPathCellRef {
   return { row, col };
 }
 
 function createScoringFixtureState(): GameStateInput {
-  return {
-    schemaVersion: 2,
-    stateVersion: 0,
-    updatedAt: 1_000,
-    allTimeScore: 0,
-    currentLevelSession: {
-      levelId: 'level-scoring',
-      grid: [
-        'д',
-        'о',
-        'м',
-        'к',
-        'о',
-        'т',
-        'н',
-        'о',
-        'с',
-        'а',
-        'л',
-        'и',
-        'м',
-        'р',
-        'е',
-        'п',
-        'у',
-        'т',
-        'ь',
-        'я',
-        'б',
-        'в',
-        'г',
-        'ё',
-        'ж',
-      ],
-      targetWords: ['дом', 'нос', 'сон'],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: 7,
-      meta: {
-        source: 'test-fixture',
-      },
-    },
-    helpWindow: {
-      windowStartTs: 1_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
-    },
-    pendingOps: [],
-    leaderboardSync: {
-      lastSubmittedScore: 0,
-      lastAckScore: 0,
-      lastSubmitTs: 0,
-    },
-  };
+  return createNearCompletionFixtureState({
+    levelId: 'level-scoring',
+    source: 'test-fixture',
+    seed: 7,
+  });
 }
 
 describe('core state scoring/progression', () => {
   it('applies scoring formulas in state-first order and keeps accrual idempotent', () => {
     const coreState = createCoreStateModule({
       initialGameState: createScoringFixtureState(),
-      wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон', 'том', 'тон'])),
+      wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       nowProvider: () => 2_000,
     });
 
@@ -91,8 +45,8 @@ describe('core state scoring/progression', () => {
         totalScore: 16,
       },
       progress: {
-        foundTargets: 1,
-        totalTargets: 3,
+        foundTargets: 8,
+        totalTargets: 10,
       },
       allTimeScore: 16,
       stateVersion: 1,
@@ -110,8 +64,8 @@ describe('core state scoring/progression', () => {
         totalScore: 5,
       },
       progress: {
-        foundTargets: 1,
-        totalTargets: 3,
+        foundTargets: 8,
+        totalTargets: 10,
       },
       allTimeScore: 21,
       stateVersion: 2,
@@ -145,8 +99,8 @@ describe('core state scoring/progression', () => {
         totalScore: 16,
       },
       progress: {
-        foundTargets: 2,
-        totalTargets: 3,
+        foundTargets: 9,
+        totalTargets: 10,
       },
       allTimeScore: 37,
       stateVersion: 3,
@@ -165,8 +119,8 @@ describe('core state scoring/progression', () => {
         totalScore: 16,
       },
       progress: {
-        foundTargets: 3,
-        totalTargets: 3,
+        foundTargets: 10,
+        totalTargets: 10,
       },
       allTimeScore: 53,
       stateVersion: 4,
@@ -188,8 +142,8 @@ describe('core state scoring/progression', () => {
         totalScore: 0,
       },
       progress: {
-        foundTargets: 3,
-        totalTargets: 3,
+        foundTargets: 10,
+        totalTargets: 10,
       },
       allTimeScore: 53,
       stateVersion: 4,
@@ -206,12 +160,12 @@ describe('core state scoring/progression', () => {
       levelClearAwarded: true,
       scoreDelta: {
         wordScore: 0,
-        levelClearScore: 45,
-        totalScore: 45,
+        levelClearScore: 80,
+        totalScore: 80,
       },
       levelStatus: 'reshuffling',
       showEphemeralCongrats: true,
-      allTimeScore: 98,
+      allTimeScore: 133,
       stateVersion: 5,
     });
     expect(levelClearAck.levelTransitionOperationId).toEqual(expect.any(String));
@@ -230,7 +184,7 @@ describe('core state scoring/progression', () => {
         totalScore: 0,
       },
       levelStatus: 'reshuffling',
-      allTimeScore: 98,
+      allTimeScore: 133,
       stateVersion: 5,
     });
 
@@ -247,7 +201,7 @@ describe('core state scoring/progression', () => {
         levelClearScore: 0,
         totalScore: 0,
       },
-      allTimeScore: 98,
+      allTimeScore: 133,
       stateVersion: 5,
       levelStatus: 'reshuffling',
     });
@@ -264,7 +218,7 @@ describe('core state scoring/progression', () => {
       handled: true,
       transitionedToNextLevel: true,
       levelStatus: 'active',
-      allTimeScore: 98,
+      allTimeScore: 133,
       stateVersion: 6,
     });
     expect(transitionAck.levelId).not.toBe('level-scoring');
@@ -277,13 +231,13 @@ describe('core state scoring/progression', () => {
       operationId: levelTransitionOperationId,
       handled: false,
       transitionedToNextLevel: false,
-      allTimeScore: 98,
+      allTimeScore: 133,
       stateVersion: 6,
     });
 
     const snapshot = coreState.getSnapshot();
     expect(snapshot.gameplay).toMatchObject({
-      allTimeScore: 98,
+      allTimeScore: 133,
       progress: {
         foundTargets: 0,
       },
@@ -292,7 +246,7 @@ describe('core state scoring/progression', () => {
       isInputLocked: false,
       showEphemeralCongrats: false,
     });
-    expect(snapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(3);
+    expect(snapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(10);
     expect(snapshot.gameplay.foundTargets).toEqual([]);
     expect(snapshot.gameplay.foundBonuses).toEqual([]);
     expect(snapshot.gameplay.pendingWordSuccessOperationId).toBeNull();
@@ -335,7 +289,20 @@ describe('core state scoring/progression', () => {
             'ё',
             'ж',
           ],
-          targetWords: ['дорога', 'нос', 'лим'],
+          targetWords: [
+            'дом',
+            'нос',
+            'сон',
+            'литр',
+            'мрак',
+            'нить',
+            'плод',
+            'путь',
+            'река',
+            'дорога',
+          ],
+          foundTargets: [],
+          foundBonuses: [],
         },
       },
       wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
@@ -359,7 +326,7 @@ describe('core state scoring/progression', () => {
       },
       progress: {
         foundTargets: 1,
-        totalTargets: 3,
+        totalTargets: 10,
       },
       allTimeScore: 22,
       levelStatus: 'active',
@@ -403,8 +370,8 @@ describe('core state scoring/progression', () => {
         totalScore: 5,
       },
       progress: {
-        foundTargets: 0,
-        totalTargets: 3,
+        foundTargets: 7,
+        totalTargets: 10,
       },
       allTimeScore: 5,
       levelStatus: 'active',

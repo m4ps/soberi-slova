@@ -17,35 +17,10 @@ import {
   type GameStateInput,
   type WordEntryInput,
 } from '../src/domain/GameState';
+import { cloneDefaultLevelGrid, cloneDefaultLevelTargetWords } from '../src/shared/default-level';
 
 function createValidGrid(): string[] {
-  return [
-    'д',
-    'о',
-    'м',
-    'р',
-    'а',
-    'к',
-    'о',
-    'т',
-    'е',
-    'л',
-    'с',
-    'л',
-    'о',
-    'в',
-    'о',
-    'н',
-    'о',
-    'ч',
-    'ь',
-    'ю',
-    'м',
-    'и',
-    'р',
-    'я',
-    'ё',
-  ];
+  return cloneDefaultLevelGrid();
 }
 
 function createFixtureGameStateInput(): GameStateInput {
@@ -55,9 +30,9 @@ function createFixtureGameStateInput(): GameStateInput {
     currentLevelSession: {
       levelId: 'level-42',
       grid: createValidGrid(),
-      targetWords: ['дом', 'слово', 'ночь'],
+      targetWords: cloneDefaultLevelTargetWords(),
       foundTargets: ['дом'],
-      foundBonuses: ['кот'],
+      foundBonuses: ['том'],
       status: 'active',
       seed: 42,
       meta: {
@@ -131,17 +106,17 @@ describe('game state model', () => {
 
     expect(state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(state.stateVersion).toBe(0);
-    expect(state.currentDisplayedTargetId).toBe('ночь');
+    expect(state.currentDisplayedTargetId).toBe('нос');
     expect(state.currentHintPathProgress).toBe(0);
     expect(state.currentLevelSession.levelId).toBe('level-42');
-    expect(state.currentLevelSession.readabilityScore).toBe(4);
+    expect(state.currentLevelSession.readabilityScore).toBe(3.7);
     expect(state.helpWindow.pendingHelpRequest?.kind).toBe('hint');
     expect(state.pendingOps).toHaveLength(2);
   });
 
   it('keeps constructor output detached from mutable input references', () => {
     const grid = createValidGrid();
-    const targetWords = ['дом', 'слово', 'ночь'];
+    const targetWords = cloneDefaultLevelTargetWords();
     const session = createLevelSession({
       levelId: 'level-copy-check',
       grid,
@@ -156,7 +131,7 @@ describe('game state model', () => {
     targetWords.push('кот');
 
     expect(session.grid).toEqual(createValidGrid());
-    expect(session.targetWords).toEqual(['дом', 'слово', 'ночь']);
+    expect(session.targetWords).toEqual(cloneDefaultLevelTargetWords());
   });
 
   it('serializes and deserializes GameState snapshots without structural loss', () => {
@@ -214,9 +189,9 @@ describe('game state model', () => {
     ]);
     expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(firstMigration.state.stateVersion).toBe(0);
-    expect(firstMigration.state.currentDisplayedTargetId).toBe('ночь');
+    expect(firstMigration.state.currentDisplayedTargetId).toBe('нос');
     expect(firstMigration.state.currentHintPathProgress).toBe(0);
-    expect(firstMigration.state.currentLevelSession.readabilityScore).toBe(4);
+    expect(firstMigration.state.currentLevelSession.readabilityScore).toBe(3.7);
     expect(firstMigration.state.pendingOps).toEqual([]);
   });
 
@@ -254,9 +229,9 @@ describe('game state model', () => {
       { fromVersion: 2, toVersion: 3 },
     ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
-    expect(migration.state.currentDisplayedTargetId).toBe('ночь');
+    expect(migration.state.currentDisplayedTargetId).toBe('нос');
     expect(migration.state.currentHintPathProgress).toBe(0);
-    expect(migration.state.currentLevelSession.readabilityScore).toBe(4);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(3.7);
     expect(migration.state.helpWindow.pendingHelpRequest).toEqual({
       operationId: 'help-op-legacy',
       kind: 'hint',
@@ -276,7 +251,7 @@ describe('game state model', () => {
         ...baseInput.currentLevelSession,
         meta: {
           ...baseInput.currentLevelSession.meta,
-          hintTargetWord: 'слово',
+          hintTargetWord: 'нора',
           hintRevealCount: 3,
         },
       },
@@ -286,9 +261,9 @@ describe('game state model', () => {
 
     expect(migration.appliedMigrations).toEqual([{ fromVersion: 2, toVersion: 3 }]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
-    expect(migration.state.currentDisplayedTargetId).toBe('слово');
+    expect(migration.state.currentDisplayedTargetId).toBe('нора');
     expect(migration.state.currentHintPathProgress).toBe(3);
-    expect(migration.state.currentLevelSession.readabilityScore).toBe(4);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(3.7);
   });
 
   it('rejects snapshots from unsupported future schema versions', () => {
@@ -406,13 +381,13 @@ describe('game state model', () => {
     expectDomainErrorWithCode(() => createGameState(input), 'game-state.invariant.grid-cyrillic');
   });
 
-  it('rejects targetWords count outside 3..7 range', () => {
+  it('rejects targetWords count outside 10..15 range', () => {
     const baseInput = createFixtureGameStateInput();
     const input: GameStateInput = {
       ...baseInput,
       currentLevelSession: {
         ...baseInput.currentLevelSession,
-        targetWords: ['дом', 'ночь'],
+        targetWords: cloneDefaultLevelTargetWords().slice(0, 9),
         foundTargets: [],
         foundBonuses: [],
       },
@@ -423,11 +398,13 @@ describe('game state model', () => {
 
   it('rejects duplicate words in targetWords', () => {
     const baseInput = createFixtureGameStateInput();
+    const targetWords = cloneDefaultLevelTargetWords();
+    targetWords[9] = targetWords[3]!;
     const input: GameStateInput = {
       ...baseInput,
       currentLevelSession: {
         ...baseInput.currentLevelSession,
-        targetWords: ['дом', 'дом', 'ночь'],
+        targetWords,
         foundTargets: [],
         foundBonuses: [],
       },
@@ -442,9 +419,8 @@ describe('game state model', () => {
       ...baseInput,
       currentLevelSession: {
         ...baseInput.currentLevelSession,
-        targetWords: ['дом', 'кот', 'ночь'],
-        foundTargets: ['кот'],
-        foundBonuses: ['кот'],
+        foundTargets: ['дом'],
+        foundBonuses: ['дом'],
       },
     };
 
@@ -452,6 +428,72 @@ describe('game state model', () => {
       () => createGameState(input),
       'game-state.invariant.found-sets-overlap',
     );
+  });
+
+  it('rejects level sessions without minimum 10 readable short/medium targets', () => {
+    const baseInput = createFixtureGameStateInput();
+    const targetWords = cloneDefaultLevelTargetWords();
+    targetWords[9] = 'история';
+    const input: GameStateInput = {
+      ...baseInput,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        targetWords,
+        foundTargets: [],
+        foundBonuses: [],
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.readable-target-count',
+    );
+  });
+
+  it('rejects readability score above the v1.1 safe bound', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        foundTargets: [],
+        foundBonuses: [],
+        readabilityScore: 6.1,
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.readability-score',
+    );
+  });
+
+  it('normalizes stale displayed target pointers back to the next unfound word', () => {
+    const baseInput = createFixtureGameStateInput();
+    const state = createGameState({
+      ...baseInput,
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 3,
+    });
+
+    expect(state.currentDisplayedTargetId).toBe('нос');
+    expect(state.currentHintPathProgress).toBe(0);
+  });
+
+  it('clears displayed target pointer when all targets are already found', () => {
+    const baseInput = createFixtureGameStateInput();
+    const state = createGameState({
+      ...baseInput,
+      currentDisplayedTargetId: 'нос',
+      currentHintPathProgress: 2,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        foundTargets: cloneDefaultLevelTargetWords(),
+      },
+    });
+
+    expect(state.currentDisplayedTargetId).toBeNull();
+    expect(state.currentHintPathProgress).toBe(0);
   });
 
   it('rejects unsafe integer counters to prevent overflow corruption', () => {

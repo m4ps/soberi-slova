@@ -2,65 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import { createCoreStateModule } from '../src/domain/CoreState';
 import type { GameStateInput } from '../src/domain/GameState';
+import { createNearCompletionFixtureState } from './helpers/game-state-fixtures';
 
 function createRestoreFixtureState(): GameStateInput {
-  return {
-    schemaVersion: 2,
-    stateVersion: 0,
-    updatedAt: 1_000,
-    allTimeScore: 0,
-    currentLevelSession: {
-      levelId: 'level-restore',
-      grid: [
-        'д',
-        'о',
-        'м',
-        'к',
-        'о',
-        'т',
-        'н',
-        'о',
-        'с',
-        'а',
-        'л',
-        'и',
-        'м',
-        'р',
-        'е',
-        'п',
-        'у',
-        'т',
-        'ь',
-        'я',
-        'б',
-        'в',
-        'г',
-        'ё',
-        'ж',
-      ],
-      targetWords: ['дом', 'нос', 'сон'],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: 17,
-      meta: {
-        source: 'restore-test',
-        hintTargetWord: 'сон',
-        hintRevealCount: 2,
-      },
+  return createNearCompletionFixtureState({
+    levelId: 'level-restore',
+    source: 'restore-test',
+    seed: 17,
+    meta: {
+      hintTargetWord: 'сон',
+      hintRevealCount: 2,
     },
-    helpWindow: {
-      windowStartTs: 1_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
-    },
-    pendingOps: [],
-    leaderboardSync: {
-      lastSubmittedScore: 0,
-      lastAckScore: 0,
-      lastSubmitTs: 0,
-    },
-  };
+  });
 }
 
 describe('core state restore session', () => {
@@ -120,7 +73,7 @@ describe('core state restore session', () => {
       currentDisplayedTargetId: 'сон',
       currentHintPathProgress: 2,
     });
-    expect(snapshot.gameState.currentLevelSession.readabilityScore).toBe(3);
+    expect(snapshot.gameState.currentLevelSession.readabilityScore).toBe(3.7);
   });
 
   it('falls back to a fresh active level when restored level is not restorable', () => {

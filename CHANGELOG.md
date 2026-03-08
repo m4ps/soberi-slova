@@ -2,6 +2,27 @@
 
 ## 2026-03-08
 
+### [DATA]-[007] Runtime-инварианты v1.1 для target-count, readability и displayed-target pointer
+
+- `src/domain/GameState/index.ts` ужесточён до `v1.1` level-contract:
+  - `targetWords` теперь допускаются только в диапазоне `10..15`;
+  - уровень обязан содержать минимум `10` short/medium target-слов;
+  - short/medium слова должны преобладать над long;
+  - `readabilityScore` ограничен safe-boundary и валидируется на runtime;
+  - `currentDisplayedTargetId` auto-normalize'ится на следующее ненайденное слово, а при полном completion сбрасывается в `null`.
+- Добавлен встроенный known-good уровень `src/shared/default-level.ts` и тестовый fixture-helper `tests/helpers/game-state-fixtures.ts`, чтобы data-инварианты и runtime fixture-ы использовали один и тот же валидный `v1.1` набор.
+- `src/domain/CoreState/index.ts` теперь валидирует любой generator output до входа в gameplay:
+  - auto-next / reshuffle / restore-fallback сначала прогоняют level через `createLevelSession(...)`;
+  - при ошибке генерации или нарушении data-инвариантов активируется встроенный fallback-уровень вместо невалидного snapshot.
+- Расширено покрытие:
+  - `tests/game-state.model.test.ts` фиксирует новые bounds, readability-guards и pointer normalization;
+  - `tests/core-state.scoring.test.ts`, `tests/core-state.help.test.ts`, `tests/core-state.restore.test.ts` и `tests/application-command-bus.smoke.test.ts` переведены на валидные `v1.1` fixture-ы и подтверждают, что gameplay/restore остаются консистентными.
+- Добавлен `ADR/ADR-040-runtime-level-entry-guards-data-007.md` с решением о runtime-валидации уровня до входа в gameplay.
+- Верификация:
+  - `npm test` — passed;
+  - `npm run ci:baseline` — passed;
+  - `npm run test:e2e:test-012` — не выполнен в sandbox-среде: `listen EPERM: operation not permitted 127.0.0.1:4173`.
+
 ### [DATA]-[006] Миграция state-модели к guided target-word loop v1.1
 
 - `src/domain/GameState/index.ts` переведён на `schemaVersion=3`:

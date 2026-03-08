@@ -9,6 +9,10 @@ import { createCoreStateModule } from '../src/domain/CoreState';
 import type { GameStateInput } from '../src/domain/GameState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
 import { createWordValidationModule } from '../src/domain/WordValidation';
+import {
+  createDefaultDictionaryWords,
+  createNearCompletionFixtureState,
+} from './helpers/game-state-fixtures';
 
 function createSmokeApplication() {
   return createApplicationLayer({
@@ -18,61 +22,11 @@ function createSmokeApplication() {
 }
 
 function createScoringFixtureState(): GameStateInput {
-  return {
-    schemaVersion: 2,
-    stateVersion: 0,
-    updatedAt: 1_000,
-    allTimeScore: 0,
-    currentLevelSession: {
-      levelId: 'level-command-bus',
-      grid: [
-        'д',
-        'о',
-        'м',
-        'к',
-        'о',
-        'т',
-        'н',
-        'о',
-        'с',
-        'а',
-        'л',
-        'и',
-        'м',
-        'р',
-        'е',
-        'п',
-        'у',
-        'т',
-        'ь',
-        'я',
-        'б',
-        'в',
-        'г',
-        'ё',
-        'ж',
-      ],
-      targetWords: ['дом', 'нос', 'сон'],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: 9,
-      meta: {
-        source: 'command-bus-test',
-      },
-    },
-    helpWindow: {
-      windowStartTs: 1_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
-    },
-    pendingOps: [],
-    leaderboardSync: {
-      lastSubmittedScore: 0,
-      lastAckScore: 0,
-      lastSubmitTs: 0,
-    },
-  };
+  return createNearCompletionFixtureState({
+    levelId: 'level-command-bus',
+    source: 'command-bus-test',
+    seed: 9,
+  });
 }
 
 interface CapturedWordSubmittedEvent {
@@ -354,7 +308,7 @@ describe('application command/query bus smoke', () => {
         currentLevelSession: {
           ...createScoringFixtureState().currentLevelSession,
           levelId: 'level-restored',
-          foundTargets: ['дом'],
+          foundTargets: [...createScoringFixtureState().currentLevelSession.foundTargets, 'дом'],
           foundBonuses: ['том'],
           status: 'active',
           meta: {
@@ -372,7 +326,7 @@ describe('application command/query bus smoke', () => {
       const application = createApplicationLayer({
         coreState: createCoreStateModule({
           initialGameState: createScoringFixtureState(),
-          wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон', 'том'])),
+          wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
           nowProvider: () => 10_000,
         }),
         helpEconomy: createHelpEconomyModule({
@@ -405,13 +359,16 @@ describe('application command/query bus smoke', () => {
         allTimeScore: 123,
         levelId: 'level-restored',
       });
-      expect(restoredCoreState.gameplay.foundTargets).toEqual(['дом']);
+      expect(restoredCoreState.gameplay.foundTargets).toEqual([
+        ...createScoringFixtureState().currentLevelSession.foundTargets,
+        'дом',
+      ]);
       expect(restoredCoreState.gameplay.foundBonuses).toEqual(['том']);
       expect(restoredCoreState.gameState).toMatchObject({
         currentDisplayedTargetId: 'нос',
         currentHintPathProgress: 2,
       });
-      expect(restoredCoreState.gameState.currentLevelSession.readabilityScore).toBe(3);
+      expect(restoredCoreState.gameState.currentLevelSession.readabilityScore).toBe(3.7);
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
       expect(restoredHelpWindow.windowStartTs).toBe(9_500);
@@ -425,7 +382,7 @@ describe('application command/query bus smoke', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({
         initialGameState: createScoringFixtureState(),
-        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+        wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
         nowProvider: () => 3_000,
       }),
       helpEconomy: createHelpEconomyModule(0),
@@ -476,8 +433,8 @@ describe('application command/query bus smoke', () => {
         totalScore: 16,
       },
       progress: {
-        foundTargets: 1,
-        totalTargets: 3,
+        foundTargets: 8,
+        totalTargets: 10,
       },
       allTimeScore: 16,
     });
@@ -492,19 +449,22 @@ describe('application command/query bus smoke', () => {
       allTimeScore: 16,
       stateVersion: 1,
       progress: {
-        foundTargets: 1,
-        totalTargets: 3,
+        foundTargets: 8,
+        totalTargets: 10,
       },
       levelStatus: 'active',
     });
-    expect(coreState.gameplay.foundTargets).toEqual(['дом']);
+    expect(coreState.gameplay.foundTargets).toEqual([
+      ...createScoringFixtureState().currentLevelSession.foundTargets,
+      'дом',
+    ]);
   });
 
   it('processes completion pipeline and auto-next via acknowledge commands', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({
         initialGameState: createScoringFixtureState(),
-        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+        wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
         nowProvider: () => 4_000,
       }),
       helpEconomy: createHelpEconomyModule(0),
@@ -543,8 +503,8 @@ describe('application command/query bus smoke', () => {
       isInputLocked: true,
       showEphemeralCongrats: false,
       progress: {
-        foundTargets: 3,
-        totalTargets: 3,
+        foundTargets: 10,
+        totalTargets: 10,
       },
       stateVersion: 3,
     });
@@ -561,7 +521,7 @@ describe('application command/query bus smoke', () => {
 
     const reshufflingSnapshot = application.readModel.getCoreState();
     expect(reshufflingSnapshot.gameplay).toMatchObject({
-      allTimeScore: 93,
+      allTimeScore: 128,
       levelStatus: 'reshuffling',
       isInputLocked: true,
       showEphemeralCongrats: true,
@@ -582,7 +542,7 @@ describe('application command/query bus smoke', () => {
 
     const nextLevelSnapshot = application.readModel.getCoreState();
     expect(nextLevelSnapshot.gameplay).toMatchObject({
-      allTimeScore: 93,
+      allTimeScore: 128,
       levelStatus: 'active',
       isInputLocked: false,
       showEphemeralCongrats: false,
@@ -594,14 +554,14 @@ describe('application command/query bus smoke', () => {
     expect(nextLevelSnapshot.gameplay.progress).toMatchObject({
       foundTargets: 0,
     });
-    expect(nextLevelSnapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(3);
+    expect(nextLevelSnapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(10);
   });
 
   it('enforces shared help lock and releases it after ad acknowledgement', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({
         initialGameState: createScoringFixtureState(),
-        wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон'])),
+        wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       }),
       helpEconomy: createHelpEconomyModule({
         windowStartTs: 1_000,
