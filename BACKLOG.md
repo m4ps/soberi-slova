@@ -168,7 +168,7 @@
       Task Context: Обнови доменные формулы очков до `target = 4 + length`, `bonus = 1 + floor(length / 2)`, `level clear = 10 + N`; убедись, что level clear, repeat-ignore и post-completion rules работают на новых числах без побочных регрессий.
       Task DOD: Все начисления используют новый numeric contract; persisted score и leaderboard sync работают на новой модели; unit/integration tests подтверждают отсутствие двойных начислений.
 
-- [ ] [CODE]-[018] Обновить hint flow до path-reveal текущего displayed target
+- [x] [CODE]-[018] Обновить hint flow до path-reveal текущего displayed target
       Task Context: Переведи подсказку на новый контракт: hint работает только с текущим displayed target, первое использование открывает стартовую клетку, каждое следующее раскрывает еще одну следующую клетку пути, автозачета нет.
       Task DOD: Hint progression идет по клеткам пути текущего target; `currentHintPathProgress` растет на 1 шаг за применение; reshuffle/reset уровня полностью сбрасывает hint progress.
 

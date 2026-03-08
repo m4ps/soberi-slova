@@ -5,11 +5,7 @@ import {
   cloneDefaultLevelGrid,
   cloneDefaultLevelTargetWords,
 } from '../../shared/default-level';
-import {
-  WORD_GRID_CELL_COUNT,
-  findWordPathInGrid,
-  sortWordsByDifficulty,
-} from '../../shared/word-grid';
+import { WORD_GRID_CELL_COUNT, findWordPathInGrid } from '../../shared/word-grid';
 import type { HelpKind } from '../HelpEconomy';
 import {
   createGameState,
@@ -50,7 +46,7 @@ const RESTORE_FALLBACK_LEVEL_META_SOURCE = 'core-state-restore-fallback';
 const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
 const MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX = 'reshuffle';
 const RESTORE_FALLBACK_LEVEL_ID_SUFFIX = 'restore';
-const HINT_INITIAL_REVEAL_COUNT = 2;
+const HINT_INITIAL_REVEAL_COUNT = 1;
 const RECENT_TARGET_WORDS_MAX = 64;
 const PROCESSED_HELP_OPERATION_IDS_MAX = 128;
 const WORD_SCORE_EMPTY = 0;
@@ -130,6 +126,7 @@ export type CoreStateHelpApplyResultReason =
   | 'level-not-active'
   | 'success-feedback-pending'
   | 'no-remaining-targets'
+  | 'hint-path-complete'
   | 'target-path-unavailable';
 
 export interface CoreStateHintEffect {
@@ -509,38 +506,29 @@ function createRestoreLeaderboardSync(
 }
 
 function resolveHintTargetWord(gameState: GameState): string | null {
-  const levelSession = gameState.currentLevelSession;
-  const remainingTargets = sortWordsByDifficulty(
-    levelSession.targetWords.filter((targetWord) => {
-      return !levelSession.foundTargets.includes(targetWord);
-    }),
-  );
-
-  if (remainingTargets.length === 0) {
+  const currentDisplayedTargetId = gameState.currentDisplayedTargetId;
+  if (!currentDisplayedTargetId) {
     return null;
   }
 
-  if (
-    gameState.currentDisplayedTargetId &&
-    remainingTargets.includes(gameState.currentDisplayedTargetId)
-  ) {
-    return gameState.currentDisplayedTargetId;
+  const isRemainingDisplayedTarget = gameState.currentLevelSession.targetWords.includes(
+    currentDisplayedTargetId,
+  )
+    ? !gameState.currentLevelSession.foundTargets.includes(currentDisplayedTargetId)
+    : false;
+  if (!isRemainingDisplayedTarget) {
+    return null;
   }
 
-  const [easiestTargetWord] = remainingTargets;
-  return easiestTargetWord ?? null;
+  return currentDisplayedTargetId;
 }
 
 function resolveNextHintRevealCount(gameState: GameState, targetWord: string): number {
-  const startsFromInitialReveal = Math.min(HINT_INITIAL_REVEAL_COUNT, targetWord.length);
-  if (gameState.currentDisplayedTargetId !== targetWord) {
-    return startsFromInitialReveal;
+  if (gameState.currentHintPathProgress <= 0) {
+    return Math.min(HINT_INITIAL_REVEAL_COUNT, targetWord.length);
   }
 
-  return Math.min(
-    targetWord.length,
-    Math.max(startsFromInitialReveal, gameState.currentHintPathProgress + 1),
-  );
+  return Math.min(targetWord.length, gameState.currentHintPathProgress + 1);
 }
 
 function createGameplaySnapshot(
@@ -1141,6 +1129,16 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
             kind,
             false,
             'target-path-unavailable',
+            gameState,
+          );
+        }
+
+        if (gameState.currentHintPathProgress >= hintTargetWord.length) {
+          return createHelpApplyResult(
+            normalizedOperationId,
+            kind,
+            false,
+            'hint-path-complete',
             gameState,
           );
         }

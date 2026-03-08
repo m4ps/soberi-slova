@@ -480,6 +480,38 @@ describe('game state model', () => {
     expect(state.currentHintPathProgress).toBe(0);
   });
 
+  it('resets displayed target and hint progress when transitioning to a new level', () => {
+    const baseInput = createFixtureGameStateInput();
+    const previousState = createGameState({
+      ...baseInput,
+      currentDisplayedTargetId: 'нос',
+      currentHintPathProgress: 2,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        status: 'reshuffling',
+      },
+    });
+    const state = createGameState(
+      {
+        ...baseInput,
+        currentDisplayedTargetId: 'нос',
+        currentHintPathProgress: 2,
+        currentLevelSession: {
+          ...baseInput.currentLevelSession,
+          levelId: 'level-43',
+          foundTargets: [],
+          foundBonuses: [],
+        },
+      },
+      {
+        previousState,
+      },
+    );
+
+    expect(state.currentDisplayedTargetId).toBe('дом');
+    expect(state.currentHintPathProgress).toBe(0);
+  });
+
   it('clears displayed target pointer when all targets are already found', () => {
     const baseInput = createFixtureGameStateInput();
     const state = createGameState({
