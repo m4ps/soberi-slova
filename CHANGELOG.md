@@ -2,6 +2,24 @@
 
 ## 2026-03-08
 
+### [CODE]-[018] Hint flow переведён на path-reveal текущего displayed target
+
+- `src/domain/CoreState/index.ts` переведён на новый hint contract:
+  - `hint` теперь работает только с `currentDisplayedTargetId`, без fallback на другое оставшееся target-слово;
+  - первое применение раскрывает ровно стартовую клетку пути, каждое следующее увеличивает `currentHintPathProgress` на один шаг;
+  - автозачёта нет: даже полностью раскрытый путь не помечает слово найденным;
+  - повторный `hint` на уже полностью раскрытом пути отклоняется с причиной `hint-path-complete`, чтобы help-action не считался успешно применённым без нового шага.
+- `src/domain/GameState/index.ts` теперь жёстко сбрасывает guided context при внутреннем переходе на новый `levelId`:
+  - `currentDisplayedTargetId` пересчитывается заново для нового уровня;
+  - `currentHintPathProgress` всегда обнуляется при reshuffle/reset уровня, даже если в новом наборе случайно снова встречается то же слово.
+- Обновлены тесты:
+  - `tests/core-state.help.test.ts` фиксирует strict displayed-target hint progression, отсутствие автозачёта и reset после reshuffle;
+  - `tests/game-state.model.test.ts` проверяет сброс guided context на переходе между уровнями.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[018]` отмечена выполненной.
+- Верификация:
+  - `npx vitest run tests/core-state.help.test.ts tests/core-state.scoring.test.ts tests/application-command-bus.smoke.test.ts tests/core-state.restore.test.ts tests/game-state.model.test.ts` — passed;
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[017] Ребалансировка scoring-контракта на формулы v1.1
 
 - `src/domain/CoreState/index.ts` переведён на новый numeric contract `v1.1`:

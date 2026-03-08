@@ -25,9 +25,12 @@ function createHelpFixtureState(levelStatus: 'active' | 'completed' = 'active'):
 }
 
 describe('core state help actions', () => {
-  it('applies hint progression for the easiest remaining target word', () => {
+  it('advances hint progression only for the current displayed target', () => {
     const coreState = createCoreStateModule({
-      initialGameState: createHelpFixtureState(),
+      initialGameState: {
+        ...createHelpFixtureState(),
+        currentDisplayedTargetId: 'сон',
+      },
       wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       nowProvider: () => 5_000,
     });
@@ -43,17 +46,14 @@ describe('core state help actions', () => {
     });
     expect(firstHint.effect).toMatchObject({
       kind: 'hint',
-      targetWord: 'дом',
-      revealCount: 2,
-      revealedLetters: 'до',
-      revealedPathCells: [
-        { row: 0, col: 0 },
-        { row: 0, col: 1 },
-      ],
+      targetWord: 'сон',
+      revealCount: 1,
+      revealedLetters: 'с',
+      revealedPathCells: [{ row: 1, col: 3 }],
     });
     expect(coreState.getSnapshot().gameState).toMatchObject({
-      currentDisplayedTargetId: 'дом',
-      currentHintPathProgress: 2,
+      currentDisplayedTargetId: 'сон',
+      currentHintPathProgress: 1,
     });
 
     const secondHint = coreState.applyHelp('hint', 'hint-op-2', 5_002);
@@ -66,69 +66,113 @@ describe('core state help actions', () => {
     });
     expect(secondHint.effect).toMatchObject({
       kind: 'hint',
-      targetWord: 'дом',
-      revealCount: 3,
-      revealedLetters: 'дом',
+      targetWord: 'сон',
+      revealCount: 2,
+      revealedLetters: 'со',
+      revealedPathCells: [
+        { row: 1, col: 3 },
+        { row: 1, col: 2 },
+      ],
     });
     expect(coreState.getSnapshot().gameState).toMatchObject({
-      currentDisplayedTargetId: 'дом',
+      currentDisplayedTargetId: 'сон',
+      currentHintPathProgress: 2,
+    });
+
+    const thirdHint = coreState.applyHelp('hint', 'hint-op-3', 5_003);
+    expect(thirdHint).toMatchObject({
+      operationId: 'hint-op-3',
+      kind: 'hint',
+      applied: true,
+      reason: 'applied',
+      stateVersion: 3,
+    });
+    expect(thirdHint.effect).toMatchObject({
+      kind: 'hint',
+      targetWord: 'сон',
+      revealCount: 3,
+      revealedLetters: 'сон',
+      revealedPathCells: [
+        { row: 1, col: 3 },
+        { row: 1, col: 2 },
+        { row: 1, col: 1 },
+      ],
+    });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'сон',
       currentHintPathProgress: 3,
+    });
+    expect(coreState.getSnapshot().gameplay.foundTargets).toEqual(
+      createHelpFixtureState().currentLevelSession.foundTargets,
+    );
+
+    const exhaustedHint = coreState.applyHelp('hint', 'hint-op-exhausted', 5_004);
+    expect(exhaustedHint).toMatchObject({
+      operationId: 'hint-op-exhausted',
+      kind: 'hint',
+      applied: false,
+      reason: 'hint-path-complete',
+      stateVersion: 3,
     });
 
     const submitResult = coreState.submitPath(
       [
-        { row: 0, col: 0 },
-        { row: 0, col: 1 },
-        { row: 0, col: 2 },
+        { row: 1, col: 3 },
+        { row: 1, col: 2 },
+        { row: 1, col: 1 },
       ],
-      5_003,
+      5_005,
     );
     expect(submitResult.wordSuccessOperationId).toEqual(expect.any(String));
 
-    const blockedHintDuringSuccessFeedback = coreState.applyHelp('hint', 'hint-op-blocked', 5_004);
+    const blockedHintDuringSuccessFeedback = coreState.applyHelp('hint', 'hint-op-blocked', 5_006);
     expect(blockedHintDuringSuccessFeedback).toMatchObject({
       operationId: 'hint-op-blocked',
       kind: 'hint',
       applied: false,
       reason: 'success-feedback-pending',
-      stateVersion: 3,
+      stateVersion: 4,
     });
 
     const wordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
       submitResult.wordSuccessOperationId!,
-      5_005,
+      5_007,
     );
     expect(wordSuccessAck).toMatchObject({
       operationId: submitResult.wordSuccessOperationId,
       handled: true,
       levelClearAwarded: false,
       levelStatus: 'active',
-      stateVersion: 4,
+      stateVersion: 5,
     });
 
-    const switchedHint = coreState.applyHelp('hint', 'hint-op-3', 5_006);
+    const switchedHint = coreState.applyHelp('hint', 'hint-op-4', 5_008);
     expect(switchedHint).toMatchObject({
-      operationId: 'hint-op-3',
+      operationId: 'hint-op-4',
       kind: 'hint',
       applied: true,
       reason: 'applied',
-      stateVersion: 5,
+      stateVersion: 6,
     });
     expect(switchedHint.effect).toMatchObject({
       kind: 'hint',
-      targetWord: 'нос',
-      revealCount: 2,
-      revealedLetters: 'но',
+      targetWord: 'дом',
+      revealCount: 1,
+      revealedLetters: 'д',
     });
     expect(coreState.getSnapshot().gameState).toMatchObject({
-      currentDisplayedTargetId: 'нос',
-      currentHintPathProgress: 2,
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 1,
     });
   });
 
   it('reshuffles level with full reset and enforces operation id idempotency', () => {
     const coreState = createCoreStateModule({
-      initialGameState: createHelpFixtureState(),
+      initialGameState: {
+        ...createHelpFixtureState(),
+        currentDisplayedTargetId: 'нос',
+        currentHintPathProgress: 1,
+      },
       wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       nowProvider: () => 6_000,
     });
@@ -166,6 +210,10 @@ describe('core state help actions', () => {
       levelClearAwarded: false,
       levelStatus: 'active',
       stateVersion: 2,
+    });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'нос',
+      currentHintPathProgress: 1,
     });
 
     const reshuffle = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_004);

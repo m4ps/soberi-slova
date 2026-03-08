@@ -995,10 +995,13 @@ export function createGameState(
   options: GameStateCreationOptions = {},
 ): GameState {
   const currentLevelSession = createLevelSession(input.currentLevelSession);
+  const resetGuidedTargetState =
+    options.previousState !== undefined &&
+    options.previousState.currentLevelSession.levelId !== currentLevelSession.levelId;
   const guidedTargetState = resolveGuidedTargetState(
     currentLevelSession,
-    input.currentDisplayedTargetId,
-    input.currentHintPathProgress,
+    resetGuidedTargetState ? undefined : input.currentDisplayedTargetId,
+    resetGuidedTargetState ? undefined : input.currentHintPathProgress,
   );
   const requestedSchemaVersion = assertNonNegativeSafeInteger(
     input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
