@@ -36,6 +36,9 @@ const WORD_SUCCESS_ACK_DELAY_MS = 360;
 const LEVEL_TRANSITION_ACK_DELAY_MS = 900;
 const TOAST_DURATION_MS = 2_200;
 const MAX_ACK_TRACKING = 128;
+const TARGET_FEEDBACK_FADE_DURATION_MS = 640;
+const BONUS_FEEDBACK_FADE_DURATION_MS = 560;
+const GRID_RESHUFFLE_TRANSITION_DURATION_MS = 520;
 const DEV_TARGET_WORDS_CONSOLE_LOG_ENABLED = import.meta.env.DEV;
 const DEV_TARGET_WORDS_CONSOLE_PREFIX = '[dev][target-words]';
 
@@ -64,6 +67,9 @@ interface ButtonRenderState {
   readonly labelAlpha: number;
   readonly offsetY: number;
   readonly glowAlpha: number;
+  readonly shadowAlpha: number;
+  readonly shadowOffsetY: number;
+  readonly bloomAlpha: number;
 }
 
 interface ButtonAnimationState {
@@ -77,6 +83,8 @@ interface PathGlowAnimation {
   readonly kind: SuccessKind;
   readonly pathCells: readonly GridCellRef[];
   readonly color: number;
+  readonly coreAlpha: number;
+  readonly bloomAlpha: number;
   elapsedMs: number;
   readonly durationMs: number;
 }
@@ -84,6 +92,7 @@ interface PathGlowAnimation {
 interface FlyingLetterAnimation {
   readonly sprite: Text;
   readonly from: { x: number; y: number };
+  readonly control: { x: number; y: number };
   readonly to: { x: number; y: number };
   readonly delayMs: number;
   readonly durationMs: number;
@@ -128,6 +137,21 @@ interface CurrentWordTransition {
   elapsedMs: number;
 }
 
+interface GridTransition {
+  readonly fromLetters: readonly string[];
+  readonly toLetters: readonly string[];
+  readonly accentColor: number;
+  readonly durationMs: number;
+  elapsedMs: number;
+}
+
+interface GridTransitionFrame {
+  readonly outgoingAlpha: number;
+  readonly incomingAlpha: number;
+  readonly outgoingOffsetY: number;
+  readonly incomingOffsetY: number;
+}
+
 export interface RenderMotionSnapshot {
   readonly runtimeMode: string;
   readonly viewport: {
@@ -168,8 +192,11 @@ export interface RenderMotionSnapshot {
     readonly toastMessage: string | null;
     readonly progressFillRatio: number;
     readonly progressFillAnimating: boolean;
+    readonly progressPulseActive: boolean;
     readonly currentWordTransitionActive: boolean;
+    readonly gridTransitionActive: boolean;
     readonly focusedButtonId: VisualButtonId | null;
+    readonly buttonStates: Readonly<Record<VisualButtonId, VisualButtonState>>;
     readonly hintEnabled: boolean;
     readonly reshuffleEnabled: boolean;
     readonly leaderboardEnabled: boolean;
@@ -203,12 +230,28 @@ function easeOutCubic(progress: number): number {
   return 1 - inverse * inverse * inverse;
 }
 
+function easeInOutSine(progress: number): number {
+  return -(Math.cos(Math.PI * progress) - 1) / 2;
+}
+
 function sameCell(left: GridCellRef, right: GridCellRef): boolean {
   return left.row === right.row && left.col === right.col;
 }
 
 function clonePath(path: readonly GridCellRef[]): readonly GridCellRef[] {
   return path.map((cell) => ({ ...cell }));
+}
+
+function cloneLetters(letters: readonly string[]): readonly string[] {
+  return [...letters];
+}
+
+function areLetterGridsEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((letter, index) => letter === right[index]);
 }
 
 function toGridCellIndex(row: number, col: number): number {
@@ -332,6 +375,40 @@ function lerpColorNumber(start: number, end: number, progress: number): number {
   );
 }
 
+function resolveQuadraticBezierPoint(
+  from: { x: number; y: number },
+  control: { x: number; y: number },
+  to: { x: number; y: number },
+  progress: number,
+): { x: number; y: number } {
+  const inverse = 1 - progress;
+  const fromWeight = inverse * inverse;
+  const controlWeight = 2 * inverse * progress;
+  const toWeight = progress * progress;
+
+  return {
+    x: from.x * fromWeight + control.x * controlWeight + to.x * toWeight,
+    y: from.y * fromWeight + control.y * controlWeight + to.y * toWeight,
+  };
+}
+
+function resolveGridTransitionFrame(progress: number, phaseOffset: number): GridTransitionFrame {
+  const normalizedPhaseOffset = clamp(phaseOffset, 0, 1) * 0.18;
+  const localProgress = clamp(
+    (progress - normalizedPhaseOffset) / (1 - normalizedPhaseOffset),
+    0,
+    1,
+  );
+  const easedProgress = easeInOutSine(localProgress);
+
+  return {
+    outgoingAlpha: 1 - easedProgress,
+    incomingAlpha: easedProgress,
+    outgoingOffsetY: lerp(0, -6, easedProgress),
+    incomingOffsetY: lerp(8, 0, easedProgress),
+  };
+}
+
 function buttonContractToRenderState(contract: VisualButtonStateContract): ButtonRenderState {
   return {
     fillColor: hexToColorNumber(contract.fillHex),
@@ -342,6 +419,9 @@ function buttonContractToRenderState(contract: VisualButtonStateContract): Butto
     labelAlpha: contract.labelAlpha,
     offsetY: contract.offsetY,
     glowAlpha: contract.glowAlpha,
+    shadowAlpha: contract.shadowAlpha,
+    shadowOffsetY: contract.shadowOffsetY,
+    bloomAlpha: contract.bloomAlpha,
   };
 }
 
@@ -359,6 +439,9 @@ function interpolateButtonRenderState(
     labelAlpha: lerp(from.labelAlpha, to.labelAlpha, progress),
     offsetY: lerp(from.offsetY, to.offsetY, progress),
     glowAlpha: lerp(from.glowAlpha, to.glowAlpha, progress),
+    shadowAlpha: lerp(from.shadowAlpha, to.shadowAlpha, progress),
+    shadowOffsetY: lerp(from.shadowOffsetY, to.shadowOffsetY, progress),
+    bloomAlpha: lerp(from.bloomAlpha, to.bloomAlpha, progress),
   };
 }
 
@@ -432,6 +515,7 @@ function drawProgressBar(
   rect: LayoutRect,
   fillRatio: number,
   pulseFrame: ProgressBarPulseFrame | null,
+  particleProgress: number | null,
   progressFillGradient: FillGradient,
   visualSystem: VisualSystemModule,
 ): void {
@@ -461,14 +545,47 @@ function drawProgressBar(
   }
 
   if (!pulseFrame || fillWidth <= 0) {
+    if (!particleProgress || fillWidth <= rect.height) {
+      return;
+    }
+  } else {
+    const glowRadius = Math.max(rect.height * 0.7, rect.height * pulseFrame.glowScale);
+    graphics.circle(rect.x + fillWidth, rect.y + rect.height / 2, glowRadius).fill({
+      color: hexToColorNumber(progressTokens.glowHex),
+      alpha: pulseFrame.glowAlpha,
+    });
+  }
+
+  if (!particleProgress || fillWidth <= rect.height) {
     return;
   }
 
-  const glowRadius = Math.max(rect.height * 0.7, rect.height * pulseFrame.glowScale);
-  graphics.circle(rect.x + fillWidth, rect.y + rect.height / 2, glowRadius).fill({
-    color: hexToColorNumber(progressTokens.glowHex),
-    alpha: pulseFrame.glowAlpha,
-  });
+  const normalizedParticleProgress = clamp(particleProgress, 0, 1);
+  const particleCount = 4;
+
+  for (let particleIndex = 0; particleIndex < particleCount; particleIndex += 1) {
+    const phase = (normalizedParticleProgress * 1.12 + particleIndex * 0.19) % 1;
+    const particleDepth = rect.height * (0.5 + phase * 1.12);
+    const particleX = clamp(
+      rect.x + fillWidth - particleDepth,
+      rect.x + rect.height * 0.36,
+      rect.x + fillWidth - rect.height * 0.16,
+    );
+    const particleY =
+      rect.y +
+      rect.height * (0.52 + Math.sin((phase + particleIndex * 0.07) * Math.PI * 1.5) * 0.14);
+    const particleRadius = rect.height * (0.12 + (1 - phase) * 0.1);
+    const alpha = progressTokens.particleMaxAlpha * (1 - phase * 0.72);
+
+    graphics.circle(particleX, particleY, particleRadius * 1.8).fill({
+      color: hexToColorNumber(progressTokens.particleAccentHex),
+      alpha: alpha * 0.32,
+    });
+    graphics.circle(particleX, particleY, particleRadius).fill({
+      color: hexToColorNumber(progressTokens.particleHex),
+      alpha,
+    });
+  }
 }
 
 function drawPathTrail(
@@ -656,6 +773,7 @@ export function createRenderMotionModule(
       const backgroundLayer = new Graphics();
       const hudLayer = new Graphics();
       const gridLayer = new Graphics();
+      const reshuffleLayer = new Graphics();
       const hintLayer = new Graphics();
       const successLayer = new Graphics();
       const dragLayer = new Graphics();
@@ -793,6 +911,22 @@ export function createRenderMotionModule(
         letterText.anchor.set(0.5);
         return letterText;
       });
+      const gridTransitionLetterTexts = Array.from({ length: GRID_CELL_COUNT }, () => {
+        const letterText = new Text({
+          text: '',
+          style: {
+            fontFamily: visualSystem.tokens.typography.fontFamily,
+            fontSize: 44,
+            fontWeight: visualSystem.tokens.typography.letterWeight,
+            letterSpacing: visualSystem.tokens.typography.letterSpacing,
+            fill: hexToColorNumber(visualSystem.tokens.text.letterHex),
+            align: 'center',
+          },
+        });
+        letterText.anchor.set(0.5);
+        letterText.visible = false;
+        return letterText;
+      });
 
       const dispatchCommand = (
         type: 'RequestHint' | 'RequestReshuffle' | 'SyncLeaderboard',
@@ -846,12 +980,14 @@ export function createRenderMotionModule(
         congratsText,
         toastText,
         ...letterTexts,
+        ...gridTransitionLetterTexts,
       );
 
       app.stage.addChild(
         backgroundLayer,
         hudLayer,
         gridLayer,
+        reshuffleLayer,
         hintLayer,
         successLayer,
         dragLayer,
@@ -878,12 +1014,14 @@ export function createRenderMotionModule(
       let progressBarPulse: ProgressBarPulseAnimation | null = null;
       let focusedButtonId: VisualButtonId | null = null;
       let currentWordTransition: CurrentWordTransition | null = null;
+      let gridTransition: GridTransition | null = null;
       let lastDevTargetWordsSignature: string | null = null;
       let currentWordVisual = resolveCurrentWordVisual(
         displayedTargetWord,
         latestCoreState.gameplay.showEphemeralCongrats,
         visualSystem,
       );
+      let renderedGridLetters = cloneLetters(latestCoreState.gameState.currentLevelSession.grid);
 
       const pathGlowAnimations: PathGlowAnimation[] = [];
       const flyingLetterAnimations: FlyingLetterAnimation[] = [];
@@ -973,14 +1111,14 @@ export function createRenderMotionModule(
           .clear()
           .roundRect(
             0,
-            visualSystem.tokens.surfaces.button.shadowOffsetY,
+            button.renderState.shadowOffsetY,
             rect.width,
             rect.height,
             Math.min(rect.height, rect.width) * 0.3,
           )
           .fill({
             color: hexToColorNumber(visualSystem.tokens.surfaces.button.shadowHex),
-            alpha: visualSystem.tokens.surfaces.button.shadowAlpha,
+            alpha: button.renderState.shadowAlpha,
           })
           .roundRect(0, 0, rect.width, rect.height, Math.min(rect.height, rect.width) * 0.3)
           .fill({
@@ -996,7 +1134,7 @@ export function createRenderMotionModule(
           )
           .fill({
             color: hexToColorNumber(visualSystem.tokens.surfaces.button.bloomHex),
-            alpha: visualSystem.tokens.surfaces.button.bloomAlpha,
+            alpha: button.renderState.bloomAlpha,
           })
           .roundRect(
             1.5,
@@ -1088,6 +1226,13 @@ export function createRenderMotionModule(
           }
 
           const from = resolveCellCenter(currentLayout, cell);
+          const arcHeight =
+            Math.max(26, Math.abs(target.y - from.y) * 0.2 + Math.abs(target.x - from.x) * 0.08) +
+            Math.abs(letterIndex - (letterCount - 1) / 2) * 6;
+          const control = {
+            x: lerp(from.x, target.x, 0.5) + (letterIndex - (letterCount - 1) / 2) * 10,
+            y: Math.min(from.y, target.y) - arcHeight,
+          };
           const sprite = new Text({
             text: letter,
             style: {
@@ -1105,6 +1250,7 @@ export function createRenderMotionModule(
           flyingLetterAnimations.push({
             sprite,
             from,
+            control,
             to: target,
             delayMs: letterIndex * 55,
             durationMs: 420,
@@ -1164,8 +1310,10 @@ export function createRenderMotionModule(
               kind,
               pathCells: payload.pathCells,
               color,
+              coreAlpha: 0.58,
+              bloomAlpha: 0.26,
               elapsedMs: 0,
-              durationMs: 520,
+              durationMs: TARGET_FEEDBACK_FADE_DURATION_MS,
             });
 
             if (payload.wordSuccessOperationId) {
@@ -1180,8 +1328,10 @@ export function createRenderMotionModule(
             kind,
             pathCells: payload.pathCells,
             color,
+            coreAlpha: 0.42,
+            bloomAlpha: 0.18,
             elapsedMs: 0,
-            durationMs: 520,
+            durationMs: BONUS_FEEDBACK_FADE_DURATION_MS,
           });
           queueFlyingLetters(payload.bonusWord, payload.pathCells, kind);
           return;
@@ -1322,11 +1472,17 @@ export function createRenderMotionModule(
         displayedTargetWord = nextDisplayedTargetWord;
       };
 
-      const updateProgressVisuals = (deltaMs: number): ProgressBarPulseFrame | null => {
+      const updateProgressVisuals = (
+        deltaMs: number,
+      ): {
+        readonly pulseFrame: ProgressBarPulseFrame | null;
+        readonly particleProgress: number | null;
+      } => {
         const latestProgressRatio = resolveProgressRatio(
           latestCoreState.gameplay.progress.foundTargets,
           latestCoreState.gameplay.progress.totalTargets,
         );
+        let particleProgress: number | null = null;
 
         if (progressBarAnimation) {
           progressBarAnimation.elapsedMs += deltaMs;
@@ -1335,6 +1491,7 @@ export function createRenderMotionModule(
             0,
             1,
           );
+          particleProgress = animationProgress;
           displayedProgressRatio = lerp(
             progressBarAnimation.fromRatio,
             progressBarAnimation.toRatio,
@@ -1355,17 +1512,24 @@ export function createRenderMotionModule(
         }
 
         if (!progressBarPulse) {
-          return null;
+          return {
+            pulseFrame: null,
+            particleProgress,
+          };
         }
 
         progressBarPulse.elapsedMs += deltaMs;
         const pulseProgress = clamp(progressBarPulse.elapsedMs / progressBarPulse.durationMs, 0, 1);
         const pulseFrame = visualSystem.resolveProgressBarPulse(pulseProgress);
+        particleProgress ??= pulseProgress;
         if (pulseProgress >= 1) {
           progressBarPulse = null;
         }
 
-        return pulseFrame;
+        return {
+          pulseFrame,
+          particleProgress,
+        };
       };
 
       const updateCurrentWordTransition = (deltaMs: number): CurrentWordTransitionFrame | null => {
@@ -1396,9 +1560,36 @@ export function createRenderMotionModule(
         latestHelpState = readModel.getHelpWindowState();
         syncDisplayedTargetWord();
         logDevTargetWordsToConsole();
-        const progressPulseFrame = updateProgressVisuals(deltaMs);
+        const progressVisuals = updateProgressVisuals(deltaMs);
         const currentWordTransitionSnapshot = currentWordTransition;
         const currentWordTransitionFrame = updateCurrentWordTransition(deltaMs);
+        const nextGridLetters = latestCoreState.gameState.currentLevelSession.grid;
+
+        if (!areLetterGridsEqual(renderedGridLetters, nextGridLetters)) {
+          gridTransition = {
+            fromLetters: cloneLetters(renderedGridLetters),
+            toLetters: cloneLetters(nextGridLetters),
+            accentColor: hexToColorNumber(visualSystem.tokens.accents.reshuffleHex),
+            durationMs: GRID_RESHUFFLE_TRANSITION_DURATION_MS,
+            elapsedMs: 0,
+          };
+          renderedGridLetters = cloneLetters(nextGridLetters);
+        }
+
+        let gridTransitionSnapshot: GridTransition | null = null;
+        let gridTransitionProgress = 0;
+        if (gridTransition) {
+          gridTransition.elapsedMs += deltaMs;
+          gridTransitionSnapshot = gridTransition;
+          gridTransitionProgress = clamp(
+            gridTransition.elapsedMs / gridTransition.durationMs,
+            0,
+            1,
+          );
+          if (gridTransitionProgress >= 1) {
+            gridTransition = null;
+          }
+        }
 
         drawBackgroundScene(backgroundLayer, currentLayout, visualSystem);
 
@@ -1439,7 +1630,8 @@ export function createRenderMotionModule(
           hudLayer,
           currentLayout.progressBar,
           displayedProgressRatio,
-          progressPulseFrame,
+          progressVisuals.pulseFrame,
+          progressVisuals.particleProgress,
           progressFillGradient,
           visualSystem,
         );
@@ -1563,12 +1755,52 @@ export function createRenderMotionModule(
           visualSystem.tokens.stroke.panelWidth,
         );
 
+        reshuffleLayer.clear();
+        if (gridTransitionSnapshot) {
+          const sweepAlpha = Math.sin(gridTransitionProgress * Math.PI) * 0.18;
+          const sweepX =
+            currentLayout.grid.x +
+            currentLayout.grid.width * (0.12 + gridTransitionProgress * 0.76);
+          const sweepRadius = currentLayout.grid.width * 0.24;
+
+          reshuffleLayer
+            .roundRect(
+              currentLayout.grid.x + 4,
+              currentLayout.grid.y + 4,
+              Math.max(0, currentLayout.grid.width - 8),
+              Math.max(0, currentLayout.grid.height - 8),
+              22,
+            )
+            .fill({
+              color: gridTransitionSnapshot.accentColor,
+              alpha: sweepAlpha * 0.24,
+            })
+            .circle(sweepX, currentLayout.grid.y + currentLayout.grid.height * 0.52, sweepRadius)
+            .fill({
+              color: gridTransitionSnapshot.accentColor,
+              alpha: sweepAlpha,
+            })
+            .circle(
+              sweepX - sweepRadius * 0.34,
+              currentLayout.grid.y + currentLayout.grid.height * 0.4,
+              sweepRadius * 0.72,
+            )
+            .fill({
+              color: hexToColorNumber(visualSystem.tokens.progressBar.particleHex),
+              alpha: sweepAlpha * 0.32,
+            });
+        }
+
         for (let row = 0; row < GRID_SIZE; row += 1) {
           for (let col = 0; col < GRID_SIZE; col += 1) {
             const cellIndex = toGridCellIndex(row, col);
             const cellBounds = resolveCellBounds(currentLayout, row, col);
             const cellPadding = Math.max(2, cellBounds.width * 0.05);
             const isPathCell = activePathIndices.has(cellIndex);
+            const transitionPhaseOffset = (row + col) / ((GRID_SIZE - 1) * 2);
+            const gridFrame = gridTransitionSnapshot
+              ? resolveGridTransitionFrame(gridTransitionProgress, transitionPhaseOffset)
+              : null;
             const cellFill = hexToColorNumber(
               isPathCell
                 ? visualSystem.tokens.grid.cellActiveFillHex
@@ -1638,6 +1870,7 @@ export function createRenderMotionModule(
               });
 
             const letterText = letterTexts[cellIndex];
+            const gridTransitionText = gridTransitionLetterTexts[cellIndex];
             if (!letterText) {
               continue;
             }
@@ -1646,14 +1879,36 @@ export function createRenderMotionModule(
             letterText.text = letter;
             letterText.position.set(
               cellBounds.x + cellBounds.width / 2,
-              cellBounds.y + cellBounds.height / 2,
+              cellBounds.y + cellBounds.height / 2 + (gridFrame?.incomingOffsetY ?? 0),
             );
             letterText.tint = hexToColorNumber(
               isPathCell
                 ? visualSystem.tokens.text.activeLetterHex
                 : visualSystem.tokens.text.letterHex,
             );
-            letterText.alpha = isPathCell ? 1 : 0.95;
+            letterText.alpha = (isPathCell ? 1 : 0.95) * (gridFrame?.incomingAlpha ?? 1);
+
+            if (!gridTransitionText) {
+              continue;
+            }
+
+            if (!gridTransitionSnapshot) {
+              gridTransitionText.visible = false;
+              gridTransitionText.alpha = 0;
+              continue;
+            }
+
+            const transitionFrame =
+              gridFrame ?? resolveGridTransitionFrame(1, transitionPhaseOffset);
+
+            gridTransitionText.visible = true;
+            gridTransitionText.text = gridTransitionSnapshot.fromLetters[cellIndex] ?? '';
+            gridTransitionText.position.set(
+              cellBounds.x + cellBounds.width / 2,
+              cellBounds.y + cellBounds.height / 2 + transitionFrame.outgoingOffsetY,
+            );
+            gridTransitionText.tint = hexToColorNumber(visualSystem.tokens.text.letterHex);
+            gridTransitionText.alpha = 0.92 * transitionFrame.outgoingAlpha;
           }
         }
 
@@ -1733,22 +1988,35 @@ export function createRenderMotionModule(
 
           animation.elapsedMs += deltaMs;
           const progress = clamp(animation.elapsedMs / animation.durationMs, 0, 1);
-          const alpha = (1 - progress) * 0.85;
+          const easedProgress = easeOutCubic(progress);
+          const coreAlpha = animation.coreAlpha * (1 - easedProgress);
+          const bloomAlpha = animation.bloomAlpha * (1 - progress) * (1 - progress);
 
-          if (alpha <= 0) {
+          if (coreAlpha <= 0 && bloomAlpha <= 0) {
             pathGlowAnimations.splice(index, 1);
             continue;
           }
 
           const cellSize = currentLayout.grid.width / GRID_SIZE;
+          if (bloomAlpha > 0) {
+            drawPathTrail(
+              successLayer,
+              currentLayout,
+              animation.pathCells,
+              animation.color,
+              bloomAlpha,
+              cellSize * (animation.kind === 'target' ? 0.46 : 0.4),
+              cellSize * (animation.kind === 'target' ? 0.3 : 0.26),
+            );
+          }
           drawPathTrail(
             successLayer,
             currentLayout,
             animation.pathCells,
             animation.color,
-            alpha,
-            cellSize * 0.32,
-            cellSize * 0.23,
+            coreAlpha,
+            cellSize * (animation.kind === 'target' ? 0.32 : 0.28),
+            cellSize * (animation.kind === 'target' ? 0.23 : 0.2),
           );
         }
 
@@ -1771,12 +2039,15 @@ export function createRenderMotionModule(
             1,
           );
           const easedProgress = easeOutCubic(normalizedProgress);
-          animation.sprite.position.set(
-            lerp(animation.from.x, animation.to.x, easedProgress),
-            lerp(animation.from.y, animation.to.y, easedProgress),
+          const position = resolveQuadraticBezierPoint(
+            animation.from,
+            animation.control,
+            animation.to,
+            easedProgress,
           );
+          animation.sprite.position.set(position.x, position.y);
           animation.sprite.alpha = 1 - easedProgress * 0.48;
-          animation.sprite.scale.set(lerp(1, 0.72, easedProgress));
+          animation.sprite.scale.set(lerp(1, 0.74, easeInOutSine(normalizedProgress)));
 
           if (normalizedProgress >= 1) {
             flightsLayer.removeChild(animation.sprite);
@@ -1946,8 +2217,15 @@ export function createRenderMotionModule(
             toastMessage: toastMessage?.text ?? null,
             progressFillRatio: displayedProgressRatio,
             progressFillAnimating: progressBarAnimation !== null,
+            progressPulseActive: progressBarPulse !== null,
             currentWordTransitionActive: currentWordTransition !== null,
+            gridTransitionActive: gridTransition !== null,
             focusedButtonId,
+            buttonStates: {
+              hint: hintButton.targetState,
+              reshuffle: reshuffleButton.targetState,
+              leaderboard: leaderboardButton.targetState,
+            },
             hintEnabled: hintButton.isEnabled,
             reshuffleEnabled: reshuffleButton.isEnabled,
             leaderboardEnabled: leaderboardButton.isEnabled,

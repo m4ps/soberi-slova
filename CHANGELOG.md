@@ -2,6 +2,25 @@
 
 ## 2026-03-09
 
+### [CODE]-[024] Motion и interactive states доведены до DESIGN.md
+
+- `src/adapters/VisualSystem/index.ts` расширен как motion/source-of-truth для интерактивных состояний:
+  - button state contract теперь фиксирует не только fill/stroke, но и `shadow/bloom`, чтобы `hover/focus/pressed/disabled` читались через surface response, а не только через offset;
+  - progress bar получил отдельные soft-particle tokens;
+  - `current word transition` смягчён в сторону более явного `crossfade + blur-to-sharp` без жёсткого cut.
+- `src/adapters/RenderMotion/index.ts` синхронизирован с новым motion contract:
+  - буквенные частицы теперь летят к progress/score по мягкой дуге вместо прямого «телепорта»;
+  - progress bar получил внутренние мягкие частицы у фронта заливки и сохранил спокойный glow-pulse;
+  - target/bonus feedback переведён на двухслойное мягкое затухание, где bonus остаётся менее доминантным;
+  - при reshuffle и auto-next grid больше не меняется рублено: добавлен liquid-glass sweep и crossfade старых/новых букв;
+  - runtime snapshot расширен motion-флагами и button states для детерминированной диагностики.
+- `tests/visual-system.contract.test.ts` усилен под новый contract button surfaces, progress particles и смягчённый current-word transition.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npx vitest run tests/visual-system.contract.test.ts tests/render-layout.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke по skill `develop-web-game` недоступен в текущем sandbox: локальные listeners запрещены (`listen EPERM`), shell Playwright client падает на browser launch (`SIGTRAP`), MCP Playwright не поднимает persistent browser context.
+
 ### [CODE]-[023] Иерархия экрана пересобрана по DESIGN.md
 
 - `src/adapters/VisualSystem/index.ts` обновлён как source of truth для новой screen hierarchy:
@@ -452,6 +471,7 @@
 - Верификация:
   - `npm run ci:baseline` — passed.
   - Попытка skill-smoke через Playwright client не выполнена из-за sandbox-ограничения на локальный HTTP listener (`listen EPERM`); прямой `file://` fallback также заблокирован средой.
+
 ## 2026-02-26
 
 ### [CODE]-[292] Удаление дублирования логики в domain/application/ui
