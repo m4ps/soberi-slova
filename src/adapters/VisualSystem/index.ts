@@ -34,8 +34,10 @@ export interface GameLayout {
     readonly leaderboard: LayoutRect;
   };
   readonly progressBar: LayoutRect;
-  readonly progressAnchor: LayoutPoint;
-  readonly scoreAnchor: LayoutPoint;
+  readonly progressLabelAnchor: LayoutPoint;
+  readonly progressCountAnchor: LayoutPoint;
+  readonly scoreLabelAnchor: LayoutPoint;
+  readonly scoreValueAnchor: LayoutPoint;
 }
 
 export type VisualLayoutZoneId = 'topMetrics' | 'currentWord' | 'grid' | 'helpButtons';
@@ -753,13 +755,13 @@ export function computeGameLayout(
   const verticalPadding = clamp(viewportHeight * 0.018, 10, 22);
   const metricsGap = clamp(viewportWidth * 0.02, 8, 14);
   const metricsInsetX = clamp(viewportWidth * 0.018, 6, 10);
-  const metricsToWordGap = clamp(viewportHeight * 0.011, 8, 12);
-  const wordToGridBaseGap = clamp(viewportHeight * 0.02, 11, 22);
-  const gridToControlsBaseGap = clamp(viewportHeight * 0.014, 8, 16);
+  const metricsToWordGap = clamp(viewportHeight * 0.013, 10, 14);
+  const wordToGridBaseGap = clamp(viewportHeight * 0.018, 15, 19);
+  const gridToControlsBaseGap = clamp(viewportHeight * 0.015, 12, 16);
 
-  let metricsHeight = clamp(Math.min(viewportHeight * 0.082, viewportWidth * 0.2), 62, 78);
-  let currentWordHeight = clamp(Math.min(viewportHeight * 0.06, viewportWidth * 0.145), 42, 60);
-  let controlsHeight = clamp(Math.min(viewportHeight * 0.125, viewportWidth * 0.26), 88, 122);
+  let metricsHeight = clamp(Math.min(viewportHeight * 0.084, viewportWidth * 0.205), 62, 82);
+  let currentWordHeight = clamp(Math.min(viewportHeight * 0.064, viewportWidth * 0.15), 42, 60);
+  let controlsHeight = clamp(Math.min(viewportHeight * 0.112, viewportWidth * 0.245), 82, 116);
 
   const maxGridWidth = Math.max(MIN_GRID_SIZE, viewportWidth - horizontalPadding * 2);
   let hudHeight = metricsHeight + currentWordHeight + metricsToWordGap;
@@ -805,9 +807,9 @@ export function computeGameLayout(
   const compositionHeight =
     hudHeight + gridSize + controlsHeight + wordToGridBaseGap + gridToControlsBaseGap;
   const extraVerticalSpace = Math.max(0, viewportHeight - compositionHeight - verticalPadding * 2);
-  const hudY = verticalPadding + extraVerticalSpace * 0.1;
-  const wordToGridGap = wordToGridBaseGap + extraVerticalSpace * 0.24;
-  const gridToControlsGap = gridToControlsBaseGap + extraVerticalSpace * 0.18;
+  const hudY = verticalPadding + extraVerticalSpace * 0.12;
+  const wordToGridGap = wordToGridBaseGap + Math.min(extraVerticalSpace * 0.06, 10);
+  const gridToControlsGap = gridToControlsBaseGap + Math.min(extraVerticalSpace * 0.08, 12);
   const gridX = (viewportWidth - gridSize) / 2;
   const metricsWidth = viewportWidth - horizontalPadding * 2;
   const metricsInsetY = clamp(metricsHeight * 0.16, 5, 9);
@@ -821,7 +823,7 @@ export function computeGameLayout(
   const topRowHeight = Math.max(36, (controlsHeight - buttonGap) / 2);
   const topRowButtonWidth = Math.max(56, (controlsWidth - buttonGap) / 2);
   const progressBarPaddingX = clamp(cardWidth * 0.08, 12, 18);
-  const progressBarHeight = clamp(cardHeight * 0.18, 9, 14);
+  const progressBarHeight = clamp(cardHeight * 0.22, 12, 16);
 
   const hintButton: LayoutRect = {
     x: horizontalPadding,
@@ -896,23 +898,25 @@ export function computeGameLayout(
     },
     progressBar: {
       x: horizontalPadding + metricsInsetX + progressBarPaddingX,
-      y: hudY + metricsInsetY + cardHeight * 0.22,
+      y: hudY + metricsInsetY + cardHeight * 0.58,
       width: cardWidth - progressBarPaddingX * 2,
       height: progressBarHeight,
     },
-    progressAnchor: {
+    progressLabelAnchor: {
       x: horizontalPadding + metricsInsetX + progressBarPaddingX,
-      y: hudY + metricsInsetY + cardHeight * 0.78,
+      y: hudY + metricsInsetY + cardHeight * 0.12,
     },
-    scoreAnchor: {
-      x:
-        horizontalPadding +
-        metricsInsetX +
-        cardWidth +
-        metricsGap +
-        cardWidth -
-        progressBarPaddingX,
-      y: hudY + metricsInsetY + cardHeight * 0.72,
+    progressCountAnchor: {
+      x: horizontalPadding + metricsInsetX + cardWidth - progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.12,
+    },
+    scoreLabelAnchor: {
+      x: horizontalPadding + metricsInsetX + cardWidth + metricsGap + progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.12,
+    },
+    scoreValueAnchor: {
+      x: horizontalPadding + metricsInsetX + cardWidth + metricsGap + progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.8,
     },
   };
 }

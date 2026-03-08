@@ -806,36 +806,49 @@ export function createRenderMotionModule(
         text: '0 / 0',
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
-          fontSize: 20,
+          fontSize: 24,
           fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.progressCounterHex),
+          align: 'right',
         },
       });
-      progressCountText.anchor.set(0, 1);
+      progressCountText.anchor.set(1, 0);
+
+      const progressLabelText = new Text({
+        text: 'Цели',
+        style: {
+          fontFamily: visualSystem.tokens.typography.fontFamily,
+          fontSize: 12,
+          fontWeight: visualSystem.tokens.typography.labelWeight,
+          fill: hexToColorNumber(visualSystem.tokens.text.mutedHex),
+          align: 'left',
+        },
+      });
+      progressLabelText.anchor.set(0, 0);
 
       const scoreLabelText = new Text({
-        text: 'Счёт',
+        text: 'Общий счёт',
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
           fontSize: 14,
           fontWeight: visualSystem.tokens.typography.labelWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.scoreLabelHex),
-          align: 'right',
+          align: 'left',
         },
       });
-      scoreLabelText.anchor.set(1, 0);
+      scoreLabelText.anchor.set(0, 0);
 
       const scoreValueText = new Text({
         text: '0',
         style: {
           fontFamily: visualSystem.tokens.typography.fontFamily,
-          fontSize: 28,
+          fontSize: 30,
           fontWeight: visualSystem.tokens.typography.valueWeight,
           fill: hexToColorNumber(visualSystem.tokens.text.scoreValueHex),
-          align: 'right',
+          align: 'left',
         },
       });
-      scoreValueText.anchor.set(1, 1);
+      scoreValueText.anchor.set(0, 1);
 
       const currentWordPrimaryText = new Text({
         text: '',
@@ -972,6 +985,7 @@ export function createRenderMotionModule(
         leaderboardButton.container,
       );
       textLayer.addChild(
+        progressLabelText,
         progressCountText,
         scoreLabelText,
         scoreValueText,
@@ -1194,9 +1208,9 @@ export function createRenderMotionModule(
 
         return {
           x:
-            scoreValueText.x -
-            Math.min(scoreValueText.width * 0.45, currentLayout.scoreCard.width * 0.2),
-          y: scoreValueText.y,
+            scoreValueText.x +
+            Math.min(scoreValueText.width * 0.52, currentLayout.scoreCard.width * 0.28),
+          y: scoreValueText.y - scoreValueText.height * 0.08,
         };
       };
 
@@ -1645,32 +1659,33 @@ export function createRenderMotionModule(
               : currentLayout.currentWord.height < 58
                 ? 30
                 : 34;
-        progressCountText.style.fontSize = isCompactMetricCards ? 16 : 18;
+        progressLabelText.style.fontSize = isCompactMetricCards ? 11 : 12;
+        progressCountText.style.fontSize = isCompactMetricCards ? 22 : 24;
         scoreLabelText.style.fontSize = isCompactMetricCards ? 11 : 12;
-        scoreValueText.style.fontSize = isCompactMetricCards ? 22 : 26;
+        scoreValueText.style.fontSize = isCompactMetricCards ? 24 : 28;
         currentWordPrimaryText.style.fontSize = currentWordFontSize;
         currentWordSecondaryText.style.fontSize = currentWordPrimaryText.style.fontSize;
         currentWordPrimaryText.style.wordWrapWidth = currentLayout.currentWord.width * 0.82;
         currentWordSecondaryText.style.wordWrapWidth = currentWordPrimaryText.style.wordWrapWidth;
 
+        progressLabelText.position.set(
+          currentLayout.progressLabelAnchor.x,
+          currentLayout.progressLabelAnchor.y,
+        );
         progressCountText.text = `${latestCoreState.gameplay.progress.foundTargets} / ${latestCoreState.gameplay.progress.totalTargets}`;
         progressCountText.position.set(
-          currentLayout.progressAnchor.x,
-          currentLayout.progressCard.y +
-            currentLayout.progressCard.height -
-            (isCompactMetricCards ? 10 : 12),
+          currentLayout.progressCountAnchor.x,
+          currentLayout.progressCountAnchor.y,
         );
 
         scoreLabelText.position.set(
-          currentLayout.scoreAnchor.x,
-          currentLayout.scoreCard.y + (isCompactMetricCards ? 9 : 10),
+          currentLayout.scoreLabelAnchor.x,
+          currentLayout.scoreLabelAnchor.y,
         );
         scoreValueText.text = `${latestCoreState.gameplay.allTimeScore}`;
         scoreValueText.position.set(
-          currentLayout.scoreAnchor.x,
-          currentLayout.scoreCard.y +
-            currentLayout.scoreCard.height -
-            (isCompactMetricCards ? 10 : 12),
+          currentLayout.scoreValueAnchor.x,
+          currentLayout.scoreValueAnchor.y,
         );
 
         const currentWordCenterX =

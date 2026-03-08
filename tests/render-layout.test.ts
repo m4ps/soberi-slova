@@ -26,6 +26,12 @@ describe('render layout contract', () => {
     expect(layout.progressBar.x + layout.progressBar.width).toBeLessThanOrEqual(
       layout.progressCard.x + layout.progressCard.width,
     );
+    expect(layout.progressLabelAnchor.y).toBeLessThan(layout.progressBar.y);
+    expect(layout.progressCountAnchor.y).toBeLessThan(layout.progressBar.y);
+    expect(layout.progressCountAnchor.x).toBeGreaterThan(layout.progressLabelAnchor.x);
+    expect(layout.scoreLabelAnchor.y).toBeLessThan(layout.scoreValueAnchor.y);
+    expect(layout.scoreLabelAnchor.x).toBeGreaterThanOrEqual(layout.scoreCard.x);
+    expect(layout.scoreValueAnchor.x).toBeGreaterThanOrEqual(layout.scoreCard.x);
   });
 
   it('keeps current-word and help areas compact enough for the 6x6 grid to stay dominant', () => {
@@ -41,6 +47,7 @@ describe('render layout contract', () => {
     expect(controlsToGridRatio).toBeLessThan(0.28);
     expect(metricsToGridRatio).toBeLessThan(0.19);
     expect(wordToGridGap).toBeGreaterThan(metricsToWordGap * 2);
+    expect(wordToGridGap).toBeLessThan(layout.grid.height * 0.1);
   });
 
   it('keeps controls, current word block and grid inside viewport bounds on small screens', () => {
