@@ -1,13 +1,19 @@
 :root {
   color-scheme: only light;
   --visual-app-background: #f5faff;
+  --visual-app-background-end: #fcfeff;
   --visual-app-cloud-cool: #ddeffc;
   --visual-app-cloud-mint: #e7fbf2;
   --visual-app-cloud-warm: #ffe8d8;
-  --visual-shell-fill: rgb(255 255 255 / 72%);
+  --visual-app-ambient-bloom: #ffffff;
+  --visual-shell-fill: rgb(255 255 255 / 68%);
   --visual-shell-stroke: #d6e7f5;
-  --visual-shell-shadow: rgb(110 144 172 / 18%);
-  --visual-font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --visual-shell-shadow: rgb(110 144 172 / 14%);
+  --visual-shell-shadow-elevated: rgb(166 199 221 / 26%);
+  --visual-shell-blur: 18px;
+  --visual-shell-radius: 28px;
+  --visual-shell-stroke-width: 1px;
+  --visual-font-family: 'Avenir Next', 'Avenir', 'Trebuchet MS', 'Segoe UI', sans-serif;
 }
 
 * {
@@ -21,10 +27,11 @@ body {
   height: 100%;
   overflow: hidden;
   background:
+    radial-gradient(circle at 52% 8%, var(--visual-app-ambient-bloom) 0%, transparent 28%),
     radial-gradient(circle at 18% 18%, var(--visual-app-cloud-cool) 0%, transparent 32%),
     radial-gradient(circle at 82% 22%, var(--visual-app-cloud-mint) 0%, transparent 28%),
     radial-gradient(circle at 50% 92%, var(--visual-app-cloud-warm) 0%, transparent 34%),
-    linear-gradient(180deg, var(--visual-app-background) 0%, #f9fcff 100%);
+    linear-gradient(180deg, var(--visual-app-background) 0%, var(--visual-app-background-end) 100%);
   font-family: var(--visual-font-family);
 }
 
@@ -36,12 +43,14 @@ body {
 #app {
   width: min(100vw, calc(100vh * 9 / 16));
   height: min(100vh, calc(100vw * 16 / 9));
-  border-radius: 20px;
+  border-radius: var(--visual-shell-radius);
   overflow: hidden;
   background: var(--visual-shell-fill);
-  border: 1px solid var(--visual-shell-stroke);
-  box-shadow: 0 18px 64px var(--visual-shell-shadow);
-  backdrop-filter: blur(14px);
+  border: var(--visual-shell-stroke-width) solid var(--visual-shell-stroke);
+  box-shadow:
+    0 18px 52px var(--visual-shell-shadow),
+    0 30px 74px var(--visual-shell-shadow-elevated);
+  backdrop-filter: blur(var(--visual-shell-blur));
 }
 
 #app canvas {

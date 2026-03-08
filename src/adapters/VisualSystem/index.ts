@@ -14,6 +14,8 @@ export interface LayoutPoint {
   readonly y: number;
 }
 
+export type VisualFontWeight = '600' | '700';
+
 export interface GameLayout {
   readonly viewport: {
     readonly width: number;
@@ -63,12 +65,21 @@ export interface VisualButtonStateContract extends VisualPanelContract {
 
 export interface VisualShellTokens {
   readonly appBackgroundHex: HexColor;
+  readonly appBackgroundEndHex: HexColor;
   readonly appCloudCoolHex: HexColor;
+  readonly appCloudCoolAlpha: number;
   readonly appCloudMintHex: HexColor;
+  readonly appCloudMintAlpha: number;
   readonly appCloudWarmHex: HexColor;
+  readonly appCloudWarmAlpha: number;
+  readonly appAmbientBloomHex: HexColor;
+  readonly appAmbientBloomAlpha: number;
   readonly shellStrokeHex: HexColor;
   readonly shellFillCss: string;
   readonly shellShadowCss: string;
+  readonly shellElevatedShadowCss: string;
+  readonly shellBackdropBlurPx: number;
+  readonly shellBorderRadiusPx: number;
 }
 
 export interface VisualPanelTokens {
@@ -148,6 +159,42 @@ export interface VisualCurrentWordTokens {
 
 export interface VisualTypographyTokens {
   readonly fontFamily: string;
+  readonly labelWeight: VisualFontWeight;
+  readonly valueWeight: VisualFontWeight;
+  readonly currentWordWeight: VisualFontWeight;
+  readonly letterWeight: VisualFontWeight;
+  readonly currentWordLetterSpacing: number;
+  readonly letterSpacing: number;
+}
+
+export interface VisualStrokeTokens {
+  readonly shellWidth: number;
+  readonly panelWidth: number;
+  readonly gridCellWidth: number;
+  readonly focusWidth: number;
+  readonly hintWidth: number;
+  readonly toastWidth: number;
+}
+
+export interface VisualSurfaceTreatmentTokens {
+  readonly shadowHex: HexColor;
+  readonly shadowAlpha: number;
+  readonly shadowOffsetY: number;
+  readonly highlightHex: HexColor;
+  readonly highlightAlpha: number;
+  readonly bloomHex: HexColor;
+  readonly bloomAlpha: number;
+}
+
+export interface VisualSurfaceTokens {
+  readonly metric: VisualSurfaceTreatmentTokens;
+  readonly currentWord: VisualSurfaceTreatmentTokens;
+  readonly controls: VisualSurfaceTreatmentTokens;
+  readonly gridPanel: VisualSurfaceTreatmentTokens;
+  readonly gridCell: VisualSurfaceTreatmentTokens;
+  readonly button: VisualSurfaceTreatmentTokens;
+  readonly progressBar: VisualSurfaceTreatmentTokens;
+  readonly toast: VisualSurfaceTreatmentTokens;
 }
 
 export interface VisualMotionWindow {
@@ -174,6 +221,8 @@ export interface VisualTokens {
   readonly feedback: VisualFeedbackTokens;
   readonly currentWord: VisualCurrentWordTokens;
   readonly typography: VisualTypographyTokens;
+  readonly stroke: VisualStrokeTokens;
+  readonly surfaces: VisualSurfaceTokens;
   readonly motion: VisualMotionTokens;
 }
 
@@ -234,12 +283,21 @@ export const VISUAL_LAYOUT_HIERARCHY = [
 export const visualTokens = {
   shell: {
     appBackgroundHex: '#F5FAFF',
+    appBackgroundEndHex: '#FCFEFF',
     appCloudCoolHex: '#DDEFFC',
+    appCloudCoolAlpha: 0.46,
     appCloudMintHex: '#E7FBF2',
+    appCloudMintAlpha: 0.36,
     appCloudWarmHex: '#FFE8D8',
+    appCloudWarmAlpha: 0.28,
+    appAmbientBloomHex: '#FFFFFF',
+    appAmbientBloomAlpha: 0.42,
     shellStrokeHex: '#D6E7F5',
-    shellFillCss: 'rgb(255 255 255 / 72%)',
-    shellShadowCss: 'rgb(110 144 172 / 18%)',
+    shellFillCss: 'rgb(255 255 255 / 68%)',
+    shellShadowCss: 'rgb(110 144 172 / 14%)',
+    shellElevatedShadowCss: 'rgb(166 199 221 / 26%)',
+    shellBackdropBlurPx: 18,
+    shellBorderRadiusPx: 28,
   },
   panels: {
     metric: {
@@ -330,7 +388,95 @@ export const visualTokens = {
     blurStrength: 6,
   },
   typography: {
-    fontFamily: '"Trebuchet MS", "Segoe UI", sans-serif',
+    fontFamily: '"Avenir Next", "Avenir", "Trebuchet MS", "Segoe UI", sans-serif',
+    labelWeight: '600',
+    valueWeight: '700',
+    currentWordWeight: '700',
+    letterWeight: '700',
+    currentWordLetterSpacing: -0.6,
+    letterSpacing: 0.45,
+  },
+  stroke: {
+    shellWidth: 1,
+    panelWidth: 2,
+    gridCellWidth: 1.75,
+    focusWidth: 2.5,
+    hintWidth: 2,
+    toastWidth: 2,
+  },
+  surfaces: {
+    metric: {
+      shadowHex: '#C4D9EA',
+      shadowAlpha: 0.2,
+      shadowOffsetY: 10,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.82,
+      bloomHex: '#F8FDFF',
+      bloomAlpha: 0.68,
+    },
+    currentWord: {
+      shadowHex: '#BDD7E8',
+      shadowAlpha: 0.22,
+      shadowOffsetY: 12,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.88,
+      bloomHex: '#F6FBFF',
+      bloomAlpha: 0.74,
+    },
+    controls: {
+      shadowHex: '#C8DCEB',
+      shadowAlpha: 0.14,
+      shadowOffsetY: 8,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.74,
+      bloomHex: '#F9FDFF',
+      bloomAlpha: 0.56,
+    },
+    gridPanel: {
+      shadowHex: '#BCD4E6',
+      shadowAlpha: 0.22,
+      shadowOffsetY: 14,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.9,
+      bloomHex: '#F8FCFF',
+      bloomAlpha: 0.72,
+    },
+    gridCell: {
+      shadowHex: '#C8DCEB',
+      shadowAlpha: 0.14,
+      shadowOffsetY: 4,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.78,
+      bloomHex: '#FDFEFF',
+      bloomAlpha: 0.64,
+    },
+    button: {
+      shadowHex: '#C4D9EA',
+      shadowAlpha: 0.16,
+      shadowOffsetY: 7,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.76,
+      bloomHex: '#F9FDFF',
+      bloomAlpha: 0.6,
+    },
+    progressBar: {
+      shadowHex: '#C7DCEC',
+      shadowAlpha: 0.16,
+      shadowOffsetY: 4,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.68,
+      bloomHex: '#F5FEFB',
+      bloomAlpha: 0.54,
+    },
+    toast: {
+      shadowHex: '#F2C7B7',
+      shadowAlpha: 0.18,
+      shadowOffsetY: 8,
+      highlightHex: '#FFFDF9',
+      highlightAlpha: 0.72,
+      bloomHex: '#FFF7F2',
+      bloomAlpha: 0.6,
+    },
   },
   motion: {
     buttonHoverDurationMs: 160,
@@ -352,20 +498,20 @@ export const visualTokens = {
 export const visualButtonStateContracts = {
   hint: {
     base: {
-      fillHex: '#E8FAF5',
-      fillAlpha: 0.9,
+      fillHex: '#F3FCF8',
+      fillAlpha: 0.88,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.44,
+      strokeAlpha: 0.34,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
-      fillHex: '#F1FDF9',
+      fillHex: '#F8FEFB',
       fillAlpha: 0.94,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.56,
+      strokeAlpha: 0.44,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: -2,
@@ -382,10 +528,10 @@ export const visualButtonStateContracts = {
       glowAlpha: 0.2,
     },
     pressed: {
-      fillHex: '#DAF3EC',
-      fillAlpha: 0.86,
+      fillHex: '#E8F6F0',
+      fillAlpha: 0.84,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.4,
+      strokeAlpha: 0.32,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: 1,
@@ -404,20 +550,20 @@ export const visualButtonStateContracts = {
   },
   reshuffle: {
     base: {
-      fillHex: '#ECF3FF',
-      fillAlpha: 0.9,
+      fillHex: '#F3F7FF',
+      fillAlpha: 0.88,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.44,
+      strokeAlpha: 0.34,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
-      fillHex: '#F3F7FF',
+      fillHex: '#F8FAFF',
       fillAlpha: 0.94,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.56,
+      strokeAlpha: 0.44,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: -2,
@@ -434,10 +580,10 @@ export const visualButtonStateContracts = {
       glowAlpha: 0.2,
     },
     pressed: {
-      fillHex: '#DFEAFF',
-      fillAlpha: 0.86,
+      fillHex: '#EAF1FE',
+      fillAlpha: 0.84,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.4,
+      strokeAlpha: 0.32,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: 1,
@@ -456,20 +602,20 @@ export const visualButtonStateContracts = {
   },
   leaderboard: {
     base: {
-      fillHex: '#F0F5FA',
-      fillAlpha: 0.9,
+      fillHex: '#F4F8FB',
+      fillAlpha: 0.88,
       strokeHex: '#7AA7D9',
-      strokeAlpha: 0.42,
+      strokeAlpha: 0.32,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
-      fillHex: '#F6F9FC',
+      fillHex: '#F9FBFD',
       fillAlpha: 0.94,
       strokeHex: '#7AA7D9',
-      strokeAlpha: 0.54,
+      strokeAlpha: 0.42,
       labelHex: '#355A67',
       labelAlpha: 1,
       offsetY: -2,

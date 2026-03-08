@@ -16,6 +16,7 @@ describe('VisualSystem contract', () => {
     expect(visualSystem.layoutHierarchy).toEqual(VISUAL_LAYOUT_HIERARCHY);
     expect(visualSystem.tokens).toBe(visualTokens);
     expect(visualTokens.shell.appBackgroundHex).toBe('#F5FAFF');
+    expect(visualTokens.shell.appBackgroundEndHex).toBe('#FCFEFF');
     expect(visualTokens.shell.appCloudCoolHex).toBe('#DDEFFC');
     expect(visualTokens.accents.progressStartHex).toBe('#7ED8FF');
     expect(visualTokens.accents.progressEndHex).toBe('#7FF0D1');
@@ -26,6 +27,9 @@ describe('VisualSystem contract', () => {
     expect(visualTokens.accents.reshuffleHex).toBe('#6AA8FF');
     expect(visualTokens.accents.toastFailHex).toBe('#FF9B7B');
     expect(visualTokens.progressBar.glowHex).toBe('#7FF0D1');
+    expect(visualTokens.stroke.panelWidth).toBeGreaterThan(0);
+    expect(visualTokens.surfaces.gridCell.highlightAlpha).toBeGreaterThan(0.7);
+    expect(visualTokens.typography.fontFamily).toContain('Avenir');
     expect(visualTokens.currentWord.blurStrength).toBeGreaterThan(0);
   });
 

@@ -2,6 +2,26 @@
 
 ## 2026-03-09
 
+### [CODE]-[022] Экран переведён на light glass visual system из DESIGN.md
+
+- `src/adapters/VisualSystem/index.ts` расширен до более полного design-token контракта:
+  - добавлены централизованные токены для background depth, glass-surfaces, stroke и typography;
+  - shell получил отдельные значения для градиентного хвоста, ambient bloom, blur, radius и shadow-depth;
+  - кнопочные состояния смягчены в pastel-light диапазон, чтобы help controls оставались вторичными относительно сетки.
+- `src/adapters/RenderMotion/index.ts` переведён на новые визуальные токены:
+  - panel, current-word, grid, progress bar, buttons и toast теперь рисуются как glass-surfaces с мягкой тенью, верхним bloom и лёгким highlight-stroke;
+  - клетки сетки получили более tactile/light обработку, а активный drag-path стал двухслойным `cyan -> mint`, ближе к calm reward из `DESIGN.md`;
+  - typography runtime переведена на централизованные веса и letter spacing из `VisualSystem`.
+- `src/main.ts` и `src/style.css` синхронизированы с теми же shell-токенами:
+  - DOM-оболочка использует те же background/glass/stroke значения, что и canvas-runtime;
+  - bootstrap-fail state больше не выглядит как отдельная тяжёлая плашка и остаётся внутри общей light glass-системы.
+- `tests/visual-system.contract.test.ts` дополнен регрессиями на новые token-группы и typography/surface contract.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npx vitest run tests/visual-system.contract.test.ts tests/render-layout.test.ts tests/input-path.adapter.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke по skill `develop-web-game` не выполнен в sandbox-среде: локальные listeners запрещены (`listen EPERM`), а Playwright browser launch завершается аварийно.
+
 ### [CODE]-[030] Layout и visual hierarchy переведены с legacy 5x5-пропорций на актуальную 6x6 композицию
 
 - `src/adapters/VisualSystem/index.ts` пересобран вокруг более компактной `6x6`-иерархии:
