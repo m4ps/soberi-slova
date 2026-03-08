@@ -2,6 +2,30 @@
 
 ## 2026-03-08
 
+### [CODE]-[015] LevelGenerator переведён на v1.1 readability-first contract
+
+- `src/domain/LevelGenerator/index.ts` переведён с legacy-диапазона `3..7` на `10..15` target-слов:
+  - minimum `10` слов теперь добирается из short/medium (`3..6`) пула;
+  - short-слова получили повышенный приоритет относительно medium;
+  - long-слова перестали быть обязательными и используются только как fallback при доборе до requested count.
+- В генератор добавлены readability-first rejection rules:
+  - target-набор отклоняется, если не выполняет floor/predominance/readability-score инварианты `v1.1`;
+  - layout отклоняется, если пути слов становятся слишком ломанными или слишком много target-слов концентрируется в одной клетке.
+- Path placement сделан менее шумным и более читаемым:
+  - стартовые клетки и соседние переходы теперь выбираются по эвристикам straight-first / low-diagonal / controlled-overlap;
+  - anti-repeat окно по `recentTargetWords` сохранено и продолжает работать детерминированно.
+- Расширен встроенный fallback-словарь генератора, чтобы контракт `10..15` оставался рабочим даже без внешних dictionary entries.
+- Обновлены `tests/level-generator.test.ts`:
+  - deterministic suite теперь проверяет диапазон `10..15`;
+  - фиксируются minimum `10` readable target-слов, dominance short/medium, bounded readability score и path/grid readability heuristics.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[015]` отмечена выполненной.
+- Добавлен `ADR/ADR-042-level-generator-v11-readability-first-code-015.md` с решением о новом generator-contract для `v1.1`.
+- Верификация:
+  - `npx vitest run tests/level-generator.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke через `$WEB_GAME_CLIENT` из live dev-server не стартует в sandbox-среде из-за запрета на локальный listener (`listen EPERM`);
+  - fallback через статическую `dist` тоже не воспроизвёлся в sandbox-среде: headless Chromium завершился с `SIGTRAP` до старта сценария.
+
 ### [CODE]-[012] Guided target-word loop и корректное переключение displayed target
 
 - `src/domain/CoreState/index.ts` переведён на полноценный `word-success` lifecycle для каждого успешного `target`:

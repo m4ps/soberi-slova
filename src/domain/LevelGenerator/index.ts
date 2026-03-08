@@ -8,14 +8,18 @@ import {
 
 const GRID_SIDE = 5;
 const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
-const TARGET_WORDS_MIN = 3;
-const TARGET_WORDS_MAX = 7;
+const TARGET_WORDS_MIN = 10;
+const TARGET_WORDS_MAX = 15;
 const SHORT_WORD_MIN_LENGTH = 3;
 const SHORT_WORD_MAX_LENGTH = 4;
 const MEDIUM_WORD_MIN_LENGTH = 5;
 const MEDIUM_WORD_MAX_LENGTH = 6;
 const LONG_WORD_MIN_LENGTH = 7;
 const MAX_TARGET_WORD_LENGTH = 10;
+const READABLE_WORD_MIN_LENGTH = SHORT_WORD_MIN_LENGTH;
+const READABLE_WORD_MAX_LENGTH = MEDIUM_WORD_MAX_LENGTH;
+const MIN_READABLE_TARGET_WORDS = TARGET_WORDS_MIN;
+const MAX_LEVEL_READABILITY_SCORE = READABLE_WORD_MAX_LENGTH;
 const DEFAULT_RECENT_WORD_WINDOW_SIZE = 20;
 const MAX_LEVEL_GENERATION_ATTEMPTS = 24;
 const MAX_WORD_BACKTRACKS = 96;
@@ -24,6 +28,7 @@ const RANK_BIAS_EXPONENT = 1.8;
 const RARE_TARGET_RATIO_LIMIT = 0.24;
 const RARE_GRID_RATIO_LIMIT = 0.24;
 const MAX_RARE_GRID_LETTER_COUNT = 6;
+const MAX_CELL_USAGE_FOR_READABILITY = 5;
 const RANDOM_UINT32_INCREMENT = 0x6d2b79f5;
 const UINT32_MAX_PLUS_ONE = 4_294_967_296;
 const BASE_FILLER_LETTER = 'а';
@@ -39,16 +44,23 @@ const FALLBACK_DICTIONARY_WORDS: ReadonlyArray<Readonly<[word: string, rank: num
   ['лес', 30],
   ['мир', 40],
   ['путь', 50],
-  ['город', 60],
-  ['река', 70],
-  ['песня', 80],
-  ['дорога', 90],
-  ['школа', 100],
-  ['история', 110],
-  ['планета', 120],
-  ['карусель', 130],
-  ['гостиница', 140],
-  ['собрание', 150],
+  ['река', 60],
+  ['город', 70],
+  ['берег', 80],
+  ['книга', 90],
+  ['песня', 100],
+  ['школа', 110],
+  ['дорога', 120],
+  ['озеро', 130],
+  ['ветер', 140],
+  ['лампа', 150],
+  ['звезда', 160],
+  ['народ', 170],
+  ['улица', 180],
+  ['солнце', 190],
+  ['история', 200],
+  ['планета', 210],
+  ['карусель', 220],
 ] as const;
 
 export interface LevelGenerationRequest {
@@ -120,6 +132,11 @@ interface LevelLayoutAttemptResult {
 interface RareMetrics {
   readonly rareLetterCount: number;
   readonly rareLetterRatio: number;
+}
+
+interface StepDirection {
+  readonly rowDelta: number;
+  readonly colDelta: number;
 }
 
 interface SeededRandom {
@@ -414,6 +431,34 @@ function normalizeRecentWords(
   return new Set(normalizedWords.slice(-windowSize));
 }
 
+function isReadableWord(word: string): boolean {
+  return word.length >= READABLE_WORD_MIN_LENGTH && word.length <= READABLE_WORD_MAX_LENGTH;
+}
+
+function countReadableWords(words: readonly string[]): number {
+  return words.reduce((count, word) => (isReadableWord(word) ? count + ONE : count), ZERO);
+}
+
+function calculateReadabilityScore(words: readonly string[]): number {
+  if (words.length === ZERO) {
+    return ZERO;
+  }
+
+  const totalLetters = words.reduce((sum, word) => sum + word.length, ZERO);
+  return Number((totalLetters / words.length).toFixed(2));
+}
+
+function isTargetSetRejectedByReadability(targetWords: readonly string[]): boolean {
+  const readableTargetCount = countReadableWords(targetWords);
+  const unreadableTargetCount = targetWords.length - readableTargetCount;
+
+  return (
+    readableTargetCount < MIN_READABLE_TARGET_WORDS ||
+    readableTargetCount <= unreadableTargetCount ||
+    calculateReadabilityScore(targetWords) > MAX_LEVEL_READABILITY_SCORE
+  );
+}
+
 function resolveTargetWordCount(targetWordCount: number | undefined, random: SeededRandom): number {
   if (targetWordCount === undefined) {
     return random.nextInt(TARGET_WORDS_MIN, TARGET_WORDS_MAX);
@@ -443,28 +488,20 @@ function assertDictionaryCoverage(
   groupedCandidates: CandidatesByCategory,
   targetWordCount: number,
 ): void {
-  const missingCategories: WordLengthCategory[] = [];
+  const readableCandidateCount = groupedCandidates.short.length + groupedCandidates.medium.length;
 
-  for (const category of ['short', 'medium', 'long'] as const) {
-    if (groupedCandidates[category].length === ZERO) {
-      missingCategories.push(category);
-    }
-  }
-
-  if (missingCategories.length > ZERO) {
+  if (readableCandidateCount < MIN_READABLE_TARGET_WORDS) {
     throw parseError(
-      'level-generator.missing-word-category',
-      'Dictionary does not contain enough words for required short/medium/long composition.',
+      'level-generator.missing-readable-words',
+      'Dictionary does not contain enough readable short/medium words for v1.1 generation.',
       {
-        missingCategories,
+        minReadableTargetWords: MIN_READABLE_TARGET_WORDS,
+        readableCandidateCount,
       },
     );
   }
 
-  const totalUniqueWords =
-    groupedCandidates.short.length +
-    groupedCandidates.medium.length +
-    groupedCandidates.long.length;
+  const totalUniqueWords = readableCandidateCount + groupedCandidates.long.length;
 
   if (totalUniqueWords < targetWordCount) {
     throw parseError(
@@ -551,17 +588,58 @@ function pickCandidateForCategories(
 }
 
 function pickExtraCategory(random: SeededRandom): WordLengthCategory {
-  const roll = random.next();
+  return random.next() < 0.7 ? 'short' : 'medium';
+}
 
-  if (roll < 0.5) {
-    return 'medium';
+function createReadableCategoryOrder(
+  composition: Record<WordLengthCategory, number>,
+  random: SeededRandom,
+): readonly [WordLengthCategory, WordLengthCategory] {
+  if (composition.short < composition.medium + 2) {
+    return ['short', 'medium'];
   }
 
-  if (roll < 0.8) {
-    return 'short';
+  if (composition.short > composition.medium + 3) {
+    return ['medium', 'short'];
   }
 
-  return 'long';
+  return random.next() < 0.7 ? ['short', 'medium'] : ['medium', 'short'];
+}
+
+function createSupplementalCategoryOrder(
+  composition: Record<WordLengthCategory, number>,
+  random: SeededRandom,
+): readonly WordLengthCategory[] {
+  const [firstReadableCategory, secondReadableCategory] = createReadableCategoryOrder(
+    composition,
+    random,
+  );
+  return [firstReadableCategory, secondReadableCategory, 'long'];
+}
+
+function compareWordsForPlacement(left: string, right: string): number {
+  if (left.length !== right.length) {
+    return right.length - left.length;
+  }
+
+  const rareLetterCountDiff = countRareLetters(right) - countRareLetters(left);
+  if (rareLetterCountDiff !== ZERO) {
+    return rareLetterCountDiff;
+  }
+
+  if (left < right) {
+    return -ONE;
+  }
+
+  if (left > right) {
+    return ONE;
+  }
+
+  return ZERO;
+}
+
+function sortWordsForPlacement(words: readonly string[]): readonly string[] {
+  return [...words].sort(compareWordsForPlacement);
 }
 
 function selectInitialTargetWords(
@@ -572,10 +650,12 @@ function selectInitialTargetWords(
 ): readonly string[] {
   const selectedWords: string[] = [];
   const selectedSet = new Set<string>();
+  const requiredReadableTargetCount = Math.min(targetWordCount, MIN_READABLE_TARGET_WORDS);
 
-  for (const mandatoryCategory of ['short', 'medium', 'long'] as const) {
+  while (selectedWords.length < requiredReadableTargetCount) {
+    const composition = countWordComposition(selectedWords);
     const candidate = pickCandidateForCategories(
-      [mandatoryCategory],
+      createReadableCategoryOrder(composition, random),
       groupedCandidates,
       selectedSet,
       recentWords,
@@ -585,8 +665,8 @@ function selectInitialTargetWords(
     if (!candidate) {
       throw parseError(
         'level-generator.selection-failed',
-        'Unable to select mandatory word category for level generation.',
-        { mandatoryCategory, selectedWords },
+        'Unable to select enough readable short/medium target words.',
+        { selectedWords, requiredReadableTargetCount },
       );
     }
 
@@ -596,8 +676,9 @@ function selectInitialTargetWords(
 
   while (selectedWords.length < targetWordCount) {
     const preferredCategory = pickExtraCategory(random);
+    const composition = countWordComposition(selectedWords);
     const candidate = pickCandidateForCategories(
-      [preferredCategory, 'medium', 'short', 'long'],
+      [preferredCategory, ...createSupplementalCategoryOrder(composition, random)],
       groupedCandidates,
       selectedSet,
       recentWords,
@@ -607,7 +688,7 @@ function selectInitialTargetWords(
     if (!candidate) {
       throw parseError(
         'level-generator.selection-failed',
-        'Unable to select enough unique target words.',
+        'Unable to select enough unique target words for requested v1.1 count.',
         {
           selectedWords,
           targetWordCount,
@@ -619,7 +700,7 @@ function selectInitialTargetWords(
     selectedSet.add(candidate.word);
   }
 
-  return random.shuffle(selectedWords);
+  return sortWordsForPlacement(selectedWords);
 }
 
 function calculateRareMetrics(value: string): RareMetrics {
@@ -737,6 +818,90 @@ function buildNeighborTable(): readonly (readonly number[])[] {
 
 const NEIGHBOR_TABLE = buildNeighborTable();
 
+function toGridRowAndCol(cellIndex: number): Readonly<{ row: number; col: number }> {
+  return {
+    row: Math.floor(cellIndex / GRID_SIDE),
+    col: cellIndex % GRID_SIDE,
+  };
+}
+
+function getStepDirection(fromCell: number, toCell: number): StepDirection {
+  const from = toGridRowAndCol(fromCell);
+  const to = toGridRowAndCol(toCell);
+
+  return {
+    rowDelta: to.row - from.row,
+    colDelta: to.col - from.col,
+  };
+}
+
+function isSameDirection(left: StepDirection | null, right: StepDirection): boolean {
+  return left !== null && left.rowDelta === right.rowDelta && left.colDelta === right.colDelta;
+}
+
+function isDiagonalDirection(direction: StepDirection): boolean {
+  return Math.abs(direction.rowDelta) === ONE && Math.abs(direction.colDelta) === ONE;
+}
+
+function calculateCenterDistance(cellIndex: number): number {
+  const { row, col } = toGridRowAndCol(cellIndex);
+  return Math.abs(row - 2) + Math.abs(col - 2);
+}
+
+function sortCellsByPlacementReadability(
+  cells: readonly number[],
+  currentCell: number | null,
+  previousDirection: StepDirection | null,
+  grid: readonly (string | null)[],
+  random: SeededRandom,
+): readonly number[] {
+  const shuffledCells = random.shuffle(cells);
+
+  return shuffledCells.sort((leftCell, rightCell) => {
+    const leftOccupiedPenalty = grid[leftCell] === null ? ONE : ZERO;
+    const rightOccupiedPenalty = grid[rightCell] === null ? ONE : ZERO;
+
+    if (currentCell === null) {
+      if (leftOccupiedPenalty !== rightOccupiedPenalty) {
+        return leftOccupiedPenalty - rightOccupiedPenalty;
+      }
+
+      const leftCenterDistance = calculateCenterDistance(leftCell);
+      const rightCenterDistance = calculateCenterDistance(rightCell);
+      if (leftCenterDistance !== rightCenterDistance) {
+        return leftCenterDistance - rightCenterDistance;
+      }
+
+      return leftCell - rightCell;
+    }
+
+    const leftDirection = getStepDirection(currentCell, leftCell);
+    const rightDirection = getStepDirection(currentCell, rightCell);
+    const leftTurnPenalty =
+      previousDirection !== null && !isSameDirection(previousDirection, leftDirection) ? ONE : ZERO;
+    const rightTurnPenalty =
+      previousDirection !== null && !isSameDirection(previousDirection, rightDirection)
+        ? ONE
+        : ZERO;
+
+    if (leftTurnPenalty !== rightTurnPenalty) {
+      return leftTurnPenalty - rightTurnPenalty;
+    }
+
+    const leftDiagonalPenalty = isDiagonalDirection(leftDirection) ? ONE : ZERO;
+    const rightDiagonalPenalty = isDiagonalDirection(rightDirection) ? ONE : ZERO;
+    if (leftDiagonalPenalty !== rightDiagonalPenalty) {
+      return leftDiagonalPenalty - rightDiagonalPenalty;
+    }
+
+    if (leftOccupiedPenalty !== rightOccupiedPenalty) {
+      return leftOccupiedPenalty - rightOccupiedPenalty;
+    }
+
+    return leftCell - rightCell;
+  });
+}
+
 function tryExtendPath(
   word: string,
   letterIndex: number,
@@ -745,13 +910,20 @@ function tryExtendPath(
   visited: boolean[],
   grid: readonly (string | null)[],
   random: SeededRandom,
+  previousDirection: StepDirection | null,
 ): boolean {
   if (letterIndex >= word.length) {
     return true;
   }
 
   const expectedLetter = getWordLetter(word, letterIndex);
-  const neighbors = random.shuffle(NEIGHBOR_TABLE[currentCell] ?? []);
+  const neighbors = sortCellsByPlacementReadability(
+    NEIGHBOR_TABLE[currentCell] ?? [],
+    currentCell,
+    previousDirection,
+    grid,
+    random,
+  );
 
   for (const neighborCell of neighbors) {
     if (visited[neighborCell]) {
@@ -765,8 +937,20 @@ function tryExtendPath(
 
     visited[neighborCell] = true;
     path.push(neighborCell);
+    const nextDirection = getStepDirection(currentCell, neighborCell);
 
-    if (tryExtendPath(word, letterIndex + ONE, neighborCell, path, visited, grid, random)) {
+    if (
+      tryExtendPath(
+        word,
+        letterIndex + ONE,
+        neighborCell,
+        path,
+        visited,
+        grid,
+        random,
+        nextDirection,
+      )
+    ) {
       return true;
     }
 
@@ -792,12 +976,18 @@ function findPlacementPath(
     }
   }
 
-  for (const startCell of random.shuffle(startCandidates)) {
+  for (const startCell of sortCellsByPlacementReadability(
+    startCandidates,
+    null,
+    null,
+    grid,
+    random,
+  )) {
     const path = [startCell];
     const visited = new Array<boolean>(GRID_CELL_COUNT).fill(false);
     visited[startCell] = true;
 
-    if (tryExtendPath(word, ONE, startCell, path, visited, grid, random)) {
+    if (tryExtendPath(word, ONE, startCell, path, visited, grid, random, null)) {
       return [...path];
     }
   }
@@ -891,19 +1081,19 @@ function getReplacementCategoryOrder(
   failedCategory: WordLengthCategory,
   composition: Record<WordLengthCategory, number>,
 ): readonly WordLengthCategory[] {
-  if (failedCategory === 'short' && composition.short <= ONE) {
-    return ['short'];
+  if (failedCategory === 'short') {
+    return composition.short <= composition.medium
+      ? ['short', 'medium', 'long']
+      : ['medium', 'short', 'long'];
   }
 
-  if (failedCategory === 'medium' && composition.medium <= ONE) {
-    return ['medium'];
+  if (failedCategory === 'medium') {
+    return composition.medium <= composition.short
+      ? ['medium', 'short', 'long']
+      : ['short', 'medium', 'long'];
   }
 
-  if (failedCategory === 'long' && composition.long <= ONE) {
-    return ['long'];
-  }
-
-  return [failedCategory, 'medium', 'short', 'long'];
+  return ['medium', 'short', 'long'];
 }
 
 function tryGenerateLayout(
@@ -1064,6 +1254,68 @@ function isValidPlacementPath(path: readonly number[]): boolean {
   return true;
 }
 
+function calculatePathTurnCount(path: readonly number[]): number {
+  let previousDirection: StepDirection | null = null;
+  let turnCount = ZERO;
+
+  for (let index = ONE; index < path.length; index += ONE) {
+    const previousCell = path[index - ONE];
+    const currentCell = path[index];
+    if (previousCell === undefined || currentCell === undefined) {
+      continue;
+    }
+
+    const direction = getStepDirection(previousCell, currentCell);
+    if (previousDirection !== null && !isSameDirection(previousDirection, direction)) {
+      turnCount += ONE;
+    }
+
+    previousDirection = direction;
+  }
+
+  return turnCount;
+}
+
+function resolveMaxTurnCount(wordLength: number): number {
+  if (wordLength <= SHORT_WORD_MAX_LENGTH) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function isPlacementRejectedByReadability(word: string, path: readonly number[]): boolean {
+  return calculatePathTurnCount(path) > resolveMaxTurnCount(word.length);
+}
+
+function calculateCellUsage(paths: readonly (readonly number[])[]): readonly number[] {
+  const usage = new Array<number>(GRID_CELL_COUNT).fill(ZERO);
+
+  for (const path of paths) {
+    for (const cellIndex of path) {
+      if (usage[cellIndex] !== undefined) {
+        usage[cellIndex] += ONE;
+      }
+    }
+  }
+
+  return usage;
+}
+
+function isLayoutRejectedByReadability(
+  placements: readonly Readonly<{ readonly word: string; readonly path: readonly number[] }>[],
+): boolean {
+  if (
+    placements.some((placement) => isPlacementRejectedByReadability(placement.word, placement.path))
+  ) {
+    return true;
+  }
+
+  return calculateCellUsage(placements.map((placement) => placement.path)).some(
+    (usageCount) => usageCount > MAX_CELL_USAGE_FOR_READABILITY,
+  );
+}
+
 function assertGeneratedLevel(level: GeneratedLevel): void {
   if (level.grid.length !== GRID_CELL_COUNT) {
     throw parseError(
@@ -1086,7 +1338,7 @@ function assertGeneratedLevel(level: GeneratedLevel): void {
   if (level.targetWords.length < TARGET_WORDS_MIN || level.targetWords.length > TARGET_WORDS_MAX) {
     throw parseError(
       'level-generator.invalid-target-count',
-      'Generated target word count is outside supported range 3..7.',
+      'Generated target word count is outside supported range 10..15.',
       {
         targetWordCount: level.targetWords.length,
       },
@@ -1104,12 +1356,14 @@ function assertGeneratedLevel(level: GeneratedLevel): void {
     );
   }
 
-  if (!level.targetWords.some((word) => word.length >= LONG_WORD_MIN_LENGTH)) {
+  if (isTargetSetRejectedByReadability(level.targetWords)) {
     throw parseError(
-      'level-generator.missing-long-word',
-      'Generated level must include at least one long target word.',
+      'level-generator.unreadable-target-set',
+      'Generated target set violates readability-first v1.1 constraints.',
       {
         targetWords: level.targetWords,
+        readableTargetCount: countReadableWords(level.targetWords),
+        readabilityScore: calculateReadabilityScore(level.targetWords),
       },
     );
   }
@@ -1194,6 +1448,23 @@ function assertGeneratedLevel(level: GeneratedLevel): void {
       }
     }
   }
+
+  if (
+    isLayoutRejectedByReadability(
+      level.placements.map((placement) => ({
+        word: placement.word,
+        path: placement.cellIndexes,
+      })),
+    )
+  ) {
+    throw parseError(
+      'level-generator.unreadable-layout',
+      'Generated placements violate readability-first path heuristics.',
+      {
+        targetWords: level.targetWords,
+      },
+    );
+  }
 }
 
 export function createLevelGeneratorModule(
@@ -1240,6 +1511,14 @@ export function createLevelGeneratorModule(
         }
 
         if (isTargetSetRejectedByRareLetters(layoutAttempt.targetWords)) {
+          continue;
+        }
+
+        if (isTargetSetRejectedByReadability(layoutAttempt.targetWords)) {
+          continue;
+        }
+
+        if (isLayoutRejectedByReadability(layoutAttempt.placements)) {
           continue;
         }
 
