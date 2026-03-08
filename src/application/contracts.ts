@@ -203,9 +203,9 @@ export type DisplayedTargetChangedReason =
   | 'restore-session'
   | 'level-transition';
 
-export type HelpActionCommandType = 'RequestHint' | 'RequestReshuffle' | 'AcknowledgeAdResult';
+export type HelpActionCommandType = 'AcknowledgeAdResult';
 
-export type HelpActionSource = 'free' | 'rewarded-ad';
+export type HelpActionSource = 'rewarded-ad';
 
 export type HelpActionFailureReason =
   | CoreStateHelpApplyResultReason
@@ -397,9 +397,7 @@ export type HelpEvent = EventEnvelope<
       readonly commandType: 'RequestHint' | 'RequestReshuffle';
       readonly operationId: string;
       readonly helpKind: HelpKind;
-      readonly isFreeAction: boolean;
-      readonly requiresAd: boolean;
-      readonly applied: boolean;
+      readonly requiresAd: true;
     }
   | {
       readonly phase: 'ad-result';

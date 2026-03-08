@@ -22,9 +22,10 @@ export interface PersistenceSnapshot {
   readonly stateVersion: number;
   readonly allTimeScore: number;
   readonly levelId: string;
-  readonly helpWindow: {
-    readonly windowStartTs: number;
-    readonly freeActionAvailable: boolean;
+  readonly helpLockState: {
+    readonly isLocked: boolean;
+    readonly lockedUntil: number | null;
+    readonly reason: string | null;
   };
   readonly serializedLength: number;
 }
@@ -41,50 +42,6 @@ export interface PersistenceModule {
   flush: () => Promise<void>;
   dispose: () => void;
   getLastSnapshot: () => PersistenceSnapshot | null;
-}
-
-function derivePersistedHelpLockState(helpWindow: {
-  readonly isLocked: boolean;
-  readonly pendingRequest: { readonly operationId: string } | null;
-  readonly cooldownUntilTs: number;
-  readonly cooldownMsRemaining: number;
-  readonly cooldownReason: string | null;
-  readonly freeActionAvailable: boolean;
-  readonly nextFreeActionAt: number;
-}): {
-  readonly isLocked: boolean;
-  readonly lockedUntil: number | null;
-  readonly reason: string | null;
-} {
-  if (helpWindow.pendingRequest) {
-    return {
-      isLocked: true,
-      lockedUntil: null,
-      reason: 'pending-request',
-    };
-  }
-
-  if (helpWindow.cooldownMsRemaining > 0) {
-    return {
-      isLocked: true,
-      lockedUntil: helpWindow.cooldownUntilTs,
-      reason: 'cooldown',
-    };
-  }
-
-  if (!helpWindow.freeActionAvailable) {
-    return {
-      isLocked: true,
-      lockedUntil: helpWindow.nextFreeActionAt,
-      reason: 'legacy-free-window',
-    };
-  }
-
-  return {
-    isLocked: false,
-    lockedUntil: null,
-    reason: null,
-  };
 }
 
 function parsePersistedSessionSnapshot(
@@ -201,26 +158,13 @@ export function createPersistenceModule(
       throw new Error(`Failed to capture core state: ${coreStateResult.error.code}`);
     }
 
-    const helpWindowResult = queryBus.execute({ type: 'GetHelpWindowState' });
-    if (helpWindowResult.type !== 'ok') {
-      throw new Error(`Failed to capture help window: ${helpWindowResult.error.code}`);
-    }
-
     const coreStateSnapshot = coreStateResult.value;
-    const helpWindowSnapshot = helpWindowResult.value;
     const capturedAt = now();
-    const persistedGameState = {
-      ...coreStateSnapshot.gameState,
-      helpLockState: derivePersistedHelpLockState(helpWindowSnapshot),
-    };
     const persisted: PersistedSessionSnapshot = {
       schemaVersion: PERSISTENCE_SNAPSHOT_SCHEMA_VERSION,
       capturedAt,
-      gameStateSerialized: JSON.stringify(persistedGameState),
-      helpWindow: {
-        windowStartTs: helpWindowSnapshot.windowStartTs,
-        freeActionAvailable: helpWindowSnapshot.freeActionAvailable,
-      },
+      gameStateSerialized: JSON.stringify(coreStateSnapshot.gameState),
+      helpWindow: null,
     };
     const serializedSnapshot = JSON.stringify(persisted);
 
@@ -232,9 +176,10 @@ export function createPersistenceModule(
         stateVersion: coreStateSnapshot.gameplay.stateVersion,
         allTimeScore: coreStateSnapshot.gameplay.allTimeScore,
         levelId: coreStateSnapshot.gameplay.levelId,
-        helpWindow: {
-          windowStartTs: helpWindowSnapshot.windowStartTs,
-          freeActionAvailable: helpWindowSnapshot.freeActionAvailable,
+        helpLockState: {
+          isLocked: coreStateSnapshot.gameState.helpLockState.isLocked,
+          lockedUntil: coreStateSnapshot.gameState.helpLockState.lockedUntil,
+          reason: coreStateSnapshot.gameState.helpLockState.reason,
         },
         serializedLength: serializedSnapshot.length,
       },

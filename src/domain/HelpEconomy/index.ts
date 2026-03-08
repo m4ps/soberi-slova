@@ -10,11 +10,18 @@ export const HELP_WINDOW_DURATION_MS = 5 * 60 * 1000;
 export const HELP_AD_FAILURE_COOLDOWN_MS = 3 * 1_000;
 export type { HelpAdOutcome } from '../../config/help-ad-policy';
 export type HelpAdFailureOutcome = Exclude<HelpAdOutcome, 'reward'>;
+export type HelpLockReason = 'pending-request' | 'cooldown';
 
 export interface HelpPendingRequestState {
   readonly operationId: string;
   readonly kind: HelpKind;
   readonly isFreeAction: boolean;
+}
+
+export interface HelpLockStateSnapshot {
+  readonly isLocked: boolean;
+  readonly lockedUntil: number | null;
+  readonly reason: HelpLockReason | null;
 }
 
 export interface HelpWindowState {
@@ -23,6 +30,7 @@ export interface HelpWindowState {
   readonly nextFreeActionAt: number;
   readonly msUntilNextFreeAction: number;
   readonly isLocked: boolean;
+  readonly helpLockState: HelpLockStateSnapshot;
   readonly pendingRequest: HelpPendingRequestState | null;
   readonly cooldownUntilTs: number;
   readonly cooldownMsRemaining: number;
@@ -46,12 +54,6 @@ export type HelpRequestDecision =
       readonly cooldownUntilTs: number;
       readonly cooldownMsRemaining: number;
       readonly cooldownReason: HelpAdFailureOutcome;
-    }
-  | {
-      readonly type: 'apply-now';
-      readonly kind: HelpKind;
-      readonly operationId: string;
-      readonly isFreeAction: true;
     }
   | {
       readonly type: 'await-ad';
@@ -134,33 +136,14 @@ export function createHelpEconomyModule(
     options.adFailureCooldownMs ?? HELP_AD_FAILURE_COOLDOWN_MS,
     HELP_AD_FAILURE_COOLDOWN_MS,
   );
-  let windowStartTs = normalizeTimestamp(options.windowStartTs ?? nowProvider(), nowProvider());
-  let freeActionAvailable = options.freeActionAvailable ?? true;
+  let windowStartTs = normalizeTimestamp(options.windowStartTs ?? 0, 0);
   let pendingRequest: HelpPendingRequestState | null = null;
   let cooldownUntilTs = 0;
   let cooldownReason: HelpAdFailureOutcome | null = null;
   let operationSequence = 0;
 
-  const alignWindowState = (nowTs: number): number => {
+  const normalizeNowTs = (nowTs: number): number => {
     const normalizedNowTs = normalizeTimestamp(nowTs, nowProvider());
-
-    if (normalizedNowTs < windowStartTs) {
-      return normalizedNowTs;
-    }
-
-    const elapsedMs = normalizedNowTs - windowStartTs;
-    if (elapsedMs < HELP_WINDOW_DURATION_MS) {
-      if (normalizedNowTs >= cooldownUntilTs) {
-        cooldownUntilTs = 0;
-        cooldownReason = null;
-      }
-
-      return normalizedNowTs;
-    }
-
-    const elapsedWindows = Math.floor(elapsedMs / HELP_WINDOW_DURATION_MS);
-    windowStartTs += elapsedWindows * HELP_WINDOW_DURATION_MS;
-    freeActionAvailable = true;
 
     if (normalizedNowTs >= cooldownUntilTs) {
       cooldownUntilTs = 0;
@@ -170,21 +153,44 @@ export function createHelpEconomyModule(
     return normalizedNowTs;
   };
 
+  const createHelpLockState = (isCooldownActive: boolean): HelpLockStateSnapshot => {
+    if (pendingRequest) {
+      return {
+        isLocked: true,
+        lockedUntil: null,
+        reason: 'pending-request',
+      };
+    }
+
+    if (isCooldownActive) {
+      return {
+        isLocked: true,
+        lockedUntil: cooldownUntilTs,
+        reason: 'cooldown',
+      };
+    }
+
+    return {
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
+    };
+  };
+
   const createWindowState = (nowTs: number): HelpWindowState => {
-    const normalizedNowTs = alignWindowState(nowTs);
-    const nextFreeActionAt = windowStartTs + HELP_WINDOW_DURATION_MS;
-    const msUntilNextFreeAction = freeActionAvailable
-      ? 0
-      : Math.max(0, nextFreeActionAt - normalizedNowTs);
+    const normalizedNowTs = normalizeNowTs(nowTs);
     const cooldownMsRemaining = Math.max(0, cooldownUntilTs - normalizedNowTs);
     const isCooldownActive = cooldownMsRemaining > 0;
+    const helpLockState = createHelpLockState(isCooldownActive);
 
     return {
       windowStartTs,
-      freeActionAvailable,
-      nextFreeActionAt,
-      msUntilNextFreeAction,
-      isLocked: pendingRequest !== null || isCooldownActive,
+      // Legacy fields remain only for transport compatibility with old snapshots.
+      freeActionAvailable: false,
+      nextFreeActionAt: 0,
+      msUntilNextFreeAction: 0,
+      isLocked: helpLockState.isLocked,
+      helpLockState,
       pendingRequest,
       cooldownUntilTs,
       cooldownMsRemaining,
@@ -204,7 +210,6 @@ export function createHelpEconomyModule(
     },
     restoreWindowState: (input, nowTs = nowProvider()) => {
       windowStartTs = normalizeTimestamp(input.windowStartTs, nowProvider());
-      freeActionAvailable = input.freeActionAvailable === true;
       pendingRequest = null;
       cooldownUntilTs = 0;
       cooldownReason = null;
@@ -232,21 +237,6 @@ export function createHelpEconomyModule(
       }
 
       const operationId = createOperationId(kind, normalizeTimestamp(nowTs, nowProvider()));
-      if (windowState.freeActionAvailable) {
-        pendingRequest = {
-          operationId,
-          kind,
-          isFreeAction: true,
-        };
-
-        return {
-          type: 'apply-now',
-          kind,
-          operationId,
-          isFreeAction: true,
-        };
-      }
-
       pendingRequest = {
         operationId,
         kind,
@@ -277,18 +267,12 @@ export function createHelpEconomyModule(
         };
       }
 
-      const finalizedRequest = pendingRequest;
-      const freeActionConsumed = pendingRequest.isFreeAction && applied;
       const finalizedKind = pendingRequest.kind;
       const outcomePolicy = resolveHelpAdOutcomePolicy(adOutcome);
       let cooldownApplied = false;
       pendingRequest = null;
 
-      if (freeActionConsumed) {
-        freeActionAvailable = false;
-      }
-
-      if (!applied && !finalizedRequest.isFreeAction && outcomePolicy?.applyCooldown === true) {
+      if (!applied && outcomePolicy?.applyCooldown === true) {
         cooldownUntilTs = normalizeTimestamp(nowTs, nowProvider()) + adFailureCooldownMs;
         cooldownReason =
           adOutcome && adOutcome !== 'reward'
@@ -307,7 +291,7 @@ export function createHelpEconomyModule(
         kind: finalizedKind,
         finalized: true,
         applied,
-        freeActionConsumed,
+        freeActionConsumed: false,
         cooldownApplied,
         cooldownDurationMs: cooldownApplied ? adFailureCooldownMs : 0,
         toastMessage: !applied ? (outcomePolicy?.toastMessage ?? null) : null,

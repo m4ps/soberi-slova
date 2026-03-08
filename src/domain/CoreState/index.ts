@@ -13,6 +13,7 @@ import {
   deserializeGameStateWithMigrations,
   type GameState,
   type GameStateInput,
+  type HelpLockState,
   type LevelSession,
   type PendingOperation,
   type PendingOperationKind,
@@ -187,6 +188,7 @@ export interface CoreStateModule {
   readonly moduleName: typeof MODULE_IDS.coreState;
   getSnapshot: () => CoreStateSnapshot;
   setRuntimeMode: (runtimeMode: RuntimeMode) => void;
+  syncHelpLockState: (helpLockState: HelpLockState, nowTs?: number) => void;
   restoreSession: (payload: CoreStateRestorePayload, nowTs?: number) => CoreStateRestoreResult;
   submitPath: (pathCells: readonly WordPathCellRef[], nowTs?: number) => CoreStateSubmitResult;
   acknowledgeWordSuccessAnimation: (
@@ -365,6 +367,14 @@ function findPendingOperationIdByKind(
 function normalizeOperationId(operationId: string): string | null {
   const normalized = operationId.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function areHelpLockStatesEqual(left: HelpLockState, right: HelpLockState): boolean {
+  return (
+    left.isLocked === right.isLocked &&
+    left.lockedUntil === right.lockedUntil &&
+    left.reason === right.reason
+  );
 }
 
 function trimRecentTargetWords(words: readonly string[]): readonly string[] {
@@ -846,6 +856,24 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     getSnapshot: () => buildSnapshot(),
     setRuntimeMode: (nextRuntimeMode) => {
       runtimeMode = nextRuntimeMode;
+    },
+    syncHelpLockState: (nextHelpLockState, nowTs = nowProvider()) => {
+      if (areHelpLockStatesEqual(gameState.helpLockState, nextHelpLockState)) {
+        return;
+      }
+
+      const normalizedNowTs = Number.isFinite(nowTs) ? Math.max(0, Math.trunc(nowTs)) : 0;
+      gameState = createGameState(
+        {
+          ...toGameStateInput(gameState),
+          stateVersion: gameState.stateVersion + 1,
+          updatedAt: Math.max(gameState.updatedAt, normalizedNowTs),
+          helpLockState: nextHelpLockState,
+        },
+        {
+          previousState: gameState,
+        },
+      );
     },
     restoreSession: (payload, nowTs = nowProvider()) => {
       const normalizedRestoreTs = Math.max(0, Math.trunc(nowTs));

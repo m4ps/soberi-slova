@@ -4,7 +4,6 @@ import {
   createApplicationLayer,
   INTERNAL_ADAPTER_COMMAND_TYPES,
   TECHSPEC_V1_1_COMMAND_TYPES,
-  type ApplicationCommand,
   type ApplicationEvent,
 } from '../src/application';
 import {
@@ -62,42 +61,58 @@ describe('application command/query bus smoke', () => {
     application.events.subscribe((event) => {
       events.push(event);
     });
-    const commandAcks: Array<{ commandType: ApplicationCommand['type']; correlationId: string }> =
-      [];
+    const submitPath = application.commands.dispatch({
+      type: 'SubmitPath',
+      pathCells: [{ row: 0, col: 0 }],
+    });
+    expect(submitPath.type).toBe('ok');
 
-    const commands: ApplicationCommand[] = [
-      { type: 'SubmitPath', pathCells: [{ row: 0, col: 0 }] },
-      { type: 'RequestHint' },
-      { type: 'RequestReshuffle' },
-      {
-        type: 'AcknowledgeAdResult',
-        helpType: 'hint',
-        outcome: 'reward',
-        operationId: 'op-ad',
-      },
-      {
-        type: 'AcknowledgeWordSuccessAnimation',
-        wordId: 'word-1',
-        operationId: 'op-word',
-      },
-      {
-        type: 'AcknowledgeLevelTransitionDone',
-        operationId: 'op-transition',
-      },
-      { type: 'RestoreSession' },
-      { type: 'SyncLeaderboard' },
-    ];
-
-    for (const command of commands) {
-      const result = application.commands.dispatch(command);
-      expect(result.type).toBe('ok');
-      if (result.type === 'ok') {
-        commandAcks.push({
-          commandType: result.value.commandType,
-          correlationId: result.value.correlationId,
-        });
-      }
+    const requestHint = application.commands.dispatch({ type: 'RequestHint' });
+    expect(requestHint.type).toBe('ok');
+    if (requestHint.type !== 'ok') {
+      throw new Error('Expected RequestHint acknowledgement.');
     }
+
+    const acknowledgeHintReward = application.commands.dispatch({
+      type: 'AcknowledgeAdResult',
+      helpType: 'hint',
+      outcome: 'reward',
+      operationId: requestHint.value.correlationId,
+    });
+    expect(acknowledgeHintReward.type).toBe('ok');
+
+    const requestReshuffle = application.commands.dispatch({ type: 'RequestReshuffle' });
+    expect(requestReshuffle.type).toBe('ok');
+    if (requestReshuffle.type !== 'ok') {
+      throw new Error('Expected RequestReshuffle acknowledgement.');
+    }
+
+    const acknowledgeReshuffleClose = application.commands.dispatch({
+      type: 'AcknowledgeAdResult',
+      helpType: 'reshuffle',
+      outcome: 'close',
+      operationId: requestReshuffle.value.correlationId,
+    });
+    expect(acknowledgeReshuffleClose.type).toBe('ok');
+
+    const acknowledgeWordSuccess = application.commands.dispatch({
+      type: 'AcknowledgeWordSuccessAnimation',
+      wordId: 'word-1',
+      operationId: 'op-word',
+    });
+    expect(acknowledgeWordSuccess.type).toBe('ok');
+
+    const acknowledgeLevelTransition = application.commands.dispatch({
+      type: 'AcknowledgeLevelTransitionDone',
+      operationId: 'op-transition',
+    });
+    expect(acknowledgeLevelTransition.type).toBe('ok');
+
+    const restoreSession = application.commands.dispatch({ type: 'RestoreSession' });
+    expect(restoreSession.type).toBe('ok');
+
+    const syncLeaderboard = application.commands.dispatch({ type: 'SyncLeaderboard' });
+    expect(syncLeaderboard.type).toBe('ok');
 
     const coreStateResult = application.queries.execute({ type: 'GetCoreState' });
     expect(coreStateResult.type).toBe('ok');
@@ -105,12 +120,10 @@ describe('application command/query bus smoke', () => {
     const helpWindowResult = application.queries.execute({ type: 'GetHelpWindowState' });
     expect(helpWindowResult.type).toBe('ok');
     if (helpWindowResult.type === 'ok') {
-      expect(typeof helpWindowResult.value.freeActionAvailable).toBe('boolean');
+      expect(helpWindowResult.value.freeActionAvailable).toBe(false);
       expect(helpWindowResult.value.windowStartTs).toBeGreaterThanOrEqual(0);
-      expect(typeof helpWindowResult.value.isLocked).toBe('boolean');
-      if (helpWindowResult.value.isLocked) {
-        expect(helpWindowResult.value.pendingRequest).not.toBeNull();
-      }
+      expect(helpWindowResult.value.isLocked).toBe(false);
+      expect(helpWindowResult.value.pendingRequest).toBeNull();
     }
 
     const routedCommandTypes = events
@@ -184,51 +197,67 @@ describe('application command/query bus smoke', () => {
     );
 
     expect(helpRequestedEvents).toHaveLength(2);
-    expect(helpAdResultEvents).toHaveLength(1);
+    expect(helpAdResultEvents).toHaveLength(2);
     expect(helpActionAppliedEvents).toHaveLength(1);
     expect(helpActionFailedEvents).toHaveLength(1);
     expect(hintProgressEvents).toHaveLength(1);
-    expect(helpAdResultEvents[0]).toMatchObject({
-      correlationId: 'op-ad',
-      payload: {
-        phase: 'ad-result',
-        operationId: 'op-ad',
-        helpKind: 'hint',
-        outcome: 'reward',
-        applied: false,
-        durationMs: null,
-        outcomeContext: null,
-        cooldownApplied: false,
-        cooldownDurationMs: 0,
-        toastMessage: null,
-        technicalErrorPolicy: null,
-      },
-    });
+    expect(helpAdResultEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          correlationId: requestHint.value.correlationId,
+          payload: expect.objectContaining({
+            phase: 'ad-result',
+            operationId: requestHint.value.correlationId,
+            helpKind: 'hint',
+            outcome: 'reward',
+            applied: true,
+            durationMs: null,
+            outcomeContext: null,
+            cooldownApplied: false,
+            cooldownDurationMs: 0,
+            toastMessage: null,
+            technicalErrorPolicy: null,
+          }),
+        }),
+        expect.objectContaining({
+          correlationId: requestReshuffle.value.correlationId,
+          payload: expect.objectContaining({
+            phase: 'ad-result',
+            operationId: requestReshuffle.value.correlationId,
+            helpKind: 'reshuffle',
+            outcome: 'close',
+            applied: false,
+          }),
+        }),
+      ]),
+    );
     expect(helpActionAppliedEvents[0]).toMatchObject({
+      correlationId: requestHint.value.correlationId,
       payload: {
-        commandType: 'RequestHint',
+        commandType: 'AcknowledgeAdResult',
         helpKind: 'hint',
-        source: 'free',
+        source: 'rewarded-ad',
         effect: {
           kind: 'hint',
         },
       },
     });
     expect(helpActionFailedEvents[0]).toMatchObject({
-      correlationId: 'op-ad',
+      correlationId: requestReshuffle.value.correlationId,
       payload: {
         commandType: 'AcknowledgeAdResult',
-        helpKind: 'hint',
+        helpKind: 'reshuffle',
         source: 'rewarded-ad',
-        reason: 'ad-reward-not-applied',
-        outcome: 'reward',
-        toastMessage: null,
+        reason: 'ad-close',
+        outcome: 'close',
+        toastMessage: HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
         technicalErrorPolicy: null,
       },
     });
     expect(hintProgressEvents[0]).toMatchObject({
+      correlationId: requestHint.value.correlationId,
       payload: {
-        commandType: 'RequestHint',
+        commandType: 'AcknowledgeAdResult',
         revealCount: expect.any(Number),
         levelId: expect.any(String),
       },
@@ -308,10 +337,20 @@ describe('application command/query bus smoke', () => {
     })?.correlationId;
     expect(syncDomainCorrelation).toBe(syncRouteCorrelation);
 
-    const ackMap = new Map(commandAcks.map((ack) => [ack.commandType, ack.correlationId]));
-    expect(ackMap.get('AcknowledgeAdResult')).toBe('op-ad');
-    expect(ackMap.get('AcknowledgeWordSuccessAnimation')).toBe('op-word');
-    expect(ackMap.get('AcknowledgeLevelTransitionDone')).toBe('op-transition');
+    if (acknowledgeHintReward.type === 'ok') {
+      expect(acknowledgeHintReward.value.correlationId).toBe(requestHint.value.correlationId);
+    }
+    if (acknowledgeReshuffleClose.type === 'ok') {
+      expect(acknowledgeReshuffleClose.value.correlationId).toBe(
+        requestReshuffle.value.correlationId,
+      );
+    }
+    if (acknowledgeWordSuccess.type === 'ok') {
+      expect(acknowledgeWordSuccess.value.correlationId).toBe('op-word');
+    }
+    if (acknowledgeLevelTransition.type === 'ok') {
+      expect(acknowledgeLevelTransition.value.correlationId).toBe('op-transition');
+    }
   });
 
   it('treats RuntimeReady and Tick as internal adapter commands', () => {
@@ -368,7 +407,7 @@ describe('application command/query bus smoke', () => {
     }
   });
 
-  it('restores persisted score, level and help timer from RestoreSession payload', () => {
+  it('restores persisted score and level while dropping legacy help timer state', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(10_000);
 
     try {
@@ -446,8 +485,9 @@ describe('application command/query bus smoke', () => {
       );
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
-      expect(restoredHelpWindow.windowStartTs).toBe(9_500);
+      expect(restoredHelpWindow.windowStartTs).toBe(0);
       expect(restoredHelpWindow.freeActionAvailable).toBe(false);
+      expect(restoredHelpWindow.isLocked).toBe(false);
     } finally {
       nowSpy.mockRestore();
     }
@@ -516,7 +556,8 @@ describe('application command/query bus smoke', () => {
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
       expect(restoredHelpWindow.windowStartTs).toBe(0);
-      expect(restoredHelpWindow.freeActionAvailable).toBe(true);
+      expect(restoredHelpWindow.freeActionAvailable).toBe(false);
+      expect(restoredHelpWindow.isLocked).toBe(false);
     } finally {
       nowSpy.mockRestore();
     }
@@ -943,22 +984,9 @@ describe('application command/query bus smoke', () => {
     expect(afterFreeHint.type).toBe('ok');
     if (afterFreeHint.type === 'ok') {
       expect(afterFreeHint.value.freeActionAvailable).toBe(false);
-      expect(afterFreeHint.value.isLocked).toBe(false);
-      expect(afterFreeHint.value.pendingRequest).toBeNull();
-    }
-
-    const adRequiredHelp = application.commands.dispatch({ type: 'RequestReshuffle' });
-    expect(adRequiredHelp.type).toBe('ok');
-    const pendingOperationId =
-      adRequiredHelp.type === 'ok' ? adRequiredHelp.value.correlationId : '';
-
-    const lockedWindow = application.queries.execute({ type: 'GetHelpWindowState' });
-    expect(lockedWindow.type).toBe('ok');
-    if (lockedWindow.type === 'ok') {
-      expect(lockedWindow.value.isLocked).toBe(true);
-      expect(lockedWindow.value.pendingRequest).toMatchObject({
-        operationId: pendingOperationId,
-        kind: 'reshuffle',
+      expect(afterFreeHint.value.isLocked).toBe(true);
+      expect(afterFreeHint.value.pendingRequest).toMatchObject({
+        kind: 'hint',
         isFreeAction: false,
       });
     }
@@ -969,9 +997,11 @@ describe('application command/query bus smoke', () => {
       expect(blockedReentrant.error.code).toBe('help.request.locked');
     }
 
+    const pendingOperationId = firstHelp.type === 'ok' ? firstHelp.value.correlationId : '';
+
     const adAck = application.commands.dispatch({
       type: 'AcknowledgeAdResult',
-      helpType: 'reshuffle',
+      helpType: 'hint',
       outcome: 'close',
       operationId: pendingOperationId,
     });
