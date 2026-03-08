@@ -163,6 +163,14 @@ describe('persistence adapter', () => {
       cloudAllTimeScore: 99,
     });
     expect(writePersistenceState).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(writePersistenceState.mock.calls[0]?.[0]?.serializedSnapshot as string),
+    ).toEqual(
+      expect.objectContaining({
+        schemaVersion: 2,
+        capturedAt: 5_000,
+      }),
+    );
     expect(persistence.getLastSnapshot()).toMatchObject({
       runtimeMode: 'bootstrapping',
       capturedAt: 5_000,
@@ -184,7 +192,7 @@ describe('persistence adapter', () => {
     );
   });
 
-  it('keeps partially valid persisted snapshots during restore payload mapping', async () => {
+  it('keeps valid game-state payloads and drops helpWindow-only legacy sidecars during restore', async () => {
     const eventBus = createEventBus();
     const { commandBus, dispatchedCommands } = createCommandBusSpy();
     const queryBus = createQueryBusFixture(6_000);
@@ -239,17 +247,8 @@ describe('persistence adapter', () => {
           schemaVersion: 1,
           capturedAt: 5_850,
           gameStateSerialized: JSON.stringify(localGameState),
-          helpWindow: null,
         },
-        cloudSnapshot: {
-          schemaVersion: 1,
-          capturedAt: 5_900,
-          gameStateSerialized: null,
-          helpWindow: {
-            windowStartTs: 5_900,
-            freeActionAvailable: true,
-          },
-        },
+        cloudSnapshot: null,
         cloudAllTimeScore: 10,
       },
     });

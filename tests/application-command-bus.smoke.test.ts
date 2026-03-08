@@ -411,7 +411,7 @@ describe('application command/query bus smoke', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(10_000);
 
     try {
-      const restoredState: GameStateInput = {
+      const restoredState = {
         ...createScoringFixtureState(),
         schemaVersion: 2,
         stateVersion: 7,
@@ -455,10 +455,6 @@ describe('application command/query bus smoke', () => {
             schemaVersion: 1,
             capturedAt: 9_000,
             gameStateSerialized: JSON.stringify(restoredState),
-            helpWindow: {
-              windowStartTs: 9_500,
-              freeActionAvailable: false,
-            },
           },
           cloudSnapshot: null,
           cloudAllTimeScore: null,
@@ -493,7 +489,7 @@ describe('application command/query bus smoke', () => {
     }
   });
 
-  it('keeps guided restore state when the persistence envelope loses only helpWindow metadata', () => {
+  it('keeps guided restore state without relying on legacy helpWindow sidecars', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(12_000);
 
     try {
@@ -509,11 +505,6 @@ describe('application command/query bus smoke', () => {
           levelId: 'level-guided-restore',
           foundTargets: [...createScoringFixtureState().currentLevelSession.foundTargets, 'дом'],
           status: 'active',
-        },
-        helpWindow: {
-          windowStartTs: 11_500,
-          freeActionAvailable: false,
-          pendingHelpRequest: null,
         },
       };
       const application = createApplicationLayer({
@@ -536,7 +527,6 @@ describe('application command/query bus smoke', () => {
             schemaVersion: 1,
             capturedAt: 11_000,
             gameStateSerialized: JSON.stringify(restoredState),
-            helpWindow: null,
           },
           cloudSnapshot: null,
           cloudAllTimeScore: null,

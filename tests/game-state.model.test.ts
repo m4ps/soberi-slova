@@ -45,13 +45,10 @@ function createFixtureGameStateInput(): GameStateInput {
         hasRareLetters: false,
       },
     },
-    helpWindow: {
-      windowStartTs: 1_710_000_000_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: {
-        operationId: 'help-op-1',
-        kind: 'hint',
-      },
+    helpLockState: {
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
     },
     pendingOps: [
       {
@@ -142,6 +139,7 @@ function createLegacySnapshotV0WithoutStateVersion(): Record<string, unknown> {
   };
 
   delete legacySnapshot.pendingOps;
+  delete legacySnapshot.helpLockState;
 
   return legacySnapshot;
 }
@@ -259,6 +257,7 @@ describe('game state model', () => {
       { fromVersion: 1, toVersion: 2 },
       { fromVersion: 2, toVersion: 3 },
       { fromVersion: 3, toVersion: 4 },
+      { fromVersion: 4, toVersion: 5 },
     ]);
     expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(firstMigration.state.stateVersion).toBe(0);
@@ -288,7 +287,8 @@ describe('game state model', () => {
         },
       },
       helpWindow: {
-        ...baseInput.helpWindow,
+        windowStartTs: 1_710_000_000_000,
+        freeActionAvailable: false,
         pendingHelpRequest: {
           operationId: 'help-op-legacy',
           kind: 'hint',
@@ -296,6 +296,7 @@ describe('game state model', () => {
         },
       },
     };
+    delete legacyV1Snapshot.helpLockState;
 
     const migration = migrateGameStateSnapshot(legacyV1Snapshot);
 
@@ -303,6 +304,7 @@ describe('game state model', () => {
       { fromVersion: 1, toVersion: 2 },
       { fromVersion: 2, toVersion: 3 },
       { fromVersion: 3, toVersion: 4 },
+      { fromVersion: 4, toVersion: 5 },
     ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нос');
@@ -311,13 +313,14 @@ describe('game state model', () => {
       calculateReadabilityScore(cloneDefaultLevelTargetWords()),
     );
     expect(migration.state.helpLockState).toEqual({
-      isLocked: true,
+      isLocked: false,
       lockedUntil: null,
-      reason: 'pending-request',
+      reason: null,
     });
     expect(migration.state).not.toHaveProperty('sessionScore');
     expect(migration.state.currentLevelSession).not.toHaveProperty('sessionScore');
     expect(migration.state.currentLevelSession).not.toHaveProperty('tutorialTrace');
+    expect(migration.state).not.toHaveProperty('helpWindow');
   });
 
   it('migrates v2 hint meta into explicit guided-target fields', () => {
@@ -335,12 +338,14 @@ describe('game state model', () => {
         },
       },
     };
+    delete legacyV2Snapshot.helpLockState;
 
     const migration = migrateGameStateSnapshot(legacyV2Snapshot);
 
     expect(migration.appliedMigrations).toEqual([
       { fromVersion: 2, toVersion: 3 },
       { fromVersion: 3, toVersion: 4 },
+      { fromVersion: 4, toVersion: 5 },
     ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нора');
@@ -348,6 +353,34 @@ describe('game state model', () => {
     expect(migration.state.currentLevelSession.readabilityScore).toBe(
       calculateReadabilityScore(cloneDefaultLevelTargetWords()),
     );
+  });
+
+  it('sanitizes legacy free-window help lock from v4 snapshots', () => {
+    const baseInput = createFixtureGameStateInput();
+    const legacyV4Snapshot = {
+      ...baseInput,
+      schemaVersion: 4,
+      stateVersion: 12,
+      helpLockState: {
+        isLocked: true,
+        lockedUntil: 1_710_000_123_000,
+        reason: 'legacy-free-window',
+      },
+      helpWindow: {
+        windowStartTs: 1_710_000_120_000,
+        freeActionAvailable: false,
+      },
+    };
+
+    const migration = migrateGameStateSnapshot(legacyV4Snapshot);
+
+    expect(migration.appliedMigrations).toEqual([{ fromVersion: 4, toVersion: 5 }]);
+    expect(migration.state.helpLockState).toEqual({
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
+    });
+    expect(migration.state).not.toHaveProperty('helpWindow');
   });
 
   it('rejects snapshots from unsupported future schema versions', () => {

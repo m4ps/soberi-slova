@@ -231,7 +231,7 @@ flowchart TD
   - persistence bridge (`safeStorage`/`localStorage` + `player data/stats`);
   - leaderboard sync queue (`setScore` с retry/backoff) и auth-диалог только на manual sync.
 - `Persistence` — snapshot persistence/restore адаптер:
-  - persisted envelope `schemaVersion/capturedAt/gameStateSerialized/helpWindow`;
+  - persisted envelope `schemaVersion/capturedAt/gameStateSerialized`;
   - restore local/cloud payload в `RestoreSession`;
   - event-driven auto-flush на score/help/level событиях.
 - `Telemetry` — сбор application events в буфер адаптера.
@@ -273,12 +273,15 @@ flowchart TD
 - Для snapshot-слоя добавлены deterministic schema migrations `vN -> vN+1` и LWW conflict resolver:
   - `migrateGameStateSnapshot` / `deserializeGameStateWithMigrations`;
   - `resolveLwwSnapshot(local, cloud)` с контрактом `stateVersion -> updatedAt -> local priority`.
-- Текущая `schemaVersion=3`: переход `v2 -> v3` переносит legacy hint-state из `LevelSession.meta` в явные guided-state поля `GameState` (`currentDisplayedTargetId`, `currentHintPathProgress`) и достраивает `LevelSession.readabilityScore` для старых snapshot.
+- Текущая `schemaVersion=5`:
+  - `v2 -> v3` переносит legacy hint-state из `LevelSession.meta` в явные guided-state поля `GameState` (`currentDisplayedTargetId`, `currentHintPathProgress`);
+  - `v3 -> v4` разворачивает legacy `5x5` grid в актуальный `6x6`;
+  - `v4 -> v5` удаляет legacy `helpWindow`/free-timer assumptions из runtime snapshot и санитизирует stale `helpLockState`.
 - Runtime-конструкторы `GameState`/`LevelSession` auto-normalize guided target state:
   - невалидный или устаревший `currentDisplayedTargetId` переводится на ближайшее оставшееся target-слово;
   - `currentHintPathProgress` обрезается по длине текущей цели и сбрасывается при смене target/уровня;
   - `readabilityScore` вычисляется детерминированно, если отсутствует в старом snapshot.
-- Версии схемы/миграций и default-сентинелы (`v0/v1/v2/v3`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
+- Версии схемы/миграций и default-сентинелы (`v0/v1/v2/v3/v4/v5`, `stateVersion=0`, LWW/migration шаги) централизованы в именованных константах `GameState`, чтобы исключить магические числа в data-логике.
 - Для словаря реализован pipeline `buildDictionaryIndexFromCsv`:
   - нормализация слов `lowercase + trim`;
   - фильтрация строк (`type=noun`, только кириллица `а-яё`, без пробелов/дефисов/спецсимволов);
@@ -351,4 +354,4 @@ flowchart TD
 - CODE-006: реализован `HelpEconomy` и интеграция help-flow в application/core-state: общий `free-action` пул `hint/reshuffle` с real-time таймером, shared lock на обе help-кнопки, hint progression `2/3/4+` букв для самого лёгкого оставшегося target и manual reshuffle с полным reset текущего уровня.
 - CODE-007 / CODE-021: rewarded ads outcomes интегрированы в help-flow и доведены до явного policy contract: `PlatformYandex` слушает `domain/help` (ad-required), вызывает `showRewardedVideo`, маппит `reward/close/error/no-fill` в `AcknowledgeAdResult`; `HelpEconomy` применяет cooldown `3 сек` на no-reward outcomes, а telemetry фиксирует outcome, `durationMs` и `technicalErrorPolicy` для `error`.
 - CODE-008: реализован `RenderMotion` one-screen контракт: mobile-first UI с приоритетом поля `5x5`, кнопками `hint/reshuffle/leaderboard`, pseudo-liquid in-drag/undo feedback, event-driven success glow и перелётом букв, плюс автоматический completion transition ack из рендер-цикла.
-- CODE-009: реализован end-to-end контур `PlatformYandex/Persistence/Restore/Leaderboard`: local+cloud snapshot restore, best-effort fallback уровня при нересторибельном состоянии, восстановление free-action timer, leaderboard sync queue с retry/backoff и manual auth dialog.
+- CODE-009: реализован end-to-end контур `PlatformYandex/Persistence/Restore/Leaderboard`: local+cloud snapshot restore, best-effort fallback уровня при нересторибельном состоянии, guided restore текущего уровня и leaderboard sync queue с retry/backoff и manual auth dialog.

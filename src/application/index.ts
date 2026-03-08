@@ -821,7 +821,6 @@ export type {
   GridCellRef,
   InternalAdapterCommand,
   InternalAdapterCommandType,
-  PersistedHelpWindowSnapshot,
   PersistedSessionSnapshot,
   RestoreSessionPayload,
   RewardedAdOutcome,
