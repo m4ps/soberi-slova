@@ -12,16 +12,12 @@ import type {
   ApplicationResult,
   CommandAck,
   DomainModules,
-  PersistedHelpWindowSnapshot,
-  PersistedSessionSnapshot,
-  RestoreSessionPayload,
   RoutedCommandType,
   GridCellRef,
 } from './contracts';
 import { resolveHelpAdOutcomePolicy } from '../config/help-ad-policy';
 import type { CoreStateHelpEffect, CoreStateSnapshot } from '../domain/CoreState';
 import { toErrorMessage } from '../shared/errors';
-import { parseNonNegativeSafeInteger } from '../shared/runtime-guards';
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported command: ${JSON.stringify(value)}`);
@@ -103,79 +99,6 @@ function normalizeOutcomeContext(outcomeContext: string | null | undefined): str
   const normalized = outcomeContext.trim();
   return normalized.length > 0 ? normalized : null;
 }
-function normalizePersistedHelpWindow(
-  snapshot: PersistedSessionSnapshot | null | undefined,
-): PersistedHelpWindowSnapshot | null {
-  if (!snapshot) {
-    return null;
-  }
-
-  const helpWindow = snapshot.helpWindow;
-  if (!helpWindow) {
-    return null;
-  }
-  const windowStartTs = parseNonNegativeSafeInteger(helpWindow.windowStartTs);
-  if (windowStartTs === null) {
-    return null;
-  }
-
-  return {
-    windowStartTs,
-    freeActionAvailable: helpWindow.freeActionAvailable === true,
-  };
-}
-
-function resolveSnapshotCapturedAt(snapshot: PersistedSessionSnapshot | null | undefined): number {
-  if (!snapshot) {
-    return -1;
-  }
-
-  const capturedAt = parseNonNegativeSafeInteger(snapshot.capturedAt);
-  return capturedAt === null ? -1 : capturedAt;
-}
-
-function resolveRestoreHelpWindow(
-  payload: RestoreSessionPayload | undefined,
-  source: 'local' | 'cloud' | 'none',
-): PersistedHelpWindowSnapshot | null {
-  if (!payload) {
-    return null;
-  }
-
-  if (source === 'local') {
-    return (
-      normalizePersistedHelpWindow(payload.localSnapshot) ??
-      normalizePersistedHelpWindow(payload.cloudSnapshot)
-    );
-  }
-
-  if (source === 'cloud') {
-    return (
-      normalizePersistedHelpWindow(payload.cloudSnapshot) ??
-      normalizePersistedHelpWindow(payload.localSnapshot)
-    );
-  }
-
-  const localHelpWindow = normalizePersistedHelpWindow(payload.localSnapshot);
-  const cloudHelpWindow = normalizePersistedHelpWindow(payload.cloudSnapshot);
-
-  if (localHelpWindow && !cloudHelpWindow) {
-    return localHelpWindow;
-  }
-
-  if (cloudHelpWindow && !localHelpWindow) {
-    return cloudHelpWindow;
-  }
-
-  if (localHelpWindow && cloudHelpWindow) {
-    return resolveSnapshotCapturedAt(payload.localSnapshot) >=
-      resolveSnapshotCapturedAt(payload.cloudSnapshot)
-      ? localHelpWindow
-      : cloudHelpWindow;
-  }
-
-  return null;
-}
 
 function clonePathCells(pathCells: readonly GridCellRef[]): readonly GridCellRef[] {
   return pathCells.map((cell) => ({ ...cell }));
@@ -200,10 +123,6 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
   type DisplayedTargetChangedPayload = Extract<
     ApplicationEvent,
     { eventType: 'domain/displayed-target-changed' }
-  >['payload'];
-  type HelpActionAppliedPayload = Extract<
-    ApplicationEvent,
-    { eventType: 'domain/help-action-applied' }
   >['payload'];
   type HelpActionFailedPayload = Extract<
     ApplicationEvent,
@@ -237,6 +156,12 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
   const createCorrelationId = (commandType: ApplicationCommand['type']): string => {
     correlationSequence += 1;
     return `${commandType}-${Date.now()}-${correlationSequence}`;
+  };
+
+  const syncHelpLockState = (nowTs = Date.now()) => {
+    const helpState = modules.helpEconomy.getWindowState(nowTs);
+    modules.coreState.syncHelpLockState(helpState.helpLockState, nowTs);
+    return helpState;
   };
 
   const resolveCorrelationId = (
@@ -376,9 +301,9 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     commandType: 'RequestHint' | 'RequestReshuffle',
     helpKind: 'hint' | 'reshuffle',
   ): ApplicationResult<CommandAck> => {
-    const previousCoreState = modules.coreState.getSnapshot();
     const requestedAt = Date.now();
     const decision = modules.helpEconomy.requestHelp(helpKind, requestedAt);
+    syncHelpLockState(requestedAt);
 
     if (decision.type === 'locked') {
       return domainError(
@@ -406,22 +331,6 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
       );
     }
 
-    let applied = false;
-    const requiresAd = decision.type === 'await-ad';
-    let helpApplyResult: ReturnType<DomainModules['coreState']['applyHelp']> | null = null;
-
-    if (decision.type === 'apply-now') {
-      helpApplyResult = modules.coreState.applyHelp(helpKind, decision.operationId, requestedAt);
-      applied = helpApplyResult.applied;
-      modules.helpEconomy.finalizePendingRequest(
-        decision.operationId,
-        helpApplyResult.applied,
-        requestedAt,
-      );
-    }
-
-    const nextCoreState = modules.coreState.getSnapshot();
-
     return routeCommand(commandType, decision.operationId, (correlationId) => {
       publish(
         createEvent('domain/help', correlationId, {
@@ -429,78 +338,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           commandType,
           operationId: decision.operationId,
           helpKind: decision.kind,
-          isFreeAction: decision.isFreeAction,
-          requiresAd,
-          applied,
-        }),
-      );
-
-      if (!helpApplyResult) {
-        return;
-      }
-
-      const helpSource: HelpActionAppliedPayload['source'] = decision.isFreeAction
-        ? 'free'
-        : 'rewarded-ad';
-
-      if (helpApplyResult.applied && helpApplyResult.effect) {
-        const effect = cloneHelpEffect(helpApplyResult.effect);
-
-        publish(
-          createEvent('domain/help-action-applied', correlationId, {
-            commandType,
-            operationId: decision.operationId,
-            helpKind: helpApplyResult.kind,
-            source: helpSource,
-            levelId: helpApplyResult.levelId,
-            stateVersion: helpApplyResult.stateVersion,
-            allTimeScore: helpApplyResult.allTimeScore,
-            effect,
-          }),
-        );
-
-        if (effect.kind === 'hint') {
-          publish(
-            createEvent('domain/hint-path-progress-advanced', correlationId, {
-              commandType: 'RequestHint',
-              operationId: decision.operationId,
-              targetWord: effect.targetWord,
-              revealCount: effect.revealCount,
-              revealedLetters: effect.revealedLetters,
-              revealedPathCells: clonePathCells(effect.revealedPathCells),
-              levelId: helpApplyResult.levelId,
-              stateVersion: helpApplyResult.stateVersion,
-            }),
-          );
-        }
-
-        publishDisplayedTargetChanged(
-          commandType,
-          helpKind === 'hint' ? 'hint-applied' : 'reshuffle-applied',
-          correlationId,
-          previousCoreState,
-          nextCoreState,
-        );
-        return;
-      }
-
-      publish(
-        createEvent('domain/help-action-failed', correlationId, {
-          commandType,
-          operationId: decision.operationId,
-          helpKind,
-          source: helpSource,
-          reason: helpApplyResult.reason,
-          levelId: helpApplyResult.levelId,
-          stateVersion: helpApplyResult.stateVersion,
-          allTimeScore: helpApplyResult.allTimeScore,
-          outcome: null,
-          durationMs: null,
-          outcomeContext: null,
-          cooldownApplied: false,
-          cooldownDurationMs: 0,
-          toastMessage: null,
-          technicalErrorPolicy: null,
+          requiresAd: true,
         }),
       );
     });
@@ -678,9 +516,9 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             return routeHelpCommand(command.type, 'reshuffle');
           }
           case 'AcknowledgeAdResult': {
-            const previousCoreState = modules.coreState.getSnapshot();
             const acknowledgedAt = Date.now();
-            const helpWindowState = modules.helpEconomy.getWindowState(acknowledgedAt);
+            const helpWindowState = syncHelpLockState(acknowledgedAt);
+            const previousCoreState = modules.coreState.getSnapshot();
             const pendingRequest = helpWindowState.pendingRequest;
             const isMatchingPendingRequest =
               pendingRequest?.operationId === command.operationId &&
@@ -699,6 +537,10 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               applied,
               acknowledgedAt,
               command.outcome,
+            );
+            modules.coreState.syncHelpLockState(
+              finalizeResult.windowState.helpLockState,
+              acknowledgedAt,
             );
             const nextCoreState = modules.coreState.getSnapshot();
 
@@ -835,7 +677,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             const previousCoreState = modules.coreState.getSnapshot();
             const restorePayload = command.payload;
             const restoreTs = Date.now();
-            const restoreResult = modules.coreState.restoreSession(
+            modules.coreState.restoreSession(
               {
                 localSnapshot: {
                   gameStateSerialized: restorePayload?.localSnapshot?.gameStateSerialized ?? null,
@@ -847,22 +689,14 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               },
               restoreTs,
             );
-            const restoredHelpWindow =
-              resolveRestoreHelpWindow(restorePayload, restoreResult.source) ??
-              (() => {
-                const snapshot = modules.helpEconomy.getWindowState(restoreTs);
-                return {
-                  windowStartTs: snapshot.windowStartTs,
-                  freeActionAvailable: snapshot.freeActionAvailable,
-                };
-              })();
             modules.helpEconomy.restoreWindowState(
               {
-                windowStartTs: restoredHelpWindow.windowStartTs,
-                freeActionAvailable: restoredHelpWindow.freeActionAvailable,
+                windowStartTs: 0,
+                freeActionAvailable: false,
               },
               restoreTs,
             );
+            syncHelpLockState(restoreTs);
 
             return routeCommand(command.type, null, (correlationId) => {
               publish(
@@ -912,12 +746,13 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
       try {
         switch (query.type) {
           case 'GetCoreState': {
+            syncHelpLockState(Date.now());
             return ok(modules.coreState.getSnapshot()) as ApplicationResult<
               ApplicationQueryPayload<TQuery>
             >;
           }
           case 'GetHelpWindowState': {
-            return ok(modules.helpEconomy.getWindowState(Date.now())) as ApplicationResult<
+            return ok(syncHelpLockState(Date.now())) as ApplicationResult<
               ApplicationQueryPayload<TQuery>
             >;
           }

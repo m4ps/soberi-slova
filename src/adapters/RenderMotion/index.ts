@@ -30,7 +30,6 @@ const WORD_SUCCESS_ACK_DELAY_MS = 360;
 const LEVEL_TRANSITION_ACK_DELAY_MS = 900;
 const TOAST_DURATION_MS = 2_200;
 const MAX_ACK_TRACKING = 128;
-const HELP_BUTTON_TOAST_LOCK_TEXT = 'Занято';
 const DEV_TARGET_WORDS_CONSOLE_LOG_ENABLED = import.meta.env.DEV;
 const DEV_TARGET_WORDS_CONSOLE_PREFIX = '[dev][target-words]';
 
@@ -101,8 +100,9 @@ export interface RenderMotionSnapshot {
     readonly showEphemeralCongrats: boolean;
   };
   readonly help: {
-    readonly freeActionAvailable: boolean;
     readonly isLocked: boolean;
+    readonly lockedUntil: number | null;
+    readonly lockReason: string | null;
     readonly cooldownMsRemaining: number;
     readonly cooldownReason: string | null;
   };
@@ -869,26 +869,9 @@ export function createRenderMotionModule(
 
         const helpButtonsEnabled =
           !latestCoreState.gameplay.isInputLocked &&
-          !latestHelpState.isLocked &&
-          latestHelpState.cooldownMsRemaining === 0;
-        const cooldownSeconds = Math.ceil(latestHelpState.cooldownMsRemaining / 1000);
-
-        const hintLabel =
-          latestHelpState.cooldownMsRemaining > 0
-            ? `Подсказка • ${cooldownSeconds}с`
-            : latestHelpState.isLocked
-              ? `Подсказка • ${HELP_BUTTON_TOAST_LOCK_TEXT}`
-              : latestHelpState.freeActionAvailable
-                ? 'Подсказка • free'
-                : 'Подсказка • ad';
-        const reshuffleLabel =
-          latestHelpState.cooldownMsRemaining > 0
-            ? `Пересобрать • ${cooldownSeconds}с`
-            : latestHelpState.isLocked
-              ? `Пересобрать • ${HELP_BUTTON_TOAST_LOCK_TEXT}`
-              : latestHelpState.freeActionAvailable
-                ? 'Пересобрать • free'
-                : 'Пересобрать • ad';
+          !latestCoreState.gameState.helpLockState.isLocked;
+        const hintLabel = 'Подсказка';
+        const reshuffleLabel = 'Пересобрать';
 
         controlsLayer.clear();
         drawPanel(controlsLayer, currentLayout.controls, 22, 0x0b1220, 0.82, 0x93c5fd, 0.22);
@@ -1158,8 +1141,9 @@ export function createRenderMotionModule(
             showEphemeralCongrats: latestCoreState.gameplay.showEphemeralCongrats,
           },
           help: {
-            freeActionAvailable: latestHelpState.freeActionAvailable,
-            isLocked: latestHelpState.isLocked,
+            isLocked: latestCoreState.gameState.helpLockState.isLocked,
+            lockedUntil: latestCoreState.gameState.helpLockState.lockedUntil,
+            lockReason: latestCoreState.gameState.helpLockState.reason,
             cooldownMsRemaining: latestHelpState.cooldownMsRemaining,
             cooldownReason: latestHelpState.cooldownReason,
           },

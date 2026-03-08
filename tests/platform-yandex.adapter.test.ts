@@ -316,9 +316,7 @@ function createAdRequiredHelpEvent(
       commandType: helpKind === 'hint' ? 'RequestHint' : 'RequestReshuffle',
       operationId,
       helpKind,
-      isFreeAction: false,
       requiresAd: true,
-      applied: false,
     },
   };
 }

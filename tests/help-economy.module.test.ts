@@ -35,7 +35,7 @@ describe('help economy module', () => {
 
     expect(restoredWindow).toMatchObject({
       windowStartTs: 500,
-      freeActionAvailable: true,
+      freeActionAvailable: false,
       isLocked: false,
       pendingRequest: null,
       cooldownUntilTs: 0,
@@ -43,7 +43,7 @@ describe('help economy module', () => {
     });
   });
 
-  it('consumes free action only after successful help application', () => {
+  it('requires rewarded ad from the first help request and never consumes a free action', () => {
     const helpEconomy = createHelpEconomyModule({
       windowStartTs: 1_000,
       freeActionAvailable: true,
@@ -51,63 +51,51 @@ describe('help economy module', () => {
 
     const firstRequest = helpEconomy.requestHelp('hint', 1_100);
     expect(firstRequest).toMatchObject({
-      type: 'apply-now',
+      type: 'await-ad',
       kind: 'hint',
-      isFreeAction: true,
+      isFreeAction: false,
     });
 
     const pendingState = helpEconomy.getWindowState(1_100);
     expect(pendingState).toMatchObject({
-      freeActionAvailable: true,
+      freeActionAvailable: false,
       isLocked: true,
       pendingRequest: {
         kind: 'hint',
-        isFreeAction: true,
+        isFreeAction: false,
       },
     });
 
-    if (firstRequest.type !== 'apply-now') {
-      throw new Error('Expected free request to be apply-now.');
-    }
-
-    const failedFinalize = helpEconomy.finalizePendingRequest(
-      firstRequest.operationId,
-      false,
-      1_120,
-    );
-    expect(failedFinalize).toMatchObject({
-      operationId: firstRequest.operationId,
-      finalized: true,
-      applied: false,
-      freeActionConsumed: false,
-    });
-    expect(failedFinalize.windowState.freeActionAvailable).toBe(true);
-
-    const secondRequest = helpEconomy.requestHelp('reshuffle', 1_130);
-    expect(secondRequest).toMatchObject({
-      type: 'apply-now',
-      kind: 'reshuffle',
-      isFreeAction: true,
-    });
-    if (secondRequest.type !== 'apply-now') {
-      throw new Error('Expected second free request to be apply-now.');
+    if (firstRequest.type !== 'await-ad') {
+      throw new Error('Expected rewarded request.');
     }
 
     const successfulFinalize = helpEconomy.finalizePendingRequest(
-      secondRequest.operationId,
+      firstRequest.operationId,
       true,
-      1_140,
+      1_120,
+      'reward',
     );
     expect(successfulFinalize).toMatchObject({
-      operationId: secondRequest.operationId,
+      operationId: firstRequest.operationId,
       finalized: true,
       applied: true,
-      freeActionConsumed: true,
+      freeActionConsumed: false,
     });
     expect(successfulFinalize.windowState.freeActionAvailable).toBe(false);
+
+    const secondRequest = helpEconomy.requestHelp('reshuffle', 1_130);
+    expect(secondRequest).toMatchObject({
+      type: 'await-ad',
+      kind: 'reshuffle',
+      isFreeAction: false,
+    });
+    if (secondRequest.type !== 'await-ad') {
+      throw new Error('Expected second rewarded request.');
+    }
   });
 
-  it('restores free action after full 5-minute window in real time', () => {
+  it('does not reopen a legacy free-help window after the old 5-minute boundary', () => {
     const helpEconomy = createHelpEconomyModule({
       windowStartTs: 0,
       freeActionAvailable: false,
@@ -115,12 +103,12 @@ describe('help economy module', () => {
 
     const nearBoundaryState = helpEconomy.getWindowState(HELP_WINDOW_DURATION_MS - 1);
     expect(nearBoundaryState.freeActionAvailable).toBe(false);
-    expect(nearBoundaryState.msUntilNextFreeAction).toBe(1);
+    expect(nearBoundaryState.msUntilNextFreeAction).toBe(0);
 
     const restoredState = helpEconomy.getWindowState(HELP_WINDOW_DURATION_MS + 25);
-    expect(restoredState.freeActionAvailable).toBe(true);
+    expect(restoredState.freeActionAvailable).toBe(false);
     expect(restoredState.msUntilNextFreeAction).toBe(0);
-    expect(restoredState.windowStartTs).toBe(HELP_WINDOW_DURATION_MS);
+    expect(restoredState.windowStartTs).toBe(0);
   });
 
   it('blocks re-entrant help requests while one request is pending', () => {

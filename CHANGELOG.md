@@ -2,6 +2,32 @@
 
 ## 2026-03-08
 
+### [CODE]-[026] Help-экономика переведена на paid-help с первого использования
+
+- `src/domain/HelpEconomy/index.ts` переведён на rewarded-only runtime:
+  - удалена рабочая ветка `apply-now`, оба help-действия теперь с первого запроса идут только через `await-ad`;
+  - legacy `free-window` поля сохранены лишь как compatibility shape и больше не влияют на runtime-решение;
+  - в `HelpWindowState` добавлен явный runtime-срез `helpLockState` для pending/cooldown.
+- `src/domain/CoreState/index.ts` и `src/application/index.ts` синхронизированы вокруг live `HelpLockState`:
+  - добавлен `syncHelpLockState(...)`, который обновляет `GameState.helpLockState` только при реальном изменении блокировки;
+  - `RequestHint` / `RequestReshuffle` больше не применяют help напрямую и только инициируют rewarded flow;
+  - `AcknowledgeAdResult` остаётся единственной точкой применения `hint` / `reshuffle` и финализации ad outcome.
+- `src/adapters/Persistence/index.ts` и restore flow очищены от записи нового legacy help-window:
+  - persisted `gameStateSerialized` теперь сохраняет актуальный `helpLockState` как часть рабочего `GameState`;
+  - новые snapshot больше не пишут `helpWindow` sidecar;
+  - `RestoreSession` сбрасывает transient help-state и больше не поднимает `helpWindow` как рабочий timer/lock.
+- `src/adapters/RenderMotion/index.ts` синхронизирован с paid-help UX:
+  - help-кнопки больше не показывают `free/ad` маркеры;
+  - disable/cooldown состояние читается из live `helpLockState`, а cooldown diagnostics остаются в runtime snapshot.
+- Обновлены контракты и регрессии:
+  - `src/application/contracts.ts` переведён на rewarded-only `HelpActionSource`;
+  - `tests/help-economy.module.test.ts`, `tests/application-command-bus.smoke.test.ts`, `tests/platform-yandex.adapter.test.ts` и `tests/persistence.adapter.test.ts` зафиксировали paid-help-first flow, neutral restore и отсутствие рабочего free-path.
+- Добавлен `ADR/ADR-047-paid-help-first-live-help-lock-state-code-026.md`.
+- Верификация:
+  - `npm test` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke не выполнен в sandbox-среде: локальные listeners запрещены (`listen EPERM` для `vite`/`sdk-dev-proxy`), а Playwright MCP не смог поднять браузерный контекст для route-based fallback.
+
 ### [CODE]-[021] Зафиксирована deterministic policy для rewarded ad technical error
 
 - Добавлен единый shared/config contract `src/config/help-ad-policy.ts`:
