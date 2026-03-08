@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createApplicationLayer,
+  INTERNAL_ADAPTER_COMMAND_TYPES,
+  TECHSPEC_V1_1_COMMAND_TYPES,
   type ApplicationCommand,
   type ApplicationEvent,
 } from '../src/application';
@@ -49,7 +51,7 @@ interface CapturedTargetWordAcceptedEvent {
 }
 
 describe('application command/query bus smoke', () => {
-  it('routes required v1 commands through a single command bus', () => {
+  it('routes TECHSPEC v1.1 commands through a single command bus', () => {
     const application = createSmokeApplication();
     const events: ApplicationEvent[] = [];
     application.events.subscribe((event) => {
@@ -59,7 +61,6 @@ describe('application command/query bus smoke', () => {
       [];
 
     const commands: ApplicationCommand[] = [
-      { type: 'RuntimeReady' },
       { type: 'SubmitPath', pathCells: [{ row: 0, col: 0 }] },
       { type: 'RequestHint' },
       { type: 'RequestReshuffle' },
@@ -78,7 +79,6 @@ describe('application command/query bus smoke', () => {
         type: 'AcknowledgeLevelTransitionDone',
         operationId: 'op-transition',
       },
-      { type: 'Tick', nowTs: 123_456 },
       { type: 'RestoreSession' },
       { type: 'SyncLeaderboard' },
     ];
@@ -96,9 +96,6 @@ describe('application command/query bus smoke', () => {
 
     const coreStateResult = application.queries.execute({ type: 'GetCoreState' });
     expect(coreStateResult.type).toBe('ok');
-    if (coreStateResult.type === 'ok') {
-      expect(coreStateResult.value.runtimeMode).toBe('ready');
-    }
 
     const helpWindowResult = application.queries.execute({ type: 'GetHelpWindowState' });
     expect(helpWindowResult.type).toBe('ok');
@@ -121,17 +118,9 @@ describe('application command/query bus smoke', () => {
       )
       .map((event) => event.payload.commandType);
 
+    expect(routedCommandTypes).toEqual(expect.arrayContaining([...TECHSPEC_V1_1_COMMAND_TYPES]));
     expect(routedCommandTypes).toEqual(
-      expect.arrayContaining([
-        'SubmitPath',
-        'RequestHint',
-        'RequestReshuffle',
-        'AcknowledgeAdResult',
-        'AcknowledgeWordSuccessAnimation',
-        'AcknowledgeLevelTransitionDone',
-        'RestoreSession',
-        'SyncLeaderboard',
-      ]),
+      expect.not.arrayContaining([...INTERNAL_ADAPTER_COMMAND_TYPES]),
     );
 
     events.forEach((event) => {
@@ -145,20 +134,6 @@ describe('application command/query bus smoke', () => {
         }),
       );
     });
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        eventType: 'application/runtime-ready',
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        eventType: 'application/tick',
-        occurredAt: 123_456,
-        payload: { nowTs: 123_456 },
-      }),
-    );
-
     const commandRoutedEvents = events.filter(
       (event): event is Extract<ApplicationEvent, { eventType: 'application/command-routed' }> => {
         return event.eventType === 'application/command-routed';
@@ -330,6 +305,47 @@ describe('application command/query bus smoke', () => {
     expect(ackMap.get('AcknowledgeAdResult')).toBe('op-ad');
     expect(ackMap.get('AcknowledgeWordSuccessAnimation')).toBe('op-word');
     expect(ackMap.get('AcknowledgeLevelTransitionDone')).toBe('op-transition');
+  });
+
+  it('treats RuntimeReady and Tick as internal adapter commands', () => {
+    const application = createSmokeApplication();
+    const events: ApplicationEvent[] = [];
+    application.events.subscribe((event) => {
+      events.push(event);
+    });
+
+    const runtimeReadyResult = application.commands.dispatch({ type: 'RuntimeReady' });
+    const tickResult = application.commands.dispatch({ type: 'Tick', nowTs: 123_456 });
+
+    expect(runtimeReadyResult.type).toBe('ok');
+    expect(tickResult.type).toBe('ok');
+    if (runtimeReadyResult.type === 'ok' && tickResult.type === 'ok') {
+      expect([runtimeReadyResult.value.commandType, tickResult.value.commandType]).toEqual([
+        ...INTERNAL_ADAPTER_COMMAND_TYPES,
+      ]);
+    }
+
+    const coreStateResult = application.queries.execute({ type: 'GetCoreState' });
+    expect(coreStateResult.type).toBe('ok');
+    if (coreStateResult.type === 'ok') {
+      expect(coreStateResult.value.runtimeMode).toBe('ready');
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'application/runtime-ready',
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'application/tick',
+        occurredAt: 123_456,
+        payload: { nowTs: 123_456 },
+      }),
+    );
+    expect(events.filter((event) => event.eventType === 'application/command-routed')).toHaveLength(
+      0,
+    );
   });
 
   it('returns a domain error envelope for invalid SubmitPath payload', () => {

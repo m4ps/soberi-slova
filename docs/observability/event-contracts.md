@@ -24,16 +24,34 @@
 - `occurredAt` — timestamp события в миллисекундах.
 - `correlationId` обязателен всегда; если команда не передала внешний operation id, он генерируется внутри application-слоя.
 
+## Command Bus Scope
+
+- Routed command-contract совпадает с `TECHSPEC v1.1` и включает только:
+  - `SubmitPath`
+  - `RequestHint`
+  - `RequestReshuffle`
+  - `AcknowledgeAdResult`
+  - `AcknowledgeWordSuccessAnimation`
+  - `AcknowledgeLevelTransitionDone`
+  - `RestoreSession`
+  - `SyncLeaderboard`
+- `RuntimeReady` и `Tick` остаются internal adapter/runtime commands:
+  - они не публикуются как `application/command-routed`;
+  - они используются только для bootstrap/diagnostic flow поверх того же command bus.
+
 ## Event Types
 
 ### Application events
 
 - `application/runtime-ready`
   - payload: `{}`
+  - scope: internal adapter/runtime flow
 - `application/tick`
   - payload: `{ nowTs: number }`
+  - scope: internal adapter/runtime flow
 - `application/command-routed`
   - payload: `{ commandType: RoutedCommandType }`
+  - scope: только routed команды из `TECHSPEC v1.1`
 
 ### Domain events (минимальный набор DATA-005)
 

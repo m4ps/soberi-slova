@@ -36,8 +36,25 @@ export interface RestoreSessionPayload {
   readonly cloudAllTimeScore: number | null;
 }
 
-export type ApplicationCommand =
-  | { readonly type: 'RuntimeReady' }
+export const TECHSPEC_V1_1_COMMAND_TYPES = [
+  'SubmitPath',
+  'RequestHint',
+  'RequestReshuffle',
+  'AcknowledgeAdResult',
+  'AcknowledgeWordSuccessAnimation',
+  'AcknowledgeLevelTransitionDone',
+  'RestoreSession',
+  'SyncLeaderboard',
+] as const;
+
+export type TechspecCommandType = (typeof TECHSPEC_V1_1_COMMAND_TYPES)[number];
+
+export const INTERNAL_ADAPTER_COMMAND_TYPES = ['RuntimeReady', 'Tick'] as const;
+
+export type InternalAdapterCommandType = (typeof INTERNAL_ADAPTER_COMMAND_TYPES)[number];
+
+// TECHSPEC v1.1 public command contract exposed to gameplay/application adapters.
+export type TechspecApplicationCommand =
   | { readonly type: 'SubmitPath'; readonly pathCells: readonly GridCellRef[] }
   | { readonly type: 'RequestHint' }
   | { readonly type: 'RequestReshuffle' }
@@ -58,9 +75,15 @@ export type ApplicationCommand =
       readonly type: 'AcknowledgeLevelTransitionDone';
       readonly operationId: string;
     }
-  | { readonly type: 'Tick'; readonly nowTs: number }
   | { readonly type: 'RestoreSession'; readonly payload?: RestoreSessionPayload }
   | { readonly type: 'SyncLeaderboard' };
+
+// Internal runtime commands are kept as adapter-only flow and are excluded from TECHSPEC routing.
+export type InternalAdapterCommand =
+  | { readonly type: 'RuntimeReady' }
+  | { readonly type: 'Tick'; readonly nowTs: number };
+
+export type ApplicationCommand = TechspecApplicationCommand | InternalAdapterCommand;
 
 export type ApplicationQuery =
   | { readonly type: 'GetCoreState' }
@@ -122,7 +145,7 @@ export interface ApplicationReadModel {
   getHelpWindowState: () => HelpWindowState;
 }
 
-export type RoutedCommandType = Exclude<ApplicationCommand['type'], 'RuntimeReady' | 'Tick'>;
+export type RoutedCommandType = TechspecCommandType;
 
 export interface EventEnvelope<TEventType extends string, TPayload> {
   readonly eventId: string;

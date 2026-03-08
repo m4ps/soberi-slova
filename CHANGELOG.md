@@ -2,6 +2,24 @@
 
 ## 2026-03-08
 
+### [INIT]-[007] Command bus приведён к текущему контракту TECHSPEC v1.1
+
+- `src/application/contracts.ts` разделён на два явных слоя команд:
+  - публичный `TECHSPEC v1.1` contract теперь зафиксирован через `TECHSPEC_V1_1_COMMAND_TYPES` и `TechspecApplicationCommand`;
+  - `RuntimeReady` и `Tick` сохранены только как internal adapter/runtime flow через `INTERNAL_ADAPTER_COMMAND_TYPES` и больше не считаются routed-командами публичного bus-контракта.
+- `src/application/index.ts` реэкспортирует новый contract-set без изменения рабочего bootstrap/runtime поведения.
+- `tests/application-command-bus.smoke.test.ts` обновлён:
+  - routed smoke теперь проверяет ровно актуальный набор команд `TECHSPEC v1.1`;
+  - добавлен отдельный сценарий, фиксирующий, что `RuntimeReady` и `Tick` остаются внутренними adapter-командами и не публикуются как `application/command-routed`.
+- Документация синхронизирована с новым разграничением:
+  - `README.md` теперь явно разделяет публичный `TECHSPEC` command-set и внутренний runtime flow;
+  - `docs/observability/event-contracts.md` фиксирует scope routed-команд и роль `application/runtime-ready` / `application/tick`;
+  - `tests/platform-yandex.adapter.test.ts` переименован так, чтобы internal `RuntimeReady` path был явно виден в тестах.
+- Верификация:
+  - `npx vitest run tests/application-command-bus.smoke.test.ts tests/platform-yandex.adapter.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke через `$WEB_GAME_CLIENT` не выполнен в sandbox-среде: локальный dev-server не может открыть listener (`listen EPERM: operation not permitted 127.0.0.1:5173`).
+
 ### [INIT]-[006] Добавлен отдельный модуль VisualSystem
 
 - Введён новый adapter-модуль `src/adapters/VisualSystem/index.ts`:
