@@ -3,61 +3,23 @@ import { describe, expect, it } from 'vitest';
 import { createCoreStateModule } from '../src/domain/CoreState';
 import type { GameStateInput } from '../src/domain/GameState';
 import { createWordValidationModule } from '../src/domain/WordValidation';
+import {
+  createDefaultDictionaryWords,
+  createNearCompletionFixtureState,
+} from './helpers/game-state-fixtures';
 
 function createHelpFixtureState(levelStatus: 'active' | 'completed' = 'active'): GameStateInput {
+  const state = createNearCompletionFixtureState({
+    levelId: 'level-help',
+    source: 'help-test',
+    seed: 31,
+  });
+
   return {
-    schemaVersion: 2,
-    stateVersion: 0,
-    updatedAt: 1_000,
-    allTimeScore: 0,
+    ...state,
     currentLevelSession: {
-      levelId: 'level-help',
-      grid: [
-        'д',
-        'о',
-        'м',
-        'к',
-        'о',
-        'т',
-        'н',
-        'о',
-        'с',
-        'а',
-        'л',
-        'и',
-        'м',
-        'р',
-        'е',
-        'п',
-        'у',
-        'т',
-        'ь',
-        'я',
-        'б',
-        'в',
-        'г',
-        'ё',
-        'ж',
-      ],
-      targetWords: ['дом', 'нос', 'сон'],
-      foundTargets: [],
-      foundBonuses: [],
+      ...state.currentLevelSession,
       status: levelStatus,
-      seed: 31,
-      meta: {
-        source: 'help-test',
-      },
-    },
-    helpWindow: {
-      windowStartTs: 1_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
-    },
-    pendingOps: [],
-    leaderboardSync: {
-      lastSubmittedScore: 0,
-      lastAckScore: 0,
-      lastSubmitTs: 0,
     },
   };
 }
@@ -66,7 +28,7 @@ describe('core state help actions', () => {
   it('applies hint progression for the easiest remaining target word', () => {
     const coreState = createCoreStateModule({
       initialGameState: createHelpFixtureState(),
-      wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон', 'том'])),
+      wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       nowProvider: () => 5_000,
     });
 
@@ -145,7 +107,7 @@ describe('core state help actions', () => {
   it('reshuffles level with full reset and enforces operation id idempotency', () => {
     const coreState = createCoreStateModule({
       initialGameState: createHelpFixtureState(),
-      wordValidation: createWordValidationModule(new Set(['дом', 'нос', 'сон', 'том'])),
+      wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
       nowProvider: () => 6_000,
     });
 
