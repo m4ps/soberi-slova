@@ -61,6 +61,9 @@ export interface VisualButtonStateContract extends VisualPanelContract {
   readonly labelAlpha: number;
   readonly offsetY: number;
   readonly glowAlpha: number;
+  readonly shadowAlpha: number;
+  readonly shadowOffsetY: number;
+  readonly bloomAlpha: number;
 }
 
 export interface VisualShellTokens {
@@ -141,6 +144,9 @@ export interface VisualProgressBarTokens {
   readonly glowHex: HexColor;
   readonly glowMaxAlpha: number;
   readonly glowScaleBoost: number;
+  readonly particleHex: HexColor;
+  readonly particleAccentHex: HexColor;
+  readonly particleMaxAlpha: number;
 }
 
 export interface VisualFeedbackTokens {
@@ -381,6 +387,9 @@ export const visualTokens = {
     glowHex: '#7FF0D1',
     glowMaxAlpha: 0.32,
     glowScaleBoost: 0.16,
+    particleHex: '#F7FFFC',
+    particleAccentHex: '#7FF0D1',
+    particleMaxAlpha: 0.34,
   },
   feedback: {
     targetPathHex: '#77E39D',
@@ -523,6 +532,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.94,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.16,
+      shadowOffsetY: 7,
+      bloomAlpha: 0.6,
     },
     hover: {
       fillHex: '#F8FEFB',
@@ -533,6 +545,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.96,
       offsetY: -2,
       glowAlpha: 0.08,
+      shadowAlpha: 0.22,
+      shadowOffsetY: 9,
+      bloomAlpha: 0.7,
     },
     focus: {
       fillHex: '#F1FDF9',
@@ -543,6 +558,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.2,
+      shadowAlpha: 0.24,
+      shadowOffsetY: 8,
+      bloomAlpha: 0.74,
     },
     pressed: {
       fillHex: '#E8F6F0',
@@ -553,6 +571,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.94,
       offsetY: 1,
       glowAlpha: 0.04,
+      shadowAlpha: 0.1,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.42,
     },
     disabled: {
       fillHex: '#E6EEF5',
@@ -563,6 +584,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.78,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.08,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.24,
     },
   },
   reshuffle: {
@@ -575,6 +599,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.94,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.16,
+      shadowOffsetY: 7,
+      bloomAlpha: 0.6,
     },
     hover: {
       fillHex: '#F8FAFF',
@@ -585,6 +612,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.96,
       offsetY: -2,
       glowAlpha: 0.08,
+      shadowAlpha: 0.22,
+      shadowOffsetY: 9,
+      bloomAlpha: 0.7,
     },
     focus: {
       fillHex: '#F3F7FF',
@@ -595,6 +625,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.2,
+      shadowAlpha: 0.24,
+      shadowOffsetY: 8,
+      bloomAlpha: 0.74,
     },
     pressed: {
       fillHex: '#EAF1FE',
@@ -605,6 +638,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.94,
       offsetY: 1,
       glowAlpha: 0.04,
+      shadowAlpha: 0.1,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.42,
     },
     disabled: {
       fillHex: '#E6EEF5',
@@ -615,6 +651,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.78,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.08,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.24,
     },
   },
   leaderboard: {
@@ -627,6 +666,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.92,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.16,
+      shadowOffsetY: 7,
+      bloomAlpha: 0.58,
     },
     hover: {
       fillHex: '#F9FBFD',
@@ -637,6 +679,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.94,
       offsetY: -2,
       glowAlpha: 0.08,
+      shadowAlpha: 0.22,
+      shadowOffsetY: 9,
+      bloomAlpha: 0.68,
     },
     focus: {
       fillHex: '#F6F9FC',
@@ -647,6 +692,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.18,
+      shadowAlpha: 0.24,
+      shadowOffsetY: 8,
+      bloomAlpha: 0.72,
     },
     pressed: {
       fillHex: '#E4EDF6',
@@ -657,6 +705,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.92,
       offsetY: 1,
       glowAlpha: 0.04,
+      shadowAlpha: 0.1,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.4,
     },
     disabled: {
       fillHex: '#E6EEF5',
@@ -667,6 +718,9 @@ export const visualButtonStateContracts = {
       labelAlpha: 0.78,
       offsetY: 0,
       glowAlpha: 0,
+      shadowAlpha: 0.08,
+      shadowOffsetY: 4,
+      bloomAlpha: 0.22,
     },
   },
 } as const satisfies ButtonContractMap;
@@ -872,14 +926,17 @@ export function resolveButtonState(
 
 export function resolveCurrentWordTransition(progress: number): CurrentWordTransitionFrame {
   const normalizedProgress = clamp(progress, 0, 1);
-  const easedProgress = easeOutCubic(normalizedProgress);
+  const outgoingFadeProgress = clamp(normalizedProgress / 0.86, 0, 1);
+  const incomingFadeProgress = clamp((normalizedProgress - 0.08) / 0.92, 0, 1);
+  const easedOutgoingProgress = easeOutCubic(outgoingFadeProgress);
+  const easedIncomingProgress = easeOutCubic(incomingFadeProgress);
   const blurStrength = visualTokens.currentWord.blurStrength;
 
   return {
-    outgoingAlpha: 1 - normalizedProgress,
-    incomingAlpha: easedProgress,
-    outgoingBlurStrength: blurStrength * normalizedProgress,
-    incomingBlurStrength: blurStrength * (1 - easedProgress),
+    outgoingAlpha: 1 - easedOutgoingProgress,
+    incomingAlpha: easedIncomingProgress,
+    outgoingBlurStrength: blurStrength * easedOutgoingProgress,
+    incomingBlurStrength: blurStrength * (1 - easedIncomingProgress),
   };
 }
 

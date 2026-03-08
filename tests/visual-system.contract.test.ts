@@ -27,6 +27,8 @@ describe('VisualSystem contract', () => {
     expect(visualTokens.accents.reshuffleHex).toBe('#6AA8FF');
     expect(visualTokens.accents.toastFailHex).toBe('#FF9B7B');
     expect(visualTokens.progressBar.glowHex).toBe('#7FF0D1');
+    expect(visualTokens.progressBar.particleHex).toBe('#F7FFFC');
+    expect(visualTokens.progressBar.particleAccentHex).toBe('#7FF0D1');
     expect(visualTokens.panels.metricsRow.fillAlpha).toBeLessThan(
       visualTokens.panels.metric.fillAlpha,
     );
@@ -52,6 +54,15 @@ describe('VisualSystem contract', () => {
     expect(visualButtonStateContracts.hint.hover.offsetY).toBe(-2);
     expect(visualButtonStateContracts.hint.focus.glowAlpha).toBeGreaterThan(
       visualButtonStateContracts.hint.hover.glowAlpha,
+    );
+    expect(visualButtonStateContracts.hint.hover.shadowAlpha).toBeGreaterThan(
+      visualButtonStateContracts.hint.base.shadowAlpha,
+    );
+    expect(visualButtonStateContracts.hint.pressed.shadowAlpha).toBeLessThan(
+      visualButtonStateContracts.hint.base.shadowAlpha,
+    );
+    expect(visualButtonStateContracts.hint.pressed.bloomAlpha).toBeLessThan(
+      visualButtonStateContracts.hint.hover.bloomAlpha,
     );
     expect(visualButtonStateContracts.hint.base.labelAlpha).toBeLessThan(1);
     expect(visualButtonStateContracts.leaderboard.base.fillAlpha).toBeLessThan(
@@ -82,6 +93,7 @@ describe('VisualSystem contract', () => {
 
   it('provides runtime helpers for current-word transition and progress pulse', () => {
     const visualSystem = createVisualSystemModule();
+    const midFrame = visualSystem.resolveCurrentWordTransition(0.5);
 
     expect(visualSystem.resolveCurrentWordTransition(0)).toEqual({
       outgoingAlpha: 1,
@@ -95,6 +107,10 @@ describe('VisualSystem contract', () => {
       outgoingBlurStrength: visualTokens.currentWord.blurStrength,
       incomingBlurStrength: 0,
     });
+    expect(midFrame.outgoingAlpha).toBeGreaterThan(0);
+    expect(midFrame.incomingAlpha).toBeGreaterThan(0.5);
+    expect(midFrame.outgoingBlurStrength).toBeGreaterThan(0);
+    expect(midFrame.incomingBlurStrength).toBeLessThan(visualTokens.currentWord.blurStrength);
     expect(visualSystem.resolveProgressBarPulse(0.5).glowAlpha).toBeGreaterThan(0);
     expect(visualSystem.resolveProgressBarPulse(1).glowAlpha).toBe(0);
   });
