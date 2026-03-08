@@ -2,6 +2,25 @@
 
 ## 2026-03-08
 
+### [CODE]-[028] Persistence/restore очищены от legacy `helpWindow` и free-timer assumptions
+
+- `src/domain/GameState/index.ts` переведён на cleanup schema `v5`:
+  - live `GameStateInput` больше не принимает legacy `helpWindow`;
+  - добавлена миграция `v4 -> v5`, которая удаляет `helpWindow` из snapshot и санитизирует stale `helpLockState` до текущего runtime-контракта;
+  - runtime reason `legacy-free-window` убран из актуального `HelpLockState`.
+- `src/application/contracts.ts` и `src/adapters/Persistence/index.ts` синхронизированы с новым persistence envelope:
+  - `PersistedSessionSnapshot` сужен до `schemaVersion/capturedAt/gameStateSerialized`;
+  - новые persisted snapshot пишутся в transport schema `v2` без `helpWindow`;
+  - старые envelope с `helpWindow` остаются best-effort совместимыми, но больше не участвуют в restore как источник состояния.
+- Обновлены регрессии и документация:
+  - `tests/game-state.model.test.ts` фиксирует cleanup legacy migration path и neutralization stale `helpLockState`;
+  - `tests/persistence.adapter.test.ts` и `tests/application-command-bus.smoke.test.ts` подтверждают, что restore держится на serialized `GameState`, а helpWindow-only sidecar отбрасывается;
+  - `README.md` синхронизирован с schema `v5` и актуальным persistence envelope;
+  - добавлен `ADR/ADR-048-remove-legacy-help-window-from-persistence-restore-code-028.md`.
+- Промежуточная верификация:
+  - `npm test -- --run tests/game-state.model.test.ts tests/persistence.adapter.test.ts tests/application-command-bus.smoke.test.ts` — passed;
+  - browser-smoke по skill `develop-web-game` заблокирован sandbox-средой: `vite` не может открыть локальный listener (`listen EPERM: operation not permitted 127.0.0.1:4173`).
+
 ### [CODE]-[026] Help-экономика переведена на paid-help с первого использования
 
 - `src/domain/HelpEconomy/index.ts` переведён на rewarded-only runtime:

@@ -9,7 +9,7 @@ import { MODULE_IDS } from '../../shared/module-ids';
 import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
 import type { PlatformYandexModule } from '../PlatformYandex';
 
-const PERSISTENCE_SNAPSHOT_SCHEMA_VERSION = 1;
+const PERSISTENCE_SNAPSHOT_SCHEMA_VERSION = 2;
 
 type PersistencePlatformBridge = Pick<
   PlatformYandexModule,
@@ -65,7 +65,6 @@ function parsePersistedSessionSnapshot(
   const schemaVersion = parseNonNegativeSafeInteger(parsed.schemaVersion);
   const capturedAt = parseNonNegativeSafeInteger(parsed.capturedAt);
   const gameStateSerializedCandidate = parsed.gameStateSerialized;
-  const helpWindowCandidate = parsed.helpWindow;
   const normalizedGameStateSerialized =
     typeof gameStateSerializedCandidate === 'string' ? gameStateSerializedCandidate.trim() : '';
   const normalizedGameState =
@@ -75,19 +74,7 @@ function parsePersistedSessionSnapshot(
     return null;
   }
 
-  let normalizedHelpWindow: PersistedSessionSnapshot['helpWindow'] = null;
-  if (isRecordLike(helpWindowCandidate)) {
-    const windowStartTs = parseNonNegativeSafeInteger(helpWindowCandidate.windowStartTs);
-    const freeActionAvailableCandidate = helpWindowCandidate.freeActionAvailable;
-    if (windowStartTs !== null && typeof freeActionAvailableCandidate === 'boolean') {
-      normalizedHelpWindow = {
-        windowStartTs,
-        freeActionAvailable: freeActionAvailableCandidate,
-      };
-    }
-  }
-
-  if (normalizedGameState === null && normalizedHelpWindow === null) {
+  if (normalizedGameState === null) {
     return null;
   }
 
@@ -95,7 +82,6 @@ function parsePersistedSessionSnapshot(
     schemaVersion,
     capturedAt,
     gameStateSerialized: normalizedGameState,
-    helpWindow: normalizedHelpWindow,
   };
 }
 
@@ -164,7 +150,6 @@ export function createPersistenceModule(
       schemaVersion: PERSISTENCE_SNAPSHOT_SCHEMA_VERSION,
       capturedAt,
       gameStateSerialized: JSON.stringify(coreStateSnapshot.gameState),
-      helpWindow: null,
     };
     const serializedSnapshot = JSON.stringify(persisted);
 

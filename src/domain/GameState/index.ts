@@ -7,7 +7,6 @@ import {
   findWordPathInGrid,
   sortWordsByDifficulty,
 } from '../../shared/word-grid';
-import { HELP_WINDOW_DURATION_MS, type HelpKind } from '../HelpEconomy';
 import {
   isLengthInRange,
   isLowercaseCyrillicLetter,
@@ -19,12 +18,13 @@ const SNAPSHOT_SCHEMA_VERSION_V1 = 1;
 const SNAPSHOT_SCHEMA_VERSION_V2 = 2;
 const SNAPSHOT_SCHEMA_VERSION_V3 = 3;
 const SNAPSHOT_SCHEMA_VERSION_V4 = 4;
+const SNAPSHOT_SCHEMA_VERSION_V5 = 5;
 const DEFAULT_STATE_VERSION = 0;
 const LEADERBOARD_EMPTY_SCORE = 0;
 const LEADERBOARD_EMPTY_SUBMIT_TS = 0;
 const MIGRATION_VERSION_STEP = 1;
 
-export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V4;
+export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V5;
 
 export type LevelSessionStatus = 'active' | 'completed' | 'reshuffling';
 
@@ -37,7 +37,7 @@ export type PendingOperationKind =
   | 'leaderboard-sync';
 
 export type PendingOperationStatus = 'pending' | 'applied' | 'failed';
-export type HelpLockReason = 'pending-request' | 'cooldown' | 'legacy-free-window';
+export type HelpLockReason = 'pending-request' | 'cooldown';
 
 export interface WordEntry {
   readonly id: number;
@@ -48,17 +48,6 @@ export interface WordEntry {
 }
 
 export type TargetWordId = string;
-
-export interface PendingHelpRequest {
-  readonly operationId: string;
-  readonly kind: HelpKind;
-}
-
-export interface HelpWindow {
-  readonly windowStartTs: number;
-  readonly freeActionAvailable: boolean;
-  readonly pendingHelpRequest: PendingHelpRequest | null;
-}
 
 export interface HelpLockState {
   readonly isLocked: boolean;
@@ -132,14 +121,8 @@ export interface GameState {
 }
 
 export type WordEntryInput = WordEntry;
-
-export type PendingHelpRequestInput = PendingHelpRequest;
 export type HelpLockStateInput = HelpLockState;
 export type WordMixStatsInput = WordMixStats;
-
-export interface HelpWindowInput extends Omit<HelpWindow, 'pendingHelpRequest'> {
-  readonly pendingHelpRequest?: PendingHelpRequestInput | null;
-}
 
 export type PendingOperationInput = PendingOperation;
 
@@ -167,7 +150,6 @@ export interface GameStateInput extends Omit<
   readonly currentHintPathProgress?: number;
   readonly currentLevelSession: LevelSessionInput;
   readonly helpLockState?: HelpLockStateInput;
-  readonly helpWindow?: HelpWindowInput;
   readonly pendingOps?: readonly PendingOperationInput[];
 }
 
@@ -241,12 +223,7 @@ const PENDING_OPERATION_STATUSES: ReadonlySet<PendingOperationStatus> = new Set(
   'failed',
 ]);
 
-const HELP_KINDS: ReadonlySet<HelpKind> = new Set(['hint', 'reshuffle']);
-const HELP_LOCK_REASONS: ReadonlySet<HelpLockReason> = new Set([
-  'pending-request',
-  'cooldown',
-  'legacy-free-window',
-]);
+const HELP_LOCK_REASONS: ReadonlySet<HelpLockReason> = new Set(['pending-request', 'cooldown']);
 
 const LEGACY_LEVEL_GRID_SIDE = 5;
 const LEGACY_LEVEL_GRID_CELL_COUNT = LEGACY_LEVEL_GRID_SIDE * LEGACY_LEVEL_GRID_SIDE;
@@ -289,49 +266,48 @@ function migrateLegacyGridSnapshot(gridCandidate: unknown): unknown {
   return nextGrid;
 }
 
-function deriveLegacyHelpLockStateSnapshot(
-  helpWindowCandidate: unknown,
-): Record<string, unknown> | undefined {
-  if (
-    !helpWindowCandidate ||
-    typeof helpWindowCandidate !== 'object' ||
-    Array.isArray(helpWindowCandidate)
-  ) {
-    return undefined;
-  }
-
-  const helpWindow = helpWindowCandidate as Record<string, unknown>;
-  const pendingHelpRequest = helpWindow.pendingHelpRequest;
-  if (
-    pendingHelpRequest &&
-    typeof pendingHelpRequest === 'object' &&
-    !Array.isArray(pendingHelpRequest)
-  ) {
-    return {
-      isLocked: true,
-      lockedUntil: null,
-      reason: 'pending-request',
-    };
-  }
-
-  if (helpWindow.freeActionAvailable === false) {
-    const windowStartTs = helpWindow.windowStartTs;
-    const lockedUntil =
-      typeof windowStartTs === 'number' && Number.isFinite(windowStartTs)
-        ? Math.max(0, Math.trunc(windowStartTs)) + HELP_WINDOW_DURATION_MS
-        : null;
-
-    return {
-      isLocked: true,
-      lockedUntil,
-      reason: 'legacy-free-window',
-    };
-  }
-
+function createUnlockedHelpLockStateSnapshot(): Record<string, unknown> {
   return {
     isLocked: false,
     lockedUntil: null,
     reason: null,
+  };
+}
+
+function sanitizeHelpLockStateSnapshot(
+  helpLockStateCandidate: unknown,
+): Record<string, unknown> | undefined {
+  if (
+    !helpLockStateCandidate ||
+    typeof helpLockStateCandidate !== 'object' ||
+    Array.isArray(helpLockStateCandidate)
+  ) {
+    return undefined;
+  }
+
+  const helpLockState = helpLockStateCandidate as Record<string, unknown>;
+  if (helpLockState.isLocked !== true) {
+    return createUnlockedHelpLockStateSnapshot();
+  }
+
+  const reason = helpLockState.reason;
+  if (reason !== 'pending-request' && reason !== 'cooldown') {
+    return createUnlockedHelpLockStateSnapshot();
+  }
+
+  const lockedUntilCandidate = helpLockState.lockedUntil;
+  const lockedUntil =
+    typeof lockedUntilCandidate === 'number' &&
+    Number.isFinite(lockedUntilCandidate) &&
+    Number.isSafeInteger(lockedUntilCandidate) &&
+    lockedUntilCandidate >= 0
+      ? lockedUntilCandidate
+      : null;
+
+  return {
+    isLocked: true,
+    lockedUntil,
+    reason,
   };
 }
 
@@ -426,12 +402,22 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
         };
       }
 
-      if (nextSnapshot.helpLockState === undefined) {
-        const helpLockState = deriveLegacyHelpLockStateSnapshot(snapshot.helpWindow);
-        if (helpLockState) {
-          nextSnapshot.helpLockState = helpLockState;
-        }
-      }
+      return nextSnapshot;
+    },
+  },
+  {
+    fromVersion: SNAPSHOT_SCHEMA_VERSION_V4,
+    toVersion: SNAPSHOT_SCHEMA_VERSION_V5,
+    migrate: (snapshot) => {
+      const nextSnapshot: Record<string, unknown> = {
+        ...snapshot,
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION_V5,
+      };
+
+      nextSnapshot.helpLockState =
+        sanitizeHelpLockStateSnapshot(snapshot.helpLockState) ??
+        createUnlockedHelpLockStateSnapshot();
+      delete nextSnapshot.helpWindow;
 
       return nextSnapshot;
     },
@@ -1195,32 +1181,7 @@ function assertLeaderboardSyncConsistency(
   }
 }
 
-function createLegacyHelpLockState(helpWindow: HelpWindowInput | undefined): HelpLockState {
-  if (!helpWindow) {
-    return {
-      isLocked: false,
-      lockedUntil: null,
-      reason: null,
-    };
-  }
-
-  const normalizedHelpWindow = createHelpWindow(helpWindow);
-  if (normalizedHelpWindow.pendingHelpRequest) {
-    return {
-      isLocked: true,
-      lockedUntil: null,
-      reason: 'pending-request',
-    };
-  }
-
-  if (!normalizedHelpWindow.freeActionAvailable) {
-    return {
-      isLocked: true,
-      lockedUntil: normalizedHelpWindow.windowStartTs + HELP_WINDOW_DURATION_MS,
-      reason: 'legacy-free-window',
-    };
-  }
-
+function createUnlockedHelpLockState(): HelpLockState {
   return {
     isLocked: false,
     lockedUntil: null,
@@ -1235,24 +1196,6 @@ export function createWordEntry(input: WordEntryInput): WordEntry {
     rank: assertFiniteNumber(input.rank, 'wordEntry.rank'),
     type: assertNonEmptyString(input.type, 'wordEntry.type'),
     normalized: assertNonEmptyString(input.normalized, 'wordEntry.normalized'),
-  };
-}
-
-export function createPendingHelpRequest(input: PendingHelpRequestInput): PendingHelpRequest {
-  return {
-    operationId: assertNonEmptyString(input.operationId, 'pendingHelpRequest.operationId'),
-    kind: assertLiteral(input.kind, 'pendingHelpRequest.kind', HELP_KINDS),
-  };
-}
-
-export function createHelpWindow(input: HelpWindowInput): HelpWindow {
-  return {
-    windowStartTs: assertNonNegativeSafeInteger(input.windowStartTs, 'helpWindow.windowStartTs'),
-    freeActionAvailable: assertBoolean(input.freeActionAvailable, 'helpWindow.freeActionAvailable'),
-    pendingHelpRequest:
-      input.pendingHelpRequest === undefined || input.pendingHelpRequest === null
-        ? null
-        : createPendingHelpRequest(input.pendingHelpRequest),
   };
 }
 
@@ -1475,7 +1418,7 @@ export function createGameState(
     currentLevelSession,
     helpLockState:
       input.helpLockState === undefined
-        ? createLegacyHelpLockState(input.helpWindow)
+        ? createUnlockedHelpLockState()
         : createHelpLockState(input.helpLockState),
     pendingOps: (input.pendingOps ?? []).map((operation) => createPendingOperation(operation)),
     leaderboardSync: createLeaderboardSyncState(input.leaderboardSync),
@@ -1498,10 +1441,6 @@ export function createGameState(
 
 function toWordEntryInput(value: unknown): WordEntryInput {
   return createWordEntry(assertRecord(value, 'wordEntry') as unknown as WordEntryInput);
-}
-
-function toHelpWindowInput(value: unknown): HelpWindowInput {
-  return createHelpWindow(assertRecord(value, 'helpWindow') as unknown as HelpWindowInput);
 }
 
 function toHelpLockStateInput(value: unknown): HelpLockStateInput {
@@ -1583,11 +1522,6 @@ function toGameStateInput(value: unknown): GameStateInput {
       ? {}
       : {
           helpLockState: toHelpLockStateInput(source.helpLockState),
-        }),
-    ...(source.helpWindow === undefined
-      ? {}
-      : {
-          helpWindow: toHelpWindowInput(source.helpWindow),
         }),
     pendingOps,
     leaderboardSync: toLeaderboardSyncStateInput(source.leaderboardSync),
