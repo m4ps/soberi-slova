@@ -207,8 +207,12 @@ const HELP_KINDS: ReadonlySet<HelpKind> = new Set(['hint', 'reshuffle']);
 
 const LEVEL_GRID_SIDE = 5;
 const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
-const LEVEL_TARGET_WORDS_MIN = 3;
-const LEVEL_TARGET_WORDS_MAX = 7;
+const LEVEL_TARGET_WORDS_MIN = 10;
+const LEVEL_TARGET_WORDS_MAX = 15;
+const READABLE_TARGET_WORD_MIN_LENGTH = 3;
+const READABLE_TARGET_WORD_MAX_LENGTH = 6;
+const MIN_READABLE_TARGET_WORDS = 10;
+const MAX_LEVEL_READABILITY_SCORE = READABLE_TARGET_WORD_MAX_LENGTH;
 const MAX_PENDING_OPERATIONS = 128;
 
 // Migration chain must stay deterministic and stepwise: vN -> vN+1 only.
@@ -470,6 +474,51 @@ function assertTargetWordCount(words: readonly string[]): void {
   }
 }
 
+function isReadableTargetWord(word: string): boolean {
+  return isLengthInRange(
+    word.length,
+    READABLE_TARGET_WORD_MIN_LENGTH,
+    READABLE_TARGET_WORD_MAX_LENGTH,
+  );
+}
+
+function countReadableTargetWords(words: readonly string[]): number {
+  return words.reduce((count, word) => {
+    return isReadableTargetWord(word) ? count + 1 : count;
+  }, 0);
+}
+
+function assertReadableTargetWordFloor(words: readonly string[]): void {
+  const readableTargetCount = countReadableTargetWords(words);
+
+  if (readableTargetCount < MIN_READABLE_TARGET_WORDS) {
+    throw parseError(
+      `levelSession.targetWords must contain at least ${MIN_READABLE_TARGET_WORDS} readable short/medium words.`,
+      'game-state.invariant.readable-target-count',
+      {
+        readableTargetCount,
+        minReadableTargetCount: MIN_READABLE_TARGET_WORDS,
+      },
+    );
+  }
+}
+
+function assertReadableTargetWordPrevalence(words: readonly string[]): void {
+  const readableTargetCount = countReadableTargetWords(words);
+  const unreadableTargetCount = words.length - readableTargetCount;
+
+  if (readableTargetCount <= unreadableTargetCount) {
+    throw parseError(
+      'levelSession.targetWords must be dominated by short/medium readable words.',
+      'game-state.invariant.readable-target-prevalence',
+      {
+        readableTargetCount,
+        unreadableTargetCount,
+      },
+    );
+  }
+}
+
 function assertFoundTargetsBelongToTargetWords(
   targetWords: readonly string[],
   foundTargets: readonly string[],
@@ -605,6 +654,19 @@ function calculateReadabilityScore(targetWords: readonly string[]): number {
   }, 0);
 
   return Number((totalLetters / targetWords.length).toFixed(2));
+}
+
+function assertLevelReadabilityScore(readabilityScore: number): void {
+  if (readabilityScore > MAX_LEVEL_READABILITY_SCORE) {
+    throw parseError(
+      `levelSession.readabilityScore must be <= ${MAX_LEVEL_READABILITY_SCORE}.`,
+      'game-state.invariant.readability-score',
+      {
+        readabilityScore,
+        maxReadabilityScore: MAX_LEVEL_READABILITY_SCORE,
+      },
+    );
+  }
 }
 
 function assertOptionalTargetWordId(
@@ -809,6 +871,10 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
   const targetWords = assertCyrillicWordArray(input.targetWords, 'levelSession.targetWords');
   const foundTargets = assertCyrillicWordArray(input.foundTargets, 'levelSession.foundTargets');
   const foundBonuses = assertCyrillicWordArray(input.foundBonuses, 'levelSession.foundBonuses');
+  const readabilityScore =
+    input.readabilityScore === undefined
+      ? calculateReadabilityScore(targetWords)
+      : assertNonNegativeNumber(input.readabilityScore, 'levelSession.readabilityScore');
   const levelSession: LevelSession = {
     levelId: assertNonEmptyString(input.levelId, 'levelSession.levelId'),
     grid: assertGrid(input.grid, 'levelSession.grid'),
@@ -817,15 +883,15 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
     foundBonuses,
     status: assertLiteral(input.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
     seed: assertFiniteNumber(input.seed, 'levelSession.seed'),
-    readabilityScore:
-      input.readabilityScore === undefined
-        ? calculateReadabilityScore(targetWords)
-        : assertNonNegativeNumber(input.readabilityScore, 'levelSession.readabilityScore'),
+    readabilityScore,
     meta: assertLevelSessionMeta(input.meta, 'levelSession.meta'),
   };
 
   assertTargetWordCount(levelSession.targetWords);
   assertUniqueWords(levelSession.targetWords, 'levelSession.targetWords');
+  assertReadableTargetWordFloor(levelSession.targetWords);
+  assertReadableTargetWordPrevalence(levelSession.targetWords);
+  assertLevelReadabilityScore(levelSession.readabilityScore);
   assertUniqueWords(levelSession.foundTargets, 'levelSession.foundTargets');
   assertUniqueWords(levelSession.foundBonuses, 'levelSession.foundBonuses');
   assertFoundTargetsBelongToTargetWords(levelSession.targetWords, levelSession.foundTargets);

@@ -1,6 +1,11 @@
 import { MODULE_IDS } from '../../shared/module-ids';
 import { isRecordLike, parseNonNegativeSafeInteger } from '../../shared/runtime-guards';
 import {
+  DEFAULT_LEVEL_DICTIONARY_WORDS,
+  cloneDefaultLevelGrid,
+  cloneDefaultLevelTargetWords,
+} from '../../shared/default-level';
+import {
   WORD_GRID_CELL_COUNT,
   findWordPathInGrid,
   sortWordsByDifficulty,
@@ -8,6 +13,7 @@ import {
 import type { HelpKind } from '../HelpEconomy';
 import {
   createGameState,
+  createLevelSession,
   deserializeGameStateWithMigrations,
   type GameState,
   type GameStateInput,
@@ -28,8 +34,6 @@ import {
 export type RuntimeMode = 'bootstrapping' | 'ready';
 
 const DEFAULT_LEVEL_ID = 'level-1';
-const DEFAULT_LEVEL_TARGET_WORDS = ['дом', 'нос', 'сон'] as const;
-const DEFAULT_DICTIONARY_WORDS = [...DEFAULT_LEVEL_TARGET_WORDS, 'том', 'тон'] as const;
 const TARGET_SCORE_BASE = 10;
 const TARGET_SCORE_PER_LETTER = 2;
 const BONUS_SCORE_BASE = 2;
@@ -51,34 +55,6 @@ const RECENT_TARGET_WORDS_MAX = 64;
 const PROCESSED_HELP_OPERATION_IDS_MAX = 128;
 const WORD_SCORE_EMPTY = 0;
 const OPERATION_RETRY_COUNT_DEFAULT = 0;
-
-const DEFAULT_LEVEL_GRID: readonly string[] = [
-  'д',
-  'о',
-  'м',
-  'к',
-  'о',
-  'т',
-  'н',
-  'о',
-  'с',
-  'а',
-  'л',
-  'и',
-  'м',
-  'р',
-  'е',
-  'п',
-  'у',
-  'т',
-  'ь',
-  'я',
-  'б',
-  'в',
-  'г',
-  'ё',
-  'ж',
-];
 
 export interface CoreStateProgressSnapshot {
   readonly foundTargets: number;
@@ -231,11 +207,17 @@ export interface CoreStateModule {
 }
 
 function createDefaultLevelGrid(): readonly string[] {
-  if (DEFAULT_LEVEL_GRID.length !== WORD_GRID_CELL_COUNT) {
+  const grid = cloneDefaultLevelGrid();
+
+  if (grid.length !== WORD_GRID_CELL_COUNT) {
     throw new Error(`Invalid default grid length: expected ${WORD_GRID_CELL_COUNT} cells.`);
   }
 
-  return [...DEFAULT_LEVEL_GRID];
+  return grid;
+}
+
+function createDefaultTargetWords(): readonly string[] {
+  return cloneDefaultLevelTargetWords();
 }
 
 function createDefaultGameStateInput(nowTs: number): GameStateInput {
@@ -245,7 +227,7 @@ function createDefaultGameStateInput(nowTs: number): GameStateInput {
     currentLevelSession: {
       levelId: DEFAULT_LEVEL_ID,
       grid: createDefaultLevelGrid(),
-      targetWords: [...DEFAULT_LEVEL_TARGET_WORDS],
+      targetWords: [...createDefaultTargetWords()],
       foundTargets: [],
       foundBonuses: [],
       status: 'active',
@@ -685,7 +667,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
   const nowProvider = options.nowProvider ?? (() => Date.now());
   const levelGenerator = options.levelGenerator ?? createLevelGeneratorModule();
   const wordValidation =
-    options.wordValidation ?? createWordValidationModule(new Set(DEFAULT_DICTIONARY_WORDS));
+    options.wordValidation ?? createWordValidationModule(new Set(DEFAULT_LEVEL_DICTIONARY_WORDS));
 
   let runtimeMode: RuntimeMode = options.initialMode ?? 'bootstrapping';
   let gameState = createGameState(
@@ -725,6 +707,91 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     }
   };
 
+  const createValidatedLevelSessionInput = (
+    levelSession: GameStateInput['currentLevelSession'],
+  ): GameStateInput['currentLevelSession'] => {
+    createLevelSession(levelSession);
+    return levelSession;
+  };
+
+  const createFallbackGeneratedLevelSession = (
+    levelId: string,
+    seed: number,
+    source: string,
+    previousLevelId: string,
+    reason: 'generator-error' | 'invalid-generated-level',
+  ): GameStateInput['currentLevelSession'] => {
+    return createValidatedLevelSessionInput({
+      levelId,
+      grid: createDefaultLevelGrid(),
+      targetWords: [...createDefaultTargetWords()],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed,
+      meta: {
+        source,
+        previousLevelId,
+        generatorFallback: true,
+        generatorFallbackReason: reason,
+      },
+    });
+  };
+
+  const createGeneratedLevelSession = (
+    levelId: string,
+    seed: number,
+    source: string,
+    previousLevelId: string,
+    recentWordsForGeneration: readonly string[],
+  ): GameStateInput['currentLevelSession'] => {
+    let generatedLevel: ReturnType<LevelGeneratorModule['generateLevel']>;
+
+    try {
+      generatedLevel = levelGenerator.generateLevel({
+        seed,
+        recentTargetWords: recentWordsForGeneration,
+      });
+    } catch {
+      return createFallbackGeneratedLevelSession(
+        levelId,
+        seed,
+        source,
+        previousLevelId,
+        'generator-error',
+      );
+    }
+
+    try {
+      return createValidatedLevelSessionInput({
+        levelId,
+        grid: [...generatedLevel.grid],
+        targetWords: [...generatedLevel.targetWords],
+        foundTargets: [],
+        foundBonuses: [],
+        status: 'active',
+        seed: generatedLevel.seed,
+        meta: {
+          source,
+          previousLevelId,
+          generationAttempts: generatedLevel.meta.generationAttempts,
+          replacements: generatedLevel.meta.replacements,
+          backtracks: generatedLevel.meta.backtracks,
+          rareLetterCount: generatedLevel.meta.rareLetterCount,
+          rareLetterRatio: generatedLevel.meta.rareLetterRatio,
+        },
+      });
+    } catch {
+      return createFallbackGeneratedLevelSession(
+        levelId,
+        seed,
+        source,
+        previousLevelId,
+        'invalid-generated-level',
+      );
+    }
+  };
+
   const createAutoNextLevelSession = (): GameStateInput['currentLevelSession'] => {
     const currentLevelSession = gameState.currentLevelSession;
     const nextSeed = currentLevelSession.seed + 1;
@@ -732,35 +799,23 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       ...recentTargetWords,
       ...currentLevelSession.targetWords,
     ]);
-    const generatedLevel = levelGenerator.generateLevel({
-      seed: nextSeed,
-      recentTargetWords: recentWordsForGeneration,
-    });
 
     fallbackLevelIdSequence += 1;
+    const nextLevelId = createNextLevelId(currentLevelSession.levelId, fallbackLevelIdSequence);
+    const nextLevelSession = createGeneratedLevelSession(
+      nextLevelId,
+      nextSeed,
+      AUTO_NEXT_LEVEL_META_SOURCE,
+      currentLevelSession.levelId,
+      recentWordsForGeneration,
+    );
+
     recentTargetWords = trimRecentTargetWords([
       ...recentWordsForGeneration,
-      ...generatedLevel.targetWords,
+      ...nextLevelSession.targetWords,
     ]);
 
-    return {
-      levelId: createNextLevelId(currentLevelSession.levelId, fallbackLevelIdSequence),
-      grid: [...generatedLevel.grid],
-      targetWords: [...generatedLevel.targetWords],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: generatedLevel.seed,
-      meta: {
-        source: AUTO_NEXT_LEVEL_META_SOURCE,
-        previousLevelId: currentLevelSession.levelId,
-        generationAttempts: generatedLevel.meta.generationAttempts,
-        replacements: generatedLevel.meta.replacements,
-        backtracks: generatedLevel.meta.backtracks,
-        rareLetterCount: generatedLevel.meta.rareLetterCount,
-        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
-      },
-    };
+    return nextLevelSession;
   };
 
   const createManualReshuffleLevelSession = (): GameStateInput['currentLevelSession'] => {
@@ -770,35 +825,26 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       ...recentTargetWords,
       ...currentLevelSession.targetWords,
     ]);
-    const generatedLevel = levelGenerator.generateLevel({
-      seed: nextSeed,
-      recentTargetWords: recentWordsForGeneration,
-    });
 
     reshuffleLevelIdSequence += 1;
+    const reshuffleLevelId = createReshuffleLevelId(
+      currentLevelSession.levelId,
+      reshuffleLevelIdSequence,
+    );
+    const nextLevelSession = createGeneratedLevelSession(
+      reshuffleLevelId,
+      nextSeed,
+      MANUAL_RESHUFFLE_LEVEL_META_SOURCE,
+      currentLevelSession.levelId,
+      recentWordsForGeneration,
+    );
+
     recentTargetWords = trimRecentTargetWords([
       ...recentWordsForGeneration,
-      ...generatedLevel.targetWords,
+      ...nextLevelSession.targetWords,
     ]);
 
-    return {
-      levelId: createReshuffleLevelId(currentLevelSession.levelId, reshuffleLevelIdSequence),
-      grid: [...generatedLevel.grid],
-      targetWords: [...generatedLevel.targetWords],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: generatedLevel.seed,
-      meta: {
-        source: MANUAL_RESHUFFLE_LEVEL_META_SOURCE,
-        previousLevelId: currentLevelSession.levelId,
-        generationAttempts: generatedLevel.meta.generationAttempts,
-        replacements: generatedLevel.meta.replacements,
-        backtracks: generatedLevel.meta.backtracks,
-        rareLetterCount: generatedLevel.meta.rareLetterCount,
-        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
-      },
-    };
+    return nextLevelSession;
   };
 
   const createRestoreFallbackLevelSession = (
@@ -810,38 +856,26 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       ...recentTargetWords,
       ...fallbackBaseLevel.targetWords,
     ]);
-    const generatedLevel = levelGenerator.generateLevel({
-      seed: nextSeed,
-      recentTargetWords: recentWordsForGeneration,
-    });
 
     restoreFallbackLevelIdSequence += 1;
+    const restoreLevelId = createRestoreFallbackLevelId(
+      fallbackBaseLevel.levelId,
+      restoreFallbackLevelIdSequence,
+    );
+    const nextLevelSession = createGeneratedLevelSession(
+      restoreLevelId,
+      nextSeed,
+      RESTORE_FALLBACK_LEVEL_META_SOURCE,
+      fallbackBaseLevel.levelId,
+      recentWordsForGeneration,
+    );
+
     recentTargetWords = trimRecentTargetWords([
       ...recentWordsForGeneration,
-      ...generatedLevel.targetWords,
+      ...nextLevelSession.targetWords,
     ]);
 
-    return {
-      levelId: createRestoreFallbackLevelId(
-        fallbackBaseLevel.levelId,
-        restoreFallbackLevelIdSequence,
-      ),
-      grid: [...generatedLevel.grid],
-      targetWords: [...generatedLevel.targetWords],
-      foundTargets: [],
-      foundBonuses: [],
-      status: 'active',
-      seed: generatedLevel.seed,
-      meta: {
-        source: RESTORE_FALLBACK_LEVEL_META_SOURCE,
-        previousLevelId: fallbackBaseLevel.levelId,
-        generationAttempts: generatedLevel.meta.generationAttempts,
-        replacements: generatedLevel.meta.replacements,
-        backtracks: generatedLevel.meta.backtracks,
-        rareLetterCount: generatedLevel.meta.rareLetterCount,
-        rareLetterRatio: generatedLevel.meta.rareLetterRatio,
-      },
-    };
+    return nextLevelSession;
   };
 
   const buildSnapshot = (): CoreStateSnapshot => {
