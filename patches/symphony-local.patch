@@ -1,5 +1,5 @@
 diff --git a/elixir/lib/symphony_elixir/config.ex b/elixir/lib/symphony_elixir/config.ex
-index 3a9f0d9..088fd3f 100644
+index 3a9f0d9..facab78 100644
 --- a/elixir/lib/symphony_elixir/config.ex
 +++ b/elixir/lib/symphony_elixir/config.ex
 @@ -8,6 +8,7 @@ defmodule SymphonyElixir.Config do
@@ -10,7 +10,15 @@ index 3a9f0d9..088fd3f 100644
    @default_linear_endpoint "https://api.linear.app/graphql"
    @default_prompt_template """
    You are working on a Linear issue.
-@@ -61,6 +62,10 @@ defmodule SymphonyElixir.Config do
+@@ -53,6 +54,7 @@ defmodule SymphonyElixir.Config do
+                                  endpoint: [type: :string, default: @default_linear_endpoint],
+                                  api_key: [type: {:or, [:string, nil]}, default: nil],
+                                  project_slug: [type: {:or, [:string, nil]}, default: nil],
++                                 dispatch_view_id: [type: {:or, [:string, nil]}, default: nil],
+                                  assignee: [type: {:or, [:string, nil]}, default: nil],
+                                  active_states: [
+                                    type: {:list, :string},
+@@ -61,6 +63,10 @@ defmodule SymphonyElixir.Config do
                                   terminal_states: [
                                     type: {:list, :string},
                                     default: @default_terminal_states
@@ -21,7 +29,19 @@ index 3a9f0d9..088fd3f 100644
                                   ]
                                 ]
                               ],
-@@ -219,6 +224,11 @@ defmodule SymphonyElixir.Config do
+@@ -201,6 +207,11 @@ defmodule SymphonyElixir.Config do
+     get_in(validated_workflow_options(), [:tracker, :project_slug])
+   end
+ 
++  @spec linear_dispatch_view_id() :: String.t() | nil
++  def linear_dispatch_view_id do
++    get_in(validated_workflow_options(), [:tracker, :dispatch_view_id])
++  end
++
+   @spec linear_assignee() :: String.t() | nil
+   def linear_assignee do
+     validated_workflow_options()
+@@ -219,6 +230,11 @@ defmodule SymphonyElixir.Config do
      get_in(validated_workflow_options(), [:tracker, :terminal_states])
    end
  
@@ -33,8 +53,11 @@ index 3a9f0d9..088fd3f 100644
    @spec poll_interval_ms() :: pos_integer()
    def poll_interval_ms do
      get_in(validated_workflow_options(), [:polling, :interval_ms])
-@@ -465,6 +475,7 @@ defmodule SymphonyElixir.Config do
+@@ -463,8 +479,10 @@ defmodule SymphonyElixir.Config do
+     |> put_if_present(:endpoint, scalar_string_value(Map.get(section, "endpoint")))
+     |> put_if_present(:api_key, binary_value(Map.get(section, "api_key"), allow_empty: true))
      |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
++    |> put_if_present(:dispatch_view_id, scalar_string_value(Map.get(section, "dispatch_view_id")))
      |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
      |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
 +    |> put_if_present(:dispatch_blocking_states, csv_value(Map.get(section, "dispatch_blocking_states")))
@@ -42,37 +65,373 @@ index 3a9f0d9..088fd3f 100644
  
    defp extract_polling_options(section) do
 diff --git a/elixir/lib/symphony_elixir/linear/client.ex b/elixir/lib/symphony_elixir/linear/client.ex
-index ad8eee5..256dba6 100644
+index ad8eee5..a855981 100644
 --- a/elixir/lib/symphony_elixir/linear/client.ex
 +++ b/elixir/lib/symphony_elixir/linear/client.ex
-@@ -18,6 +18,7 @@ defmodule SymphonyElixir.Linear.Client do
+@@ -18,6 +18,8 @@ defmodule SymphonyElixir.Linear.Client do
          title
          description
          priority
++        prioritySortOrder
 +        sortOrder
          state {
            name
          }
-@@ -63,6 +64,7 @@ defmodule SymphonyElixir.Linear.Client do
+@@ -54,6 +56,59 @@ defmodule SymphonyElixir.Linear.Client do
+   }
+   """
+ 
++  @dispatch_view_query """
++  query SymphonyLinearDispatchViewPoll($viewId: String!, $stateNames: [String!]!, $first: Int!, $relationFirst: Int!, $after: String) {
++    customView(id: $viewId) {
++      viewPreferencesValues {
++        viewOrdering
++        viewOrderingDirection
++      }
++      issues(filter: {state: {name: {in: $stateNames}}}, first: $first, after: $after) {
++        nodes {
++          id
++          identifier
++          title
++          description
++          priority
++          prioritySortOrder
++          sortOrder
++          state {
++            name
++          }
++          branchName
++          url
++          assignee {
++            id
++          }
++          labels {
++            nodes {
++              name
++            }
++          }
++          inverseRelations(first: $relationFirst) {
++            nodes {
++              type
++              issue {
++                id
++                identifier
++                state {
++                  name
++                }
++              }
++            }
++          }
++          createdAt
++          updatedAt
++        }
++        pageInfo {
++          hasNextPage
++          endCursor
++        }
++      }
++    }
++  }
++  """
++
+   @query_by_ids """
+   query SymphonyLinearIssuesById($ids: [ID!]!, $first: Int!, $relationFirst: Int!) {
+     issues(filter: {id: {in: $ids}}, first: $first) {
+@@ -63,6 +118,8 @@ defmodule SymphonyElixir.Linear.Client do
          title
          description
          priority
++        prioritySortOrder
 +        sortOrder
          state {
            name
          }
-@@ -398,6 +400,7 @@ defmodule SymphonyElixir.Linear.Client do
+@@ -106,6 +163,7 @@ defmodule SymphonyElixir.Linear.Client do
+   @spec fetch_candidate_issues() :: {:ok, [Issue.t()]} | {:error, term()}
+   def fetch_candidate_issues do
+     project_slug = Config.linear_project_slug()
++    dispatch_view_id = normalize_dispatch_view_id(Config.linear_dispatch_view_id())
+ 
+     cond do
+       is_nil(Config.linear_api_token()) ->
+@@ -116,7 +174,13 @@ defmodule SymphonyElixir.Linear.Client do
+ 
+       true ->
+         with {:ok, assignee_filter} <- routing_assignee_filter() do
+-          do_fetch_by_states(project_slug, Config.linear_active_states(), assignee_filter)
++          case dispatch_view_id do
++            nil ->
++              do_fetch_by_states(project_slug, Config.linear_active_states(), assignee_filter)
++
++            view_id ->
++              do_fetch_dispatch_view_issues(view_id, Config.linear_active_states(), assignee_filter)
++          end
+         end
+     end
+   end
+@@ -218,10 +282,22 @@ defmodule SymphonyElixir.Linear.Client do
+     |> finalize_paginated_issues()
+   end
+ 
++  @doc false
++  @spec apply_dispatch_view_order_for_test([Issue.t()], String.t() | nil, String.t() | nil) :: [Issue.t()]
++  def apply_dispatch_view_order_for_test(issues, ordering, direction \\ nil) when is_list(issues) do
++    issues
++    |> sort_dispatch_view_issues(%{ordering: ordering, direction: direction})
++    |> apply_dispatch_order()
++  end
++
+   defp do_fetch_by_states(project_slug, state_names, assignee_filter) do
+     do_fetch_by_states_page(project_slug, state_names, assignee_filter, nil, [])
+   end
+ 
++  defp do_fetch_dispatch_view_issues(view_id, state_names, assignee_filter) do
++    do_fetch_dispatch_view_page(view_id, state_names, assignee_filter, nil, [], nil)
++  end
++
+   defp do_fetch_by_states_page(project_slug, state_names, assignee_filter, after_cursor, acc_issues) do
+     with {:ok, body} <-
+            graphql(@query, %{
+@@ -247,12 +323,143 @@ defmodule SymphonyElixir.Linear.Client do
+     end
+   end
+ 
++  defp do_fetch_dispatch_view_page(
++         view_id,
++         state_names,
++         assignee_filter,
++         after_cursor,
++         acc_issues,
++         dispatch_view_ordering
++       ) do
++    with {:ok, body} <-
++           graphql(@dispatch_view_query, %{
++             viewId: view_id,
++             stateNames: state_names,
++             first: @issue_page_size,
++             relationFirst: @issue_page_size,
++             after: after_cursor
++           }),
++         {:ok, issues, page_info, next_dispatch_view_ordering} <-
++           decode_dispatch_view_page_response(body, assignee_filter) do
++      resolved_dispatch_view_ordering = dispatch_view_ordering || next_dispatch_view_ordering
++      updated_acc = prepend_page_issues(issues, acc_issues)
++
++      case next_page_cursor(page_info) do
++        {:ok, next_cursor} ->
++          do_fetch_dispatch_view_page(
++            view_id,
++            state_names,
++            assignee_filter,
++            next_cursor,
++            updated_acc,
++            resolved_dispatch_view_ordering
++          )
++
++        :done ->
++          {:ok,
++           updated_acc
++           |> finalize_paginated_issues()
++           |> sort_dispatch_view_issues(resolved_dispatch_view_ordering)
++           |> apply_dispatch_order()}
++
++        {:error, reason} ->
++          {:error, reason}
++      end
++    end
++  end
++
+   defp prepend_page_issues(issues, acc_issues) when is_list(issues) and is_list(acc_issues) do
+     Enum.reverse(issues, acc_issues)
+   end
+ 
+   defp finalize_paginated_issues(acc_issues) when is_list(acc_issues), do: Enum.reverse(acc_issues)
+ 
++  defp apply_dispatch_order(issues) when is_list(issues) do
++    issues
++    |> Enum.with_index()
++    |> Enum.map(fn
++      {%Issue{} = issue, dispatch_order} -> %Issue{issue | dispatch_order: dispatch_order}
++      {issue, _dispatch_order} -> issue
++    end)
++  end
++
++  defp sort_dispatch_view_issues(issues, %{ordering: ordering} = dispatch_view_ordering)
++       when is_list(issues) and is_binary(ordering) do
++    case normalize_dispatch_view_ordering(ordering) do
++      "priority" ->
++        Enum.sort_by(issues, &priority_dispatch_sort_tuple/1)
++
++      "manual" ->
++        Enum.sort_by(issues, &manual_dispatch_sort_tuple/1)
++
++      "sortorder" ->
++        Enum.sort_by(issues, &manual_dispatch_sort_tuple/1)
++
++      "createdat" ->
++        Enum.sort_by(issues, &datetime_dispatch_sort_tuple(&1, :created_at, dispatch_view_ordering))
++
++      "updatedat" ->
++        Enum.sort_by(issues, &datetime_dispatch_sort_tuple(&1, :updated_at, dispatch_view_ordering))
++
++      _ ->
++        issues
++    end
++  end
++
++  defp sort_dispatch_view_issues(issues, _dispatch_view_ordering) when is_list(issues), do: issues
++
++  defp priority_dispatch_sort_tuple(%Issue{} = issue) do
++    {
++      priority_sort_order_key(issue.priority_sort_order),
++      manual_sort_order_key(issue.sort_order),
++      created_at_sort_key(issue.created_at),
++      issue.identifier || issue.id || ""
++    }
++  end
++
++  defp manual_dispatch_sort_tuple(%Issue{} = issue) do
++    {
++      manual_sort_order_key(issue.sort_order),
++      created_at_sort_key(issue.created_at),
++      issue.identifier || issue.id || ""
++    }
++  end
++
++  defp datetime_dispatch_sort_tuple(%Issue{} = issue, field, %{direction: direction}) do
++    datetime =
++      case field do
++        :created_at -> issue.created_at
++        :updated_at -> issue.updated_at
++      end
++
++    {
++      datetime_sort_key(datetime, direction),
++      manual_sort_order_key(issue.sort_order),
++      issue.identifier || issue.id || ""
++    }
++  end
++
++  defp priority_sort_order_key(value) when is_integer(value) or is_float(value), do: value
++  defp priority_sort_order_key(_value), do: 9_223_372_036_854_775_807
++
++  defp manual_sort_order_key(value) when is_integer(value) or is_float(value), do: -value
++  defp manual_sort_order_key(_value), do: 9_223_372_036_854_775_807
++
++  defp created_at_sort_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
++  defp created_at_sort_key(_datetime), do: 9_223_372_036_854_775_807
++
++  defp datetime_sort_key(%DateTime{} = datetime, direction) do
++    unix = DateTime.to_unix(datetime, :microsecond)
++
++    case normalize_dispatch_view_direction(direction) do
++      "ascending" -> unix
++      "asc" -> unix
++      _ -> -unix
++    end
++  end
++
++  defp datetime_sort_key(_datetime, _direction), do: 9_223_372_036_854_775_807
++
+   defp do_fetch_issue_states(ids, assignee_filter) do
+     case graphql(@query_by_ids, %{
+            ids: ids,
+@@ -381,6 +588,32 @@ defmodule SymphonyElixir.Linear.Client do
+ 
+   defp decode_linear_page_response(response, assignee_filter), do: decode_linear_response(response, assignee_filter)
+ 
++  defp decode_dispatch_view_page_response(
++         %{
++           "data" => %{
++             "customView" => %{
++               "viewPreferencesValues" => view_preferences_values,
++               "issues" => %{
++                 "nodes" => nodes,
++                 "pageInfo" => %{"hasNextPage" => has_next_page, "endCursor" => end_cursor}
++               }
++             }
++           }
++         },
++         assignee_filter
++       ) do
++    with {:ok, issues} <- decode_issue_nodes(nodes, assignee_filter) do
++      {:ok, issues, %{has_next_page: has_next_page == true, end_cursor: end_cursor}, decode_dispatch_view_ordering(view_preferences_values)}
++    end
++  end
++
++  defp decode_dispatch_view_page_response(%{"data" => %{"customView" => nil}}, _assignee_filter) do
++    {:error, :linear_dispatch_view_not_found}
++  end
++
++  defp decode_dispatch_view_page_response(response, assignee_filter),
++    do: decode_linear_page_response(response, assignee_filter)
++
+   defp next_page_cursor(%{has_next_page: true, end_cursor: end_cursor})
+        when is_binary(end_cursor) and byte_size(end_cursor) > 0 do
+     {:ok, end_cursor}
+@@ -398,6 +631,8 @@ defmodule SymphonyElixir.Linear.Client do
        title: issue["title"],
        description: issue["description"],
        priority: parse_priority(issue["priority"]),
++      priority_sort_order: parse_sort_order(issue["prioritySortOrder"]),
 +      sort_order: parse_sort_order(issue["sortOrder"]),
        state: get_in(issue, ["state", "name"]),
        branch_name: issue["branchName"],
        url: issue["url"],
-@@ -527,4 +530,15 @@ defmodule SymphonyElixir.Linear.Client do
+@@ -412,6 +647,26 @@ defmodule SymphonyElixir.Linear.Client do
+ 
+   defp normalize_issue(_issue, _assignee_filter), do: nil
+ 
++  defp decode_issue_nodes(nodes, assignee_filter) when is_list(nodes) do
++    issues =
++      nodes
++      |> Enum.map(&normalize_issue(&1, assignee_filter))
++      |> Enum.reject(&is_nil(&1))
++
++    {:ok, issues}
++  end
++
++  defp decode_issue_nodes(_nodes, _assignee_filter), do: {:error, :linear_unknown_payload}
++
++  defp decode_dispatch_view_ordering(%{} = view_preferences_values) do
++    %{
++      ordering: Map.get(view_preferences_values, "viewOrdering"),
++      direction: Map.get(view_preferences_values, "viewOrderingDirection")
++    }
++  end
++
++  defp decode_dispatch_view_ordering(_view_preferences_values), do: nil
++
+   defp assignee_field(%{} = assignee, field) when is_binary(field), do: assignee[field]
+   defp assignee_field(_assignee, _field), do: nil
+ 
+@@ -527,4 +782,38 @@ defmodule SymphonyElixir.Linear.Client do
  
    defp parse_priority(priority) when is_integer(priority), do: priority
    defp parse_priority(_priority), do: nil
++
++  defp normalize_dispatch_view_id(view_id) when is_binary(view_id) do
++    trimmed = String.trim(view_id)
++    if trimmed == "", do: nil, else: trimmed
++  end
++
++  defp normalize_dispatch_view_id(_view_id), do: nil
++
++  defp normalize_dispatch_view_ordering(ordering) when is_binary(ordering) do
++    ordering
++    |> String.trim()
++    |> String.downcase()
++  end
++
++  defp normalize_dispatch_view_ordering(_ordering), do: nil
++
++  defp normalize_dispatch_view_direction(direction) when is_binary(direction) do
++    direction
++    |> String.trim()
++    |> String.downcase()
++  end
++
++  defp normalize_dispatch_view_direction(_direction), do: nil
 +
 +  defp parse_sort_order(sort_order) when is_integer(sort_order) or is_float(sort_order), do: sort_order
 +
@@ -86,27 +445,31 @@ index ad8eee5..256dba6 100644
 +  defp parse_sort_order(_sort_order), do: nil
  end
 diff --git a/elixir/lib/symphony_elixir/linear/issue.ex b/elixir/lib/symphony_elixir/linear/issue.ex
-index 7ed9476..35326f5 100644
+index 7ed9476..e8f12b4 100644
 --- a/elixir/lib/symphony_elixir/linear/issue.ex
 +++ b/elixir/lib/symphony_elixir/linear/issue.ex
-@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Linear.Issue do
+@@ -9,6 +9,9 @@ defmodule SymphonyElixir.Linear.Issue do
      :title,
      :description,
      :priority,
++    :dispatch_order,
++    :priority_sort_order,
 +    :sort_order,
      :state,
      :branch_name,
      :url,
-@@ -26,6 +27,7 @@ defmodule SymphonyElixir.Linear.Issue do
+@@ -26,6 +29,9 @@ defmodule SymphonyElixir.Linear.Issue do
            title: String.t() | nil,
            description: String.t() | nil,
            priority: integer() | nil,
++          dispatch_order: non_neg_integer() | nil,
++          priority_sort_order: number() | nil,
 +          sort_order: number() | nil,
            state: String.t() | nil,
            branch_name: String.t() | nil,
            url: String.t() | nil,
 diff --git a/elixir/lib/symphony_elixir/orchestrator.ex b/elixir/lib/symphony_elixir/orchestrator.ex
-index a4dead1..3e3d993 100644
+index a4dead1..2a8450c 100644
 --- a/elixir/lib/symphony_elixir/orchestrator.ex
 +++ b/elixir/lib/symphony_elixir/orchestrator.ex
 @@ -273,6 +273,22 @@ defmodule SymphonyElixir.Orchestrator do
@@ -196,7 +559,7 @@ index a4dead1..3e3d993 100644
          %{
            state
            | running: Map.delete(state.running, issue_id),
-@@ -435,31 +462,82 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -435,31 +462,97 @@ defmodule SymphonyElixir.Orchestrator do
  
    defp terminate_task(_pid), do: :ok
  
@@ -258,6 +621,7 @@ index a4dead1..3e3d993 100644
 -        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 +        {
 +          dispatch_state_rank(issue.state),
++          issue_dispatch_order_key(issue),
 +          issue_sort_order_key(issue),
 +          priority_rank(issue.priority),
 +          issue_created_at_sort_key(issue),
@@ -266,7 +630,14 @@ index a4dead1..3e3d993 100644
  
        _ ->
 -        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
-+        {dispatch_state_rank(nil), issue_sort_order_key(nil), priority_rank(nil), issue_created_at_sort_key(nil), ""}
++        {
++          dispatch_state_rank(nil),
++          issue_dispatch_order_key(nil),
++          issue_sort_order_key(nil),
++          priority_rank(nil),
++          issue_created_at_sort_key(nil),
++          ""
++        }
      end)
    end
  
@@ -280,9 +651,16 @@ index a4dead1..3e3d993 100644
 +
 +  defp dispatch_state_rank(_state_name), do: 2
 +
++  defp issue_dispatch_order_key(%Issue{dispatch_order: dispatch_order})
++       when is_integer(dispatch_order) and dispatch_order >= 0,
++       do: dispatch_order
++
++  defp issue_dispatch_order_key(%Issue{}), do: 9_223_372_036_854_775_807
++  defp issue_dispatch_order_key(_issue), do: 9_223_372_036_854_775_807
++
 +  defp issue_sort_order_key(%Issue{sort_order: sort_order})
 +       when is_integer(sort_order) or is_float(sort_order),
-+       do: sort_order
++       do: -sort_order
 +
 +  defp issue_sort_order_key(%Issue{}), do: 9_223_372_036_854_775_807
 +  defp issue_sort_order_key(_issue), do: 9_223_372_036_854_775_807
@@ -290,7 +668,7 @@ index a4dead1..3e3d993 100644
    defp priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
    defp priority_rank(_priority), do: 5
  
-@@ -575,6 +653,89 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -575,6 +668,89 @@ defmodule SymphonyElixir.Orchestrator do
      |> MapSet.new()
    end
  
@@ -418,10 +796,14 @@ index 1b334a1..bb9d592 100644
 +  end
  end
 diff --git a/elixir/test/support/test_support.exs b/elixir/test/support/test_support.exs
-index bea30f2..b0526c9 100644
+index bea30f2..a1a76ac 100644
 --- a/elixir/test/support/test_support.exs
 +++ b/elixir/test/support/test_support.exs
-@@ -99,6 +99,7 @@ defmodule SymphonyElixir.TestSupport do
+@@ -96,9 +96,11 @@ defmodule SymphonyElixir.TestSupport do
+           tracker_endpoint: "https://api.linear.app/graphql",
+           tracker_api_token: "token",
+           tracker_project_slug: "project",
++          tracker_dispatch_view_id: nil,
            tracker_assignee: nil,
            tracker_active_states: ["Todo", "In Progress"],
            tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
@@ -429,7 +811,11 @@ index bea30f2..b0526c9 100644
            poll_interval_ms: 30_000,
            workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
            max_concurrent_agents: 10,
-@@ -134,6 +135,7 @@ defmodule SymphonyElixir.TestSupport do
+@@ -131,9 +133,11 @@ defmodule SymphonyElixir.TestSupport do
+     tracker_endpoint = Keyword.get(config, :tracker_endpoint)
+     tracker_api_token = Keyword.get(config, :tracker_api_token)
+     tracker_project_slug = Keyword.get(config, :tracker_project_slug)
++    tracker_dispatch_view_id = Keyword.get(config, :tracker_dispatch_view_id)
      tracker_assignee = Keyword.get(config, :tracker_assignee)
      tracker_active_states = Keyword.get(config, :tracker_active_states)
      tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
@@ -437,7 +823,11 @@ index bea30f2..b0526c9 100644
      poll_interval_ms = Keyword.get(config, :poll_interval_ms)
      workspace_root = Keyword.get(config, :workspace_root)
      max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
-@@ -170,6 +172,7 @@ defmodule SymphonyElixir.TestSupport do
+@@ -167,9 +171,11 @@ defmodule SymphonyElixir.TestSupport do
+         "  endpoint: #{yaml_value(tracker_endpoint)}",
+         "  api_key: #{yaml_value(tracker_api_token)}",
+         "  project_slug: #{yaml_value(tracker_project_slug)}",
++        "  dispatch_view_id: #{yaml_value(tracker_dispatch_view_id)}",
          "  assignee: #{yaml_value(tracker_assignee)}",
          "  active_states: #{yaml_value(tracker_active_states)}",
          "  terminal_states: #{yaml_value(tracker_terminal_states)}",
@@ -446,10 +836,14 @@ index bea30f2..b0526c9 100644
          "  interval_ms: #{yaml_value(poll_interval_ms)}",
          "workspace:",
 diff --git a/elixir/test/symphony_elixir/core_test.exs b/elixir/test/symphony_elixir/core_test.exs
-index 400c006..791e00e 100644
+index 400c006..c63292f 100644
 --- a/elixir/test/symphony_elixir/core_test.exs
 +++ b/elixir/test/symphony_elixir/core_test.exs
-@@ -8,12 +8,14 @@ defmodule SymphonyElixir.CoreTest do
+@@ -5,15 +5,19 @@ defmodule SymphonyElixir.CoreTest do
+     write_workflow_file!(Workflow.workflow_file_path(),
+       tracker_api_token: nil,
+       tracker_project_slug: nil,
++      tracker_dispatch_view_id: nil,
        poll_interval_ms: nil,
        tracker_active_states: nil,
        tracker_terminal_states: nil,
@@ -461,20 +855,24 @@ index 400c006..791e00e 100644
      assert Config.linear_active_states() == ["Todo", "In Progress"]
      assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 +    assert Config.linear_dispatch_blocking_states() == []
++    assert Config.linear_dispatch_view_id() == nil
      assert Config.linear_assignee() == nil
      assert Config.agent_max_turns() == 20
  
-@@ -32,6 +34,9 @@ defmodule SymphonyElixir.CoreTest do
+@@ -32,6 +36,12 @@ defmodule SymphonyElixir.CoreTest do
      write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
      assert Config.linear_active_states() == ["Todo", "Review"]
  
 +    write_workflow_file!(Workflow.workflow_file_path(), tracker_dispatch_blocking_states: "In Review, QA")
 +    assert Config.linear_dispatch_blocking_states() == ["In Review", "QA"]
 +
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_dispatch_view_id: "view-123")
++    assert Config.linear_dispatch_view_id() == "view-123"
++
      write_workflow_file!(Workflow.workflow_file_path(),
        tracker_api_token: "token",
        tracker_project_slug: nil
-@@ -73,8 +78,9 @@ defmodule SymphonyElixir.CoreTest do
+@@ -73,8 +83,9 @@ defmodule SymphonyElixir.CoreTest do
  
    test "current WORKFLOW.md file is valid and complete" do
      original_workflow_path = Workflow.workflow_file_path()
@@ -485,8 +883,11 @@ index 400c006..791e00e 100644
  
      assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
      assert is_map(config)
-@@ -85,13 +91,13 @@ defmodule SymphonyElixir.CoreTest do
+@@ -83,15 +94,16 @@ defmodule SymphonyElixir.CoreTest do
+     assert is_map(tracker)
+     assert Map.get(tracker, "kind") == "linear"
      assert is_binary(Map.get(tracker, "project_slug"))
++    assert Map.get(tracker, "dispatch_view_id") == "07c31365-7dc2-4bcc-a46b-4bc527b800ee"
      assert is_list(Map.get(tracker, "active_states"))
      assert is_list(Map.get(tracker, "terminal_states"))
 +    assert Map.get(tracker, "dispatch_blocking_states") == ["In Review"]
@@ -503,7 +904,7 @@ index 400c006..791e00e 100644
  
      assert String.trim(prompt) != ""
      assert is_binary(Config.workflow_prompt())
-@@ -217,12 +223,14 @@ defmodule SymphonyElixir.CoreTest do
+@@ -217,12 +229,14 @@ defmodule SymphonyElixir.CoreTest do
      issue_id = "issue-1"
      issue_identifier = "MT-555"
      workspace = Path.join(test_root, issue_identifier)
@@ -519,7 +920,7 @@ index 400c006..791e00e 100644
        )
  
        File.mkdir_p!(test_root)
-@@ -265,6 +273,7 @@ defmodule SymphonyElixir.CoreTest do
+@@ -265,6 +279,7 @@ defmodule SymphonyElixir.CoreTest do
        refute MapSet.member?(updated_state.claimed, issue_id)
        refute Process.alive?(agent_pid)
        assert File.exists?(workspace)
@@ -527,7 +928,7 @@ index 400c006..791e00e 100644
      after
        File.rm_rf(test_root)
      end
-@@ -496,7 +505,7 @@ defmodule SymphonyElixir.CoreTest do
+@@ -496,7 +511,7 @@ defmodule SymphonyElixir.CoreTest do
      assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
               state.retry_attempts[issue_id]
  
@@ -536,7 +937,7 @@ index 400c006..791e00e 100644
    end
  
    test "first abnormal worker exit waits before retrying" do
-@@ -597,6 +606,37 @@ defmodule SymphonyElixir.CoreTest do
+@@ -597,6 +612,37 @@ defmodule SymphonyElixir.CoreTest do
      assert prompt =~ "updated=2026-02-26T18:07:03Z"
    end
  
@@ -575,7 +976,7 @@ index 400c006..791e00e 100644
      write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
  
 diff --git a/elixir/test/symphony_elixir/workspace_and_config_test.exs b/elixir/test/symphony_elixir/workspace_and_config_test.exs
-index 10f9f52..3c024fb 100644
+index 10f9f52..54ff4b4 100644
 --- a/elixir/test/symphony_elixir/workspace_and_config_test.exs
 +++ b/elixir/test/symphony_elixir/workspace_and_config_test.exs
 @@ -276,6 +276,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
@@ -594,7 +995,7 @@ index 10f9f52..3c024fb 100644
      assert issue.state == "Todo"
      assert issue.assignee_id == "user-1"
      assert issue.assigned_to_worker
-@@ -377,42 +379,93 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -377,42 +379,155 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      assert log =~ "Variable \\\"$ids\\\" got invalid value"
    end
  
@@ -641,8 +1042,8 @@ index 10f9f52..3c024fb 100644
 +      id: "issue-top",
 +      identifier: "MT-300",
 +      title: "Top of column",
-       state: "Todo",
-+      sort_order: -200,
++      state: "Todo",
++      sort_order: -100,
 +      priority: 4,
 +      created_at: ~U[2026-01-03 00:00:00Z]
 +    }
@@ -652,6 +1053,38 @@ index 10f9f52..3c024fb 100644
 +      identifier: "MT-301",
 +      title: "Lower in column",
 +      state: "Todo",
++      sort_order: -200,
++      priority: 1,
++      created_at: ~U[2026-01-01 00:00:00Z]
++    }
++
++    sorted =
++      Orchestrator.sort_issues_for_dispatch_for_test([
++        issue_bottom,
++        issue_top
++      ])
++
++    assert Enum.map(sorted, & &1.identifier) == ["MT-300", "MT-301"]
++  end
++
++  test "orchestrator preserves dispatch view order before manual sort order" do
++    issue_top = %Issue{
++      id: "issue-dispatch-top",
++      identifier: "MT-320",
++      title: "Top in dispatch view",
++      state: "Todo",
++      dispatch_order: 0,
++      sort_order: -200,
++      priority: 4,
++      created_at: ~U[2026-01-03 00:00:00Z]
++    }
++
++    issue_bottom = %Issue{
++      id: "issue-dispatch-bottom",
++      identifier: "MT-321",
++      title: "Lower in dispatch view",
+       state: "Todo",
++      dispatch_order: 1,
 +      sort_order: -100,
        priority: 1,
 -      created_at: ~U[2026-01-02 00:00:00Z]
@@ -668,7 +1101,39 @@ index 10f9f52..3c024fb 100644
 +        issue_top
 +      ])
 +
-+    assert Enum.map(sorted, & &1.identifier) == ["MT-300", "MT-301"]
++    assert Enum.map(sorted, & &1.identifier) == ["MT-320", "MT-321"]
++  end
++
++  test "dispatch view priority ordering derives dispatch order from priority sort order" do
++    issue_first = %Issue{
++      id: "issue-priority-first",
++      identifier: "MT-330",
++      title: "First by board priority order",
++      state: "Todo",
++      priority_sort_order: -200,
++      sort_order: -100,
++      created_at: ~U[2026-01-03 00:00:00Z]
++    }
++
++    issue_second = %Issue{
++      id: "issue-priority-second",
++      identifier: "MT-331",
++      title: "Second by board priority order",
+       state: "Todo",
+-      priority: 2,
+-      created_at: ~U[2025-12-01 00:00:00Z]
++      priority_sort_order: -150,
++      sort_order: -200,
++      created_at: ~U[2026-01-01 00:00:00Z]
++    }
++
++    ordered =
++      Client.apply_dispatch_view_order_for_test(
++        [issue_second, issue_first],
++        "priority"
++      )
++
++    assert Enum.map(ordered, &{&1.identifier, &1.dispatch_order}) == [{"MT-330", 0}, {"MT-331", 1}]
 +  end
 +
 +  test "issues missing manual sort order fall back behind ordered issues" do
@@ -676,9 +1141,7 @@ index 10f9f52..3c024fb 100644
 +      id: "issue-ordered",
 +      identifier: "MT-400",
 +      title: "Ordered task",
-       state: "Todo",
--      priority: 2,
--      created_at: ~U[2025-12-01 00:00:00Z]
++      state: "Todo",
 +      sort_order: -50,
 +      priority: 4,
 +      created_at: ~U[2026-01-03 00:00:00Z]
@@ -707,7 +1170,7 @@ index 10f9f52..3c024fb 100644
    end
  
    test "todo issue with non-terminal blocker is not dispatch-eligible" do
-@@ -477,6 +530,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -477,6 +592,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      assert Orchestrator.should_dispatch_issue_for_test(issue, state)
    end
  
@@ -826,7 +1289,7 @@ index 10f9f52..3c024fb 100644
    test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
      stale_issue = %Issue{
        id: "blocked-2",
-@@ -720,6 +885,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -720,6 +947,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      write_workflow_file!(Workflow.workflow_file_path(),
        tracker_active_states: %{todo: true},
        tracker_terminal_states: %{done: true},
@@ -834,7 +1297,7 @@ index 10f9f52..3c024fb 100644
        poll_interval_ms: %{bad: true},
        workspace_root: 123,
        max_retry_backoff_ms: 0,
-@@ -734,6 +900,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -734,6 +962,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
  
      assert Config.linear_active_states() == ["Todo", "In Progress"]
      assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]

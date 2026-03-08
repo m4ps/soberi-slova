@@ -2,6 +2,7 @@
 tracker:
   kind: linear
   project_slug: "soberi-slova-backlog-b5d77d79c71d"
+  dispatch_view_id: "07c31365-7dc2-4bcc-a46b-4bc527b800ee"
   api_key: $LINEAR_API_KEY
   active_states:
     - Todo
