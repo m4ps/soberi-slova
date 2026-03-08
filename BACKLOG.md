@@ -172,7 +172,7 @@
       Task Context: Переведи подсказку на новый контракт: hint работает только с текущим displayed target, первое использование открывает стартовую клетку, каждое следующее раскрывает еще одну следующую клетку пути, автозачета нет.
       Task DOD: Hint progression идет по клеткам пути текущего target; `currentHintPathProgress` растет на 1 шаг за применение; reshuffle/reset уровня полностью сбрасывает hint progress.
 
-- [ ] [CODE]-[019] Расширить restore/persist под displayed target и hint progress
+- [x] [CODE]-[019] Расширить restore/persist под displayed target и hint progress
       Task Context: Сохраняй и восстанавливай не только score и уровень, но и `currentDisplayedTargetId` и `currentHintPathProgress`; при частичном restore guided loop должен оставаться консистентным или безопасно пересобираться по правилам TECHSPEC.
       Task DOD: После refresh/resume пользователь возвращается к тому же displayed target и тому же hint progress, если snapshot валиден; при деградации restore сохраняются score/timer и восстанавливается корректный guided context.
 
