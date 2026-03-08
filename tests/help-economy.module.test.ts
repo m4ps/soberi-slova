@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
+  HELP_AD_TECHNICAL_ERROR_POLICY,
+} from '../src/config/help-ad-policy';
+import {
   HELP_AD_FAILURE_COOLDOWN_MS,
   HELP_WINDOW_DURATION_MS,
   createHelpEconomyModule,
@@ -190,5 +194,29 @@ describe('help economy module', () => {
       1_120 + HELP_AD_FAILURE_COOLDOWN_MS + 1,
     );
     expect(afterCooldownRequest.type).toBe('await-ad');
+  });
+
+  it('returns the configured technical error policy for rewarded ad failures', () => {
+    const helpEconomy = createHelpEconomyModule({
+      windowStartTs: 2_000,
+      freeActionAvailable: false,
+    });
+
+    const request = helpEconomy.requestHelp('hint', 2_100);
+    expect(request.type).toBe('await-ad');
+    if (request.type !== 'await-ad') {
+      throw new Error('Expected ad-required request.');
+    }
+
+    const finalize = helpEconomy.finalizePendingRequest(request.operationId, false, 2_120, 'error');
+    expect(finalize).toMatchObject({
+      finalized: true,
+      applied: false,
+      cooldownApplied: true,
+      cooldownDurationMs: HELP_AD_FAILURE_COOLDOWN_MS,
+      toastMessage: HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
+      technicalErrorPolicy: HELP_AD_TECHNICAL_ERROR_POLICY,
+    });
+    expect(finalize.windowState.cooldownReason).toBe('error');
   });
 });

@@ -2,6 +2,31 @@
 
 ## 2026-03-08
 
+### [CODE]-[021] Зафиксирована deterministic policy для rewarded ad technical error
+
+- Добавлен единый shared/config contract `src/config/help-ad-policy.ts`:
+  - для `reward/close/error/no-fill` теперь централизованно задаются `applyHelp`, `applyCooldown`, `toastMessage`;
+  - product policy для `showRewardedVideo` technical error зафиксирована как `deterministic-reject-with-toast-and-cooldown`.
+- `src/domain/HelpEconomy/index.ts` переведён на policy-driven finalization:
+  - cooldown после ad-failure outcome теперь включается через единый outcome policy contract;
+  - результат `finalizePendingRequest(...)` теперь несёт `toastMessage` и `technicalErrorPolicy`, чтобы application/telemetry не дублировали локальные ветки по `error`.
+- `src/application/index.ts` и `src/application/contracts.ts` синхронизированы с новым контрактом:
+  - решение о применении help по ad-result теперь читается из outcome policy, а не из ad hoc проверки только на `reward`;
+  - события `domain/help` (`phase=ad-result`) и `domain/help-action-failed` теперь публикуют `technicalErrorPolicy` alongside `cooldownApplied`, `cooldownDurationMs`, `toastMessage`.
+- Обновлено покрытие:
+  - `tests/help-economy.module.test.ts` фиксирует deterministic reject policy для `outcome=error`;
+  - `tests/application-command-bus.smoke.test.ts` проверяет публикацию `technicalErrorPolicy`, toast и cooldown в telemetry payload;
+  - `tests/platform-yandex.adapter.test.ts` остаётся regression-страховкой для mapping `showRewardedVideo` runtime outcomes в `AcknowledgeAdResult`.
+- Документация синхронизирована:
+  - `TECHSPEC.md` закрывает open question по ad technical error и фиксирует deterministic reject contract;
+  - `docs/observability/event-contracts.md` документирует `technicalErrorPolicy` в telemetry;
+  - `README.md` обновлён под актуальный help/ad contract;
+  - добавлен `ADR/ADR-046-deterministic-reject-policy-for-rewarded-ad-technical-error-code-021.md`.
+- Верификация:
+  - `npm test -- --run tests/help-economy.module.test.ts tests/application-command-bus.smoke.test.ts tests/platform-yandex.adapter.test.ts` — passed;
+  - browser-smoke через skill `$WEB_GAME_CLIENT` не выполнен в sandbox-среде: локальный dev-server не может открыть listener (`listen EPERM: operation not permitted 127.0.0.1:4173`);
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[027] Генератор доведён до quota-aware 6x6 scaffold из TECHSPEC v1.1
 
 - `src/domain/LevelGenerator/index.ts` синхронизирован с доменным generator contract:

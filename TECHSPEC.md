@@ -204,7 +204,7 @@ Visual tokens contract:
 7. Ad outcomes:
 - `onRewarded`: помощь применяется.
 - `onClose`: помощь не выдаётся.
-- `onError`: goodwill или отказ (policy фиксируется отдельно).
+- `onError`: deterministic отказ без goodwill; публикуется toast `Не удалось показать рекламу`, обе help-кнопки уходят в общий cooldown `3 сек`.
 - `noFill`: отказ + toast + cooldown 2-5s [PRD: 13.4].
 
 8. Level completion:
@@ -342,12 +342,7 @@ Open Questions:
   - Risk: неправильная калибровка pace.
   - Validation: зафиксировать thresholds до запуска production v1.1.
   - Owner: PO.
-- `OQ-2`: Final policy по ad technical error (`goodwill` vs `no reward`) [PRD: 13.4].
-  - ASSUMPTION: политика должна быть единой для hint и reshuffle.
-  - Risk: конфликт UX и монетизации.
-  - Validation: зафиксировать policy до freeze Epic 3.
-  - Owner: PO.
-- `OQ-3`: Минимальная device matrix для 6x6 readability/touch accuracy.
+- `OQ-2`: Минимальная device matrix для 6x6 readability/touch accuracy.
   - ASSUMPTION: текущая QA матрица достаточна.
   - Risk: скрытые mobile regressions.
   - Validation: утвердить device matrix до release hardening.

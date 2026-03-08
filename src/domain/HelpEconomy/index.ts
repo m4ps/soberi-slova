@@ -1,9 +1,14 @@
+import {
+  resolveHelpAdOutcomePolicy,
+  type HelpAdOutcome,
+  type HelpAdTechnicalErrorPolicy,
+} from '../../config/help-ad-policy';
 import { MODULE_IDS } from '../../shared/module-ids';
 
 export type HelpKind = 'hint' | 'reshuffle';
 export const HELP_WINDOW_DURATION_MS = 5 * 60 * 1000;
 export const HELP_AD_FAILURE_COOLDOWN_MS = 3 * 1_000;
-export type HelpAdOutcome = 'reward' | 'close' | 'error' | 'no-fill';
+export type { HelpAdOutcome } from '../../config/help-ad-policy';
 export type HelpAdFailureOutcome = Exclude<HelpAdOutcome, 'reward'>;
 
 export interface HelpPendingRequestState {
@@ -63,6 +68,8 @@ export interface HelpFinalizeResult {
   readonly freeActionConsumed: boolean;
   readonly cooldownApplied: boolean;
   readonly cooldownDurationMs: number;
+  readonly toastMessage: string | null;
+  readonly technicalErrorPolicy: HelpAdTechnicalErrorPolicy | null;
   readonly windowState: HelpWindowState;
 }
 
@@ -104,10 +111,6 @@ function normalizeCooldownDuration(candidateMs: number, fallbackMs: number): num
   }
 
   return Math.max(0, Math.trunc(candidateMs));
-}
-
-function isAdFailureOutcome(outcome: HelpAdOutcome | undefined): outcome is HelpAdFailureOutcome {
-  return outcome === 'close' || outcome === 'error' || outcome === 'no-fill';
 }
 
 function resolveOptions(
@@ -268,6 +271,8 @@ export function createHelpEconomyModule(
           freeActionConsumed: false,
           cooldownApplied: false,
           cooldownDurationMs: 0,
+          toastMessage: null,
+          technicalErrorPolicy: null,
           windowState: createWindowState(nowTs),
         };
       }
@@ -275,6 +280,7 @@ export function createHelpEconomyModule(
       const finalizedRequest = pendingRequest;
       const freeActionConsumed = pendingRequest.isFreeAction && applied;
       const finalizedKind = pendingRequest.kind;
+      const outcomePolicy = resolveHelpAdOutcomePolicy(adOutcome);
       let cooldownApplied = false;
       pendingRequest = null;
 
@@ -282,9 +288,14 @@ export function createHelpEconomyModule(
         freeActionAvailable = false;
       }
 
-      if (!applied && !finalizedRequest.isFreeAction && isAdFailureOutcome(adOutcome)) {
+      if (!applied && !finalizedRequest.isFreeAction && outcomePolicy?.applyCooldown === true) {
         cooldownUntilTs = normalizeTimestamp(nowTs, nowProvider()) + adFailureCooldownMs;
-        cooldownReason = adOutcome;
+        cooldownReason =
+          adOutcome && adOutcome !== 'reward'
+            ? adOutcome
+            : outcomePolicy.outcome === 'reward'
+              ? null
+              : outcomePolicy.outcome;
         cooldownApplied = true;
       } else if (normalizeTimestamp(nowTs, nowProvider()) >= cooldownUntilTs) {
         cooldownUntilTs = 0;
@@ -299,6 +310,8 @@ export function createHelpEconomyModule(
         freeActionConsumed,
         cooldownApplied,
         cooldownDurationMs: cooldownApplied ? adFailureCooldownMs : 0,
+        toastMessage: !applied ? (outcomePolicy?.toastMessage ?? null) : null,
+        technicalErrorPolicy: outcomePolicy?.technicalErrorPolicy ?? null,
         windowState: createWindowState(nowTs),
       };
     },

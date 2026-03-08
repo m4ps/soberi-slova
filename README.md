@@ -218,7 +218,7 @@ flowchart TD
   - real-time окно `5 минут` с восстановлением `free action` по фактическому времени;
   - общий lock для `hint/reshuffle` и re-entrant-safe обработка pending help request;
   - списание бесплатного действия только после успешного применения эффекта;
-  - cooldown `3 сек` после ad no-reward outcome (`close/error/no-fill`) для временной блокировки обеих help-кнопок.
+  - deterministic reject policy для ad technical error: goodwill не выдаётся, UI получает toast `Не удалось показать рекламу`, а общий cooldown `3 сек` применяется так же, как для других no-reward outcomes (`close/error/no-fill`).
 - `GameState` — версия schema state-модели (`GameState/LevelSession/HelpWindow/PendingOperation/LeaderboardSyncState/WordEntry`) с runtime-конструкторами и JSON snapshot round-trip.
 - `RenderMotion` — рендер-адаптер Pixi с one-screen UI:
   - всегда видимые `grid 5x5`, `progress x/N`, `all-time score`, `hint/reshuffle/leaderboard`;
@@ -349,6 +349,6 @@ flowchart TD
 - CODE-004: реализован `CoreState` scoring/progression в state-first порядке: формулы PRD (`target: 10+2*len`, `bonus: 2+len`, `level clear: 30+5*N`), progress `x/N`, idempotent начисления и запрет bonus accrual после completion.
 - CODE-005: реализован completion pipeline финального target и авто-переход уровня: `level clear` начисляется только по `AcknowledgeWordSuccessAnimation`, ввод блокируется на `completed/reshuffling`, `AcknowledgeLevelTransitionDone` запускает deterministic auto-next уровень без потери `allTimeScore`.
 - CODE-006: реализован `HelpEconomy` и интеграция help-flow в application/core-state: общий `free-action` пул `hint/reshuffle` с real-time таймером, shared lock на обе help-кнопки, hint progression `2/3/4+` букв для самого лёгкого оставшегося target и manual reshuffle с полным reset текущего уровня.
-- CODE-007: интегрированы rewarded ads outcomes в help-flow: `PlatformYandex` слушает `domain/help` (ad-required), вызывает `showRewardedVideo`, маппит `reward/close/error/no-fill` в `AcknowledgeAdResult`; `HelpEconomy` применяет cooldown `3 сек` на no-reward outcomes, а telemetry фиксирует outcome + `durationMs`.
+- CODE-007 / CODE-021: rewarded ads outcomes интегрированы в help-flow и доведены до явного policy contract: `PlatformYandex` слушает `domain/help` (ad-required), вызывает `showRewardedVideo`, маппит `reward/close/error/no-fill` в `AcknowledgeAdResult`; `HelpEconomy` применяет cooldown `3 сек` на no-reward outcomes, а telemetry фиксирует outcome, `durationMs` и `technicalErrorPolicy` для `error`.
 - CODE-008: реализован `RenderMotion` one-screen контракт: mobile-first UI с приоритетом поля `5x5`, кнопками `hint/reshuffle/leaderboard`, pseudo-liquid in-drag/undo feedback, event-driven success glow и перелётом букв, плюс автоматический completion transition ack из рендер-цикла.
 - CODE-009: реализован end-to-end контур `PlatformYandex/Persistence/Restore/Leaderboard`: local+cloud snapshot restore, best-effort fallback уровня при нересторибельном состоянии, восстановление free-action timer, leaderboard sync queue с retry/backoff и manual auth dialog.

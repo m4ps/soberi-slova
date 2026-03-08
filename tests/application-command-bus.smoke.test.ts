@@ -7,6 +7,10 @@ import {
   type ApplicationCommand,
   type ApplicationEvent,
 } from '../src/application';
+import {
+  HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
+  HELP_AD_TECHNICAL_ERROR_POLICY,
+} from '../src/config/help-ad-policy';
 import { createCoreStateModule } from '../src/domain/CoreState';
 import { calculateReadabilityScore, type GameStateInput } from '../src/domain/GameState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
@@ -197,6 +201,7 @@ describe('application command/query bus smoke', () => {
         cooldownApplied: false,
         cooldownDurationMs: 0,
         toastMessage: null,
+        technicalErrorPolicy: null,
       },
     });
     expect(helpActionAppliedEvents[0]).toMatchObject({
@@ -218,6 +223,7 @@ describe('application command/query bus smoke', () => {
         reason: 'ad-reward-not-applied',
         outcome: 'reward',
         toastMessage: null,
+        technicalErrorPolicy: null,
       },
     });
     expect(hintProgressEvents[0]).toMatchObject({
@@ -985,6 +991,99 @@ describe('application command/query bus smoke', () => {
     expect(blockedByCooldown.type).toBe('domainError');
     if (blockedByCooldown.type === 'domainError') {
       expect(blockedByCooldown.error.code).toBe('help.request.cooldown');
+    }
+  });
+
+  it('publishes deterministic technical error policy in help telemetry', () => {
+    const nowSpy = vi.spyOn(Date, 'now');
+    try {
+      nowSpy.mockReturnValue(1_100);
+      const application = createApplicationLayer({
+        coreState: createCoreStateModule(),
+        helpEconomy: createHelpEconomyModule({
+          windowStartTs: 1_000,
+          freeActionAvailable: false,
+        }),
+      });
+      const events: ApplicationEvent[] = [];
+      application.events.subscribe((event) => {
+        events.push(event);
+      });
+
+      const helpRequest = application.commands.dispatch({ type: 'RequestHint' });
+      expect(helpRequest.type).toBe('ok');
+      if (helpRequest.type !== 'ok') {
+        throw new Error('Expected ad-required help request.');
+      }
+
+      nowSpy.mockReturnValue(1_340);
+      const adAck = application.commands.dispatch({
+        type: 'AcknowledgeAdResult',
+        helpType: 'hint',
+        outcome: 'error',
+        operationId: helpRequest.value.correlationId,
+        durationMs: 240,
+        outcomeContext: 'Rewarded ad API is unavailable in SDK runtime.',
+      });
+      expect(adAck.type).toBe('ok');
+
+      const helpAdResultEvents = events.filter(
+        (
+          event,
+        ): event is Extract<ApplicationEvent, { eventType: 'domain/help' }> & {
+          readonly payload: { readonly phase: 'ad-result' };
+        } => {
+          return event.eventType === 'domain/help' && event.payload.phase === 'ad-result';
+        },
+      );
+      const helpActionFailedEvents = events.filter(
+        (event): event is Extract<ApplicationEvent, { eventType: 'domain/help-action-failed' }> => {
+          return event.eventType === 'domain/help-action-failed';
+        },
+      );
+
+      expect(helpAdResultEvents).toHaveLength(1);
+      expect(helpActionFailedEvents).toHaveLength(1);
+      expect(helpAdResultEvents[0]).toMatchObject({
+        correlationId: helpRequest.value.correlationId,
+        payload: {
+          phase: 'ad-result',
+          helpKind: 'hint',
+          outcome: 'error',
+          applied: false,
+          durationMs: 240,
+          outcomeContext: 'Rewarded ad API is unavailable in SDK runtime.',
+          cooldownApplied: true,
+          cooldownDurationMs: 3_000,
+          toastMessage: HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
+          technicalErrorPolicy: HELP_AD_TECHNICAL_ERROR_POLICY,
+        },
+      });
+      expect(helpActionFailedEvents[0]).toMatchObject({
+        correlationId: helpRequest.value.correlationId,
+        payload: {
+          commandType: 'AcknowledgeAdResult',
+          helpKind: 'hint',
+          source: 'rewarded-ad',
+          reason: 'ad-error',
+          outcome: 'error',
+          durationMs: 240,
+          outcomeContext: 'Rewarded ad API is unavailable in SDK runtime.',
+          cooldownApplied: true,
+          cooldownDurationMs: 3_000,
+          toastMessage: HELP_AD_GENERIC_FAILURE_TOAST_MESSAGE,
+          technicalErrorPolicy: HELP_AD_TECHNICAL_ERROR_POLICY,
+        },
+      });
+
+      const helpWindowState = application.queries.execute({ type: 'GetHelpWindowState' });
+      expect(helpWindowState.type).toBe('ok');
+      if (helpWindowState.type === 'ok') {
+        expect(helpWindowState.value.cooldownReason).toBe('error');
+        expect(helpWindowState.value.cooldownMsRemaining).toBeGreaterThan(0);
+      }
+    } finally {
+      nowSpy.mockRestore();
     }
   });
 });

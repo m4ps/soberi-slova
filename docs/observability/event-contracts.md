@@ -64,7 +64,9 @@
 - `domain/help`
   - payload:
     - `{ phase: 'requested', commandType: 'RequestHint' | 'RequestReshuffle', operationId: string, helpKind: 'hint' | 'reshuffle', isFreeAction: boolean, requiresAd: boolean, applied: boolean }`
-    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill', applied: boolean, durationMs: number | null, outcomeContext: string | null, cooldownApplied: boolean, cooldownDurationMs: number, toastMessage: string | null }`
+    - `{ phase: 'ad-result', commandType: 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', outcome: 'reward' | 'close' | 'error' | 'no-fill', applied: boolean, durationMs: number | null, outcomeContext: string | null, cooldownApplied: boolean, cooldownDurationMs: number, toastMessage: string | null, technicalErrorPolicy: 'deterministic-reject-with-toast-and-cooldown' | 'deterministic-goodwill' | null }`
+- `domain/help-action-failed`
+  - payload: `{ commandType: 'RequestHint' | 'RequestReshuffle' | 'AcknowledgeAdResult', operationId: string, helpKind: 'hint' | 'reshuffle', source: 'free' | 'rewarded-ad', reason: string, levelId: string, stateVersion: number, allTimeScore: number, outcome: 'reward' | 'close' | 'error' | 'no-fill' | null, durationMs: number | null, outcomeContext: string | null, cooldownApplied: boolean, cooldownDurationMs: number, toastMessage: string | null, technicalErrorPolicy: 'deterministic-reject-with-toast-and-cooldown' | 'deterministic-goodwill' | null }`
 - `domain/persistence`
   - payload: `{ commandType: 'RestoreSession', operation: 'restore-session' }`
 - `domain/leaderboard-sync`
@@ -96,6 +98,7 @@
 - `outcomeContext` переносит технический reason при `error/no-fill`;
 - `cooldownApplied/cooldownDurationMs` фиксируют применение временной блокировки help-кнопок;
 - `toastMessage` формирует UI-сигнал для no-reward исходов (`close/error/no-fill`).
+- `technicalErrorPolicy` делает product decision по `outcome=error` явным в telemetry; текущее значение runtime: `deterministic-reject-with-toast-and-cooldown`.
 
 Дополнительно:
 
