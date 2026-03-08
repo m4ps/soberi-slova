@@ -83,6 +83,7 @@ export interface VisualShellTokens {
 }
 
 export interface VisualPanelTokens {
+  readonly metricsRow: VisualPanelContract;
   readonly metric: VisualPanelContract;
   readonly currentWord: VisualPanelContract;
   readonly controls: VisualPanelContract;
@@ -187,6 +188,7 @@ export interface VisualSurfaceTreatmentTokens {
 }
 
 export interface VisualSurfaceTokens {
+  readonly metricsRow: VisualSurfaceTreatmentTokens;
   readonly metric: VisualSurfaceTreatmentTokens;
   readonly currentWord: VisualSurfaceTreatmentTokens;
   readonly controls: VisualSurfaceTreatmentTokens;
@@ -300,11 +302,17 @@ export const visualTokens = {
     shellBorderRadiusPx: 28,
   },
   panels: {
+    metricsRow: {
+      fillHex: '#FFFFFF',
+      fillAlpha: 0.46,
+      strokeHex: '#DCEAF5',
+      strokeAlpha: 0.42,
+    },
     metric: {
       fillHex: '#FFFFFF',
-      fillAlpha: 0.8,
+      fillAlpha: 0.76,
       strokeHex: '#D6E7F5',
-      strokeAlpha: 0.68,
+      strokeAlpha: 0.62,
     },
     currentWord: {
       fillHex: '#FFFFFF',
@@ -314,9 +322,9 @@ export const visualTokens = {
     },
     controls: {
       fillHex: '#FFFFFF',
-      fillAlpha: 0.76,
+      fillAlpha: 0.64,
       strokeHex: '#D6E7F5',
-      strokeAlpha: 0.62,
+      strokeAlpha: 0.52,
     },
   },
   text: {
@@ -405,14 +413,23 @@ export const visualTokens = {
     toastWidth: 2,
   },
   surfaces: {
+    metricsRow: {
+      shadowHex: '#D4E4EF',
+      shadowAlpha: 0.11,
+      shadowOffsetY: 6,
+      highlightHex: '#FFFFFF',
+      highlightAlpha: 0.58,
+      bloomHex: '#F8FCFF',
+      bloomAlpha: 0.44,
+    },
     metric: {
       shadowHex: '#C4D9EA',
-      shadowAlpha: 0.2,
-      shadowOffsetY: 10,
+      shadowAlpha: 0.18,
+      shadowOffsetY: 8,
       highlightHex: '#FFFFFF',
-      highlightAlpha: 0.82,
+      highlightAlpha: 0.76,
       bloomHex: '#F8FDFF',
-      bloomAlpha: 0.68,
+      bloomAlpha: 0.62,
     },
     currentWord: {
       shadowHex: '#BDD7E8',
@@ -425,12 +442,12 @@ export const visualTokens = {
     },
     controls: {
       shadowHex: '#C8DCEB',
-      shadowAlpha: 0.14,
-      shadowOffsetY: 8,
+      shadowAlpha: 0.1,
+      shadowOffsetY: 6,
       highlightHex: '#FFFFFF',
-      highlightAlpha: 0.74,
+      highlightAlpha: 0.62,
       bloomHex: '#F9FDFF',
-      bloomAlpha: 0.56,
+      bloomAlpha: 0.42,
     },
     gridPanel: {
       shadowHex: '#BCD4E6',
@@ -499,21 +516,21 @@ export const visualButtonStateContracts = {
   hint: {
     base: {
       fillHex: '#F3FCF8',
-      fillAlpha: 0.88,
+      fillAlpha: 0.82,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.34,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.28,
+      labelHex: '#486372',
+      labelAlpha: 0.94,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
       fillHex: '#F8FEFB',
-      fillAlpha: 0.94,
+      fillAlpha: 0.88,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.44,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.36,
+      labelHex: '#486372',
+      labelAlpha: 0.96,
       offsetY: -2,
       glowAlpha: 0.08,
     },
@@ -522,18 +539,18 @@ export const visualButtonStateContracts = {
       fillAlpha: 0.96,
       strokeHex: '#4FD0C8',
       strokeAlpha: 0.74,
-      labelHex: '#355A67',
+      labelHex: '#486372',
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.2,
     },
     pressed: {
       fillHex: '#E8F6F0',
-      fillAlpha: 0.84,
+      fillAlpha: 0.8,
       strokeHex: '#4FD0C8',
-      strokeAlpha: 0.32,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.26,
+      labelHex: '#486372',
+      labelAlpha: 0.94,
       offsetY: 1,
       glowAlpha: 0.04,
     },
@@ -551,21 +568,21 @@ export const visualButtonStateContracts = {
   reshuffle: {
     base: {
       fillHex: '#F3F7FF',
-      fillAlpha: 0.88,
+      fillAlpha: 0.82,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.34,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.28,
+      labelHex: '#486372',
+      labelAlpha: 0.94,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
       fillHex: '#F8FAFF',
-      fillAlpha: 0.94,
+      fillAlpha: 0.88,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.44,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.36,
+      labelHex: '#486372',
+      labelAlpha: 0.96,
       offsetY: -2,
       glowAlpha: 0.08,
     },
@@ -574,18 +591,18 @@ export const visualButtonStateContracts = {
       fillAlpha: 0.96,
       strokeHex: '#6AA8FF',
       strokeAlpha: 0.74,
-      labelHex: '#355A67',
+      labelHex: '#486372',
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.2,
     },
     pressed: {
       fillHex: '#EAF1FE',
-      fillAlpha: 0.84,
+      fillAlpha: 0.8,
       strokeHex: '#6AA8FF',
-      strokeAlpha: 0.32,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.26,
+      labelHex: '#486372',
+      labelAlpha: 0.94,
       offsetY: 1,
       glowAlpha: 0.04,
     },
@@ -603,21 +620,21 @@ export const visualButtonStateContracts = {
   leaderboard: {
     base: {
       fillHex: '#F4F8FB',
-      fillAlpha: 0.88,
+      fillAlpha: 0.8,
       strokeHex: '#7AA7D9',
-      strokeAlpha: 0.32,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.26,
+      labelHex: '#526C7F',
+      labelAlpha: 0.92,
       offsetY: 0,
       glowAlpha: 0,
     },
     hover: {
       fillHex: '#F9FBFD',
-      fillAlpha: 0.94,
+      fillAlpha: 0.88,
       strokeHex: '#7AA7D9',
-      strokeAlpha: 0.42,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.34,
+      labelHex: '#526C7F',
+      labelAlpha: 0.94,
       offsetY: -2,
       glowAlpha: 0.08,
     },
@@ -626,18 +643,18 @@ export const visualButtonStateContracts = {
       fillAlpha: 0.96,
       strokeHex: '#7AA7D9',
       strokeAlpha: 0.72,
-      labelHex: '#355A67',
+      labelHex: '#526C7F',
       labelAlpha: 1,
       offsetY: -1,
       glowAlpha: 0.18,
     },
     pressed: {
       fillHex: '#E4EDF6',
-      fillAlpha: 0.86,
+      fillAlpha: 0.78,
       strokeHex: '#7AA7D9',
-      strokeAlpha: 0.4,
-      labelHex: '#355A67',
-      labelAlpha: 1,
+      strokeAlpha: 0.32,
+      labelHex: '#526C7F',
+      labelAlpha: 0.92,
       offsetY: 1,
       glowAlpha: 0.04,
     },
@@ -678,16 +695,17 @@ export function computeGameLayout(
   const viewportWidth = normalizeViewportDimension(viewportWidthInput);
   const viewportHeight = normalizeViewportDimension(viewportHeightInput);
 
-  const horizontalPadding = clamp(viewportWidth * 0.06, 14, 28);
-  const verticalPadding = clamp(viewportHeight * 0.02, 10, 24);
-  const metricsGap = clamp(viewportWidth * 0.025, 10, 16);
-  const metricsToWordGap = clamp(viewportHeight * 0.012, 8, 14);
-  const wordToGridBaseGap = clamp(viewportHeight * 0.018, 10, 20);
-  const gridToControlsBaseGap = clamp(viewportHeight * 0.016, 10, 18);
+  const horizontalPadding = clamp(viewportWidth * 0.055, 14, 26);
+  const verticalPadding = clamp(viewportHeight * 0.018, 10, 22);
+  const metricsGap = clamp(viewportWidth * 0.02, 8, 14);
+  const metricsInsetX = clamp(viewportWidth * 0.018, 6, 10);
+  const metricsToWordGap = clamp(viewportHeight * 0.011, 8, 12);
+  const wordToGridBaseGap = clamp(viewportHeight * 0.02, 11, 22);
+  const gridToControlsBaseGap = clamp(viewportHeight * 0.014, 8, 16);
 
-  let metricsHeight = clamp(Math.min(viewportHeight * 0.088, viewportWidth * 0.21), 64, 88);
-  let currentWordHeight = clamp(Math.min(viewportHeight * 0.068, viewportWidth * 0.17), 48, 72);
-  let controlsHeight = clamp(Math.min(viewportHeight * 0.15, viewportWidth * 0.31), 104, 148);
+  let metricsHeight = clamp(Math.min(viewportHeight * 0.082, viewportWidth * 0.2), 62, 78);
+  let currentWordHeight = clamp(Math.min(viewportHeight * 0.06, viewportWidth * 0.145), 42, 60);
+  let controlsHeight = clamp(Math.min(viewportHeight * 0.125, viewportWidth * 0.26), 88, 122);
 
   const maxGridWidth = Math.max(MIN_GRID_SIZE, viewportWidth - horizontalPadding * 2);
   let hudHeight = metricsHeight + currentWordHeight + metricsToWordGap;
@@ -701,20 +719,20 @@ export function computeGameLayout(
 
   if (availableGridHeight < MIN_GRID_SIZE) {
     const shortfall = MIN_GRID_SIZE - availableGridHeight;
-    const maxControlReduction = Math.max(0, controlsHeight - 96);
+    const maxControlReduction = Math.max(0, controlsHeight - 78);
     const controlReduction = Math.min(shortfall * 0.55, maxControlReduction);
     controlsHeight -= controlReduction;
 
     let remainingShortfall = shortfall - controlReduction;
     if (remainingShortfall > 0) {
-      const maxCurrentWordReduction = Math.max(0, currentWordHeight - 44);
+      const maxCurrentWordReduction = Math.max(0, currentWordHeight - 40);
       const currentWordReduction = Math.min(remainingShortfall * 0.65, maxCurrentWordReduction);
       currentWordHeight -= currentWordReduction;
       remainingShortfall -= currentWordReduction;
     }
 
     if (remainingShortfall > 0) {
-      const maxMetricsReduction = Math.max(0, metricsHeight - 60);
+      const maxMetricsReduction = Math.max(0, metricsHeight - 56);
       const metricsReduction = Math.min(remainingShortfall, maxMetricsReduction);
       metricsHeight -= metricsReduction;
     }
@@ -733,21 +751,23 @@ export function computeGameLayout(
   const compositionHeight =
     hudHeight + gridSize + controlsHeight + wordToGridBaseGap + gridToControlsBaseGap;
   const extraVerticalSpace = Math.max(0, viewportHeight - compositionHeight - verticalPadding * 2);
-  const hudY = verticalPadding + extraVerticalSpace * 0.14;
-  const wordToGridGap = wordToGridBaseGap + extraVerticalSpace * 0.28;
+  const hudY = verticalPadding + extraVerticalSpace * 0.1;
+  const wordToGridGap = wordToGridBaseGap + extraVerticalSpace * 0.24;
   const gridToControlsGap = gridToControlsBaseGap + extraVerticalSpace * 0.18;
   const gridX = (viewportWidth - gridSize) / 2;
   const metricsWidth = viewportWidth - horizontalPadding * 2;
-  const cardWidth = (metricsWidth - metricsGap) / 2;
+  const metricsInsetY = clamp(metricsHeight * 0.16, 5, 9);
+  const cardWidth = (metricsWidth - metricsInsetX * 2 - metricsGap) / 2;
+  const cardHeight = Math.max(36, metricsHeight - metricsInsetY * 2);
   const currentWordY = hudY + metricsHeight + metricsToWordGap;
   const gridY = currentWordY + currentWordHeight + wordToGridGap;
   const controlsY = gridY + gridSize + gridToControlsGap;
   const controlsWidth = viewportWidth - horizontalPadding * 2;
-  const buttonGap = clamp(controlsWidth * 0.025, 8, 14);
-  const topRowHeight = Math.max(42, (controlsHeight - buttonGap) / 2);
+  const buttonGap = clamp(controlsWidth * 0.02, 8, 12);
+  const topRowHeight = Math.max(36, (controlsHeight - buttonGap) / 2);
   const topRowButtonWidth = Math.max(56, (controlsWidth - buttonGap) / 2);
-  const progressBarPaddingX = clamp(cardWidth * 0.08, 14, 22);
-  const progressBarHeight = clamp(metricsHeight * 0.2, 10, 16);
+  const progressBarPaddingX = clamp(cardWidth * 0.08, 12, 18);
+  const progressBarHeight = clamp(cardHeight * 0.18, 9, 14);
 
   const hintButton: LayoutRect = {
     x: horizontalPadding,
@@ -786,16 +806,16 @@ export function computeGameLayout(
       height: metricsHeight,
     },
     progressCard: {
-      x: horizontalPadding,
-      y: hudY,
+      x: horizontalPadding + metricsInsetX,
+      y: hudY + metricsInsetY,
       width: cardWidth,
-      height: metricsHeight,
+      height: cardHeight,
     },
     scoreCard: {
-      x: horizontalPadding + cardWidth + metricsGap,
-      y: hudY,
+      x: horizontalPadding + metricsInsetX + cardWidth + metricsGap,
+      y: hudY + metricsInsetY,
       width: cardWidth,
-      height: metricsHeight,
+      height: cardHeight,
     },
     currentWord: {
       x: horizontalPadding,
@@ -821,18 +841,24 @@ export function computeGameLayout(
       leaderboard: leaderboardButton,
     },
     progressBar: {
-      x: horizontalPadding + progressBarPaddingX,
-      y: hudY + metricsHeight * 0.24,
+      x: horizontalPadding + metricsInsetX + progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.22,
       width: cardWidth - progressBarPaddingX * 2,
       height: progressBarHeight,
     },
     progressAnchor: {
-      x: horizontalPadding + progressBarPaddingX,
-      y: hudY + metricsHeight * 0.72,
+      x: horizontalPadding + metricsInsetX + progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.78,
     },
     scoreAnchor: {
-      x: horizontalPadding + cardWidth + metricsGap + cardWidth - progressBarPaddingX,
-      y: hudY + metricsHeight * 0.68,
+      x:
+        horizontalPadding +
+        metricsInsetX +
+        cardWidth +
+        metricsGap +
+        cardWidth -
+        progressBarPaddingX,
+      y: hudY + metricsInsetY + cardHeight * 0.72,
     },
   };
 }

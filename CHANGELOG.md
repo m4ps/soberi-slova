@@ -2,6 +2,25 @@
 
 ## 2026-03-09
 
+### [CODE]-[023] Иерархия экрана пересобрана по DESIGN.md
+
+- `src/adapters/VisualSystem/index.ts` обновлён как source of truth для новой screen hierarchy:
+  - добавлен общий `metricsRow` glass-cluster, чтобы карточки `progress/score` читались как единая система, а не как две случайные плашки;
+  - перераспределены базовые высоты и вертикальные отступы в пользу пары `current word + grid`, при этом runtime-контракт сохранён в актуальной `6x6` форме из `TECHSPEC.md` и `PRD.md`;
+  - ослаблены fill/shadow/button-state контракты у help-зоны, чтобы вторичный блок не конкурировал с игровым полем.
+- `src/adapters/RenderMotion/index.ts` синхронизирован с новым визуальным приоритетом:
+  - верхняя строка теперь рисуется через общий контейнер и внутренние равные карточки;
+  - типографика текущего слова усилена без раздувания самого блока по высоте;
+  - подписи help-кнопок уменьшены, чтобы нижний блок оставался читаемым, но вторичным.
+- Регрессии усилены под новый дизайн-контракт:
+  - `tests/render-layout.test.ts` теперь дополнительно фиксирует inset-структуру верхнего metric cluster и более жёсткие ratio-checks для `word/grid/help`;
+  - `tests/visual-system.contract.test.ts` закрепляет, что `metricsRow` и help surfaces/button states слабее по визуальному весу, чем main gameplay surfaces.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npx vitest run tests/render-layout.test.ts tests/visual-system.contract.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke по skill `develop-web-game` не выполнен в sandbox-среде: `vite` не может открыть локальный listener (`listen EPERM`), а Playwright client падает при browser launch (`SIGTRAP`) даже на статическом wrapper-сценарии.
+
 ### [CODE]-[022] Экран переведён на light glass visual system из DESIGN.md
 
 - `src/adapters/VisualSystem/index.ts` расширен до более полного design-token контракта:

@@ -27,7 +27,19 @@ describe('VisualSystem contract', () => {
     expect(visualTokens.accents.reshuffleHex).toBe('#6AA8FF');
     expect(visualTokens.accents.toastFailHex).toBe('#FF9B7B');
     expect(visualTokens.progressBar.glowHex).toBe('#7FF0D1');
+    expect(visualTokens.panels.metricsRow.fillAlpha).toBeLessThan(
+      visualTokens.panels.metric.fillAlpha,
+    );
+    expect(visualTokens.panels.controls.fillAlpha).toBeLessThan(
+      visualTokens.panels.currentWord.fillAlpha,
+    );
     expect(visualTokens.stroke.panelWidth).toBeGreaterThan(0);
+    expect(visualTokens.surfaces.metricsRow.shadowAlpha).toBeLessThan(
+      visualTokens.surfaces.metric.shadowAlpha,
+    );
+    expect(visualTokens.surfaces.controls.shadowAlpha).toBeLessThan(
+      visualTokens.surfaces.metric.shadowAlpha,
+    );
     expect(visualTokens.surfaces.gridCell.highlightAlpha).toBeGreaterThan(0.7);
     expect(visualTokens.typography.fontFamily).toContain('Avenir');
     expect(visualTokens.currentWord.blurStrength).toBeGreaterThan(0);
@@ -40,6 +52,10 @@ describe('VisualSystem contract', () => {
     expect(visualButtonStateContracts.hint.hover.offsetY).toBe(-2);
     expect(visualButtonStateContracts.hint.focus.glowAlpha).toBeGreaterThan(
       visualButtonStateContracts.hint.hover.glowAlpha,
+    );
+    expect(visualButtonStateContracts.hint.base.labelAlpha).toBeLessThan(1);
+    expect(visualButtonStateContracts.leaderboard.base.fillAlpha).toBeLessThan(
+      visualButtonStateContracts.hint.focus.fillAlpha,
     );
     expect(visualButtonStateContracts.hint.pressed.offsetY).toBe(1);
     expect(visualButtonStateContracts.hint.disabled.labelAlpha).toBeLessThan(
