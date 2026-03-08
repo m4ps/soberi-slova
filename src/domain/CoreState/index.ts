@@ -743,6 +743,8 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         foundBonuses: [],
         status: 'active',
         seed: generatedLevel.seed,
+        readabilityScore: generatedLevel.readabilityScore,
+        wordMixStats: { ...generatedLevel.wordMixStats },
       });
     } catch {
       return createFallbackGeneratedLevelSession(levelId, seed);
