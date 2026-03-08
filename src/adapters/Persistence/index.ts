@@ -67,30 +67,34 @@ function parsePersistedSessionSnapshot(
   const helpWindowCandidate = parsed.helpWindow;
   const normalizedGameStateSerialized =
     typeof gameStateSerializedCandidate === 'string' ? gameStateSerializedCandidate.trim() : '';
+  const normalizedGameState =
+    normalizedGameStateSerialized.length > 0 ? normalizedGameStateSerialized : null;
 
-  if (
-    schemaVersion === null ||
-    capturedAt === null ||
-    normalizedGameStateSerialized.length === 0 ||
-    !isRecordLike(helpWindowCandidate)
-  ) {
+  if (schemaVersion === null || capturedAt === null) {
     return null;
   }
 
-  const windowStartTs = parseNonNegativeSafeInteger(helpWindowCandidate.windowStartTs);
-  const freeActionAvailableCandidate = helpWindowCandidate.freeActionAvailable;
-  if (windowStartTs === null || typeof freeActionAvailableCandidate !== 'boolean') {
+  let normalizedHelpWindow: PersistedSessionSnapshot['helpWindow'] = null;
+  if (isRecordLike(helpWindowCandidate)) {
+    const windowStartTs = parseNonNegativeSafeInteger(helpWindowCandidate.windowStartTs);
+    const freeActionAvailableCandidate = helpWindowCandidate.freeActionAvailable;
+    if (windowStartTs !== null && typeof freeActionAvailableCandidate === 'boolean') {
+      normalizedHelpWindow = {
+        windowStartTs,
+        freeActionAvailable: freeActionAvailableCandidate,
+      };
+    }
+  }
+
+  if (normalizedGameState === null && normalizedHelpWindow === null) {
     return null;
   }
 
   return {
     schemaVersion,
     capturedAt,
-    gameStateSerialized: normalizedGameStateSerialized,
-    helpWindow: {
-      windowStartTs,
-      freeActionAvailable: freeActionAvailableCandidate,
-    },
+    gameStateSerialized: normalizedGameState,
+    helpWindow: normalizedHelpWindow,
   };
 }
 

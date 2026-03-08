@@ -126,6 +126,9 @@ function normalizePersistedHelpWindow(
   }
 
   const helpWindow = snapshot.helpWindow;
+  if (!helpWindow) {
+    return null;
+  }
   const windowStartTs = parseNonNegativeSafeInteger(helpWindow.windowStartTs);
   if (windowStartTs === null) {
     return null;
@@ -155,11 +158,17 @@ function resolveRestoreHelpWindow(
   }
 
   if (source === 'local') {
-    return normalizePersistedHelpWindow(payload.localSnapshot);
+    return (
+      normalizePersistedHelpWindow(payload.localSnapshot) ??
+      normalizePersistedHelpWindow(payload.cloudSnapshot)
+    );
   }
 
   if (source === 'cloud') {
-    return normalizePersistedHelpWindow(payload.cloudSnapshot);
+    return (
+      normalizePersistedHelpWindow(payload.cloudSnapshot) ??
+      normalizePersistedHelpWindow(payload.localSnapshot)
+    );
   }
 
   const localHelpWindow = normalizePersistedHelpWindow(payload.localSnapshot);

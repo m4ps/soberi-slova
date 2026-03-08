@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createPersistenceModule } from '../src/adapters/Persistence';
 import { createCoreStateModule } from '../src/domain/CoreState';
+import type { GameStateInput } from '../src/domain/GameState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
 import type {
   ApplicationCommand,
@@ -13,6 +14,7 @@ import type {
   ApplicationResult,
   CommandAck,
 } from '../src/application';
+import { createNearCompletionFixtureState } from './helpers/game-state-fixtures';
 
 function createEventBus(): ApplicationEventBus {
   const listeners = new Set<(event: ApplicationEvent) => void>();
@@ -58,8 +60,12 @@ function createCommandBusSpy(): {
   };
 }
 
-function createQueryBusFixture(nowTs: number): ApplicationQueryBus {
+function createQueryBusFixture(
+  nowTs: number,
+  initialGameState?: GameStateInput,
+): ApplicationQueryBus {
   const coreState = createCoreStateModule({
+    ...(initialGameState ? { initialGameState } : {}),
     nowProvider: () => nowTs,
   });
   const helpEconomy = createHelpEconomyModule({
@@ -178,15 +184,32 @@ describe('persistence adapter', () => {
     );
   });
 
-  it('ignores malformed persisted snapshots during restore payload mapping', async () => {
+  it('keeps partially valid persisted snapshots during restore payload mapping', async () => {
     const eventBus = createEventBus();
     const { commandBus, dispatchedCommands } = createCommandBusSpy();
     const queryBus = createQueryBusFixture(6_000);
+    const localGameState: GameStateInput = {
+      ...createNearCompletionFixtureState({
+        levelId: 'level-partial-local',
+        source: 'persistence-partial-local',
+        seed: 23,
+      }),
+      currentDisplayedTargetId: 'сон',
+      currentHintPathProgress: 2,
+    };
     const persistence = createPersistenceModule(commandBus, queryBus, {
       eventBus,
       platform: {
         readPersistenceState: async () => ({
-          localSnapshot: '{bad-json',
+          localSnapshot: JSON.stringify({
+            schemaVersion: 1,
+            capturedAt: 5_850,
+            gameStateSerialized: JSON.stringify(localGameState),
+            helpWindow: {
+              windowStartTs: 'bad-window',
+              freeActionAvailable: true,
+            },
+          }),
           cloudSnapshot: JSON.stringify({
             schemaVersion: 1,
             capturedAt: 5_900,
@@ -212,8 +235,21 @@ describe('persistence adapter', () => {
     expect(restoreCommand).toMatchObject({
       type: 'RestoreSession',
       payload: {
-        localSnapshot: null,
-        cloudSnapshot: null,
+        localSnapshot: {
+          schemaVersion: 1,
+          capturedAt: 5_850,
+          gameStateSerialized: JSON.stringify(localGameState),
+          helpWindow: null,
+        },
+        cloudSnapshot: {
+          schemaVersion: 1,
+          capturedAt: 5_900,
+          gameStateSerialized: null,
+          helpWindow: {
+            windowStartTs: 5_900,
+            freeActionAvailable: true,
+          },
+        },
         cloudAllTimeScore: 10,
       },
     });
@@ -224,6 +260,15 @@ describe('persistence adapter', () => {
     const { commandBus } = createCommandBusSpy();
     let nowTs = 7_000;
     let coreStateSnapshot = createCoreStateModule({
+      initialGameState: {
+        ...createNearCompletionFixtureState({
+          levelId: 'level-persist-guided',
+          source: 'persistence-guided',
+          seed: 41,
+        }),
+        currentDisplayedTargetId: 'сон',
+        currentHintPathProgress: 2,
+      },
       nowProvider: () => nowTs,
     }).getSnapshot();
     const helpEconomy = createHelpEconomyModule({
@@ -330,6 +375,8 @@ describe('persistence adapter', () => {
     ).toMatchObject({
       allTimeScore: 7,
       stateVersion: 1,
+      currentDisplayedTargetId: 'сон',
+      currentHintPathProgress: 2,
     });
 
     nowTs = 7_102;

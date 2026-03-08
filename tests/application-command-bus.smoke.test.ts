@@ -427,6 +427,75 @@ describe('application command/query bus smoke', () => {
     }
   });
 
+  it('keeps guided restore state when the persistence envelope loses only helpWindow metadata', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(12_000);
+
+    try {
+      const restoredState: GameStateInput = {
+        ...createScoringFixtureState(),
+        stateVersion: 9,
+        updatedAt: 11_000,
+        allTimeScore: 150,
+        currentDisplayedTargetId: 'нос',
+        currentHintPathProgress: 2,
+        currentLevelSession: {
+          ...createScoringFixtureState().currentLevelSession,
+          levelId: 'level-guided-restore',
+          foundTargets: [...createScoringFixtureState().currentLevelSession.foundTargets, 'дом'],
+          status: 'active',
+        },
+        helpWindow: {
+          windowStartTs: 11_500,
+          freeActionAvailable: false,
+          pendingHelpRequest: null,
+        },
+      };
+      const application = createApplicationLayer({
+        coreState: createCoreStateModule({
+          initialGameState: createScoringFixtureState(),
+          wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
+          nowProvider: () => 12_000,
+        }),
+        helpEconomy: createHelpEconomyModule({
+          windowStartTs: 0,
+          freeActionAvailable: true,
+          nowProvider: () => 12_000,
+        }),
+      });
+
+      const restoreResult = application.commands.dispatch({
+        type: 'RestoreSession',
+        payload: {
+          localSnapshot: {
+            schemaVersion: 1,
+            capturedAt: 11_000,
+            gameStateSerialized: JSON.stringify(restoredState),
+            helpWindow: null,
+          },
+          cloudSnapshot: null,
+          cloudAllTimeScore: null,
+        },
+      });
+
+      expect(restoreResult.type).toBe('ok');
+      const restoredCoreState = application.readModel.getCoreState();
+      expect(restoredCoreState.gameplay).toMatchObject({
+        allTimeScore: 150,
+        levelId: 'level-guided-restore',
+      });
+      expect(restoredCoreState.gameState).toMatchObject({
+        currentDisplayedTargetId: 'нос',
+        currentHintPathProgress: 2,
+      });
+
+      const restoredHelpWindow = application.readModel.getHelpWindowState();
+      expect(restoredHelpWindow.windowStartTs).toBe(11_500);
+      expect(restoredHelpWindow.freeActionAvailable).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('commits SubmitPath scoring before command-routed event (state-first)', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({

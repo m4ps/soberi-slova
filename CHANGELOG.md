@@ -2,6 +2,24 @@
 
 ## 2026-03-08
 
+### [CODE]-[019] Restore/persist расширен под displayed target и hint progress
+
+- `src/adapters/Persistence/index.ts` переведён на partial-restore normalizer для persisted envelope:
+  - snapshot больше не отбрасывается целиком, если повреждена только одна часть (`gameStateSerialized` или `helpWindow`);
+  - валидный `gameState` с `currentDisplayedTargetId/currentHintPathProgress` теперь доходит до `RestoreSession`, даже если metadata таймера повреждена;
+  - валидный `helpWindow` тоже не теряется, если сломан только сериализованный `gameState`.
+- `src/application/contracts.ts` и `src/application/index.ts` синхронизированы с best-effort restore:
+  - `PersistedSessionSnapshot` теперь допускает частично заполненные части snapshot;
+  - restore help-window берётся из snapshot-победителя, а при его деградации безопасно подбирается из альтернативного snapshot или из уже восстановленного `gameState`.
+- Обновлены тесты:
+  - `tests/persistence.adapter.test.ts` фиксирует partial payload mapping и подтверждает, что persisted snapshot содержит guided-state поля;
+  - `tests/application-command-bus.smoke.test.ts` проверяет restore того же displayed target и того же hint progress даже при потере только envelope-метаданных `helpWindow`.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[019]` отмечена выполненной.
+- Верификация:
+  - `npm test -- --run tests/core-state.restore.test.ts tests/persistence.adapter.test.ts tests/application-command-bus.smoke.test.ts tests/game-state.model.test.ts` — passed;
+  - browser-smoke через `$WEB_GAME_CLIENT` не выполнен в sandbox-среде: локальный dev-server не может открыть listener (`listen EPERM: operation not permitted 127.0.0.1:5173`);
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[018] Hint flow переведён на path-reveal текущего displayed target
 
 - `src/domain/CoreState/index.ts` переведён на новый hint contract:

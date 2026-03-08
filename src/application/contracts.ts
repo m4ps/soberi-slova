@@ -26,8 +26,8 @@ export interface PersistedHelpWindowSnapshot {
 export interface PersistedSessionSnapshot {
   readonly schemaVersion: number;
   readonly capturedAt: number;
-  readonly gameStateSerialized: string;
-  readonly helpWindow: PersistedHelpWindowSnapshot;
+  readonly gameStateSerialized: string | null;
+  readonly helpWindow: PersistedHelpWindowSnapshot | null;
 }
 
 export interface RestoreSessionPayload {
