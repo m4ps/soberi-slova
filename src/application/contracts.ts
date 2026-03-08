@@ -259,6 +259,24 @@ export type BonusWordAcceptedEvent = EventEnvelope<
   }
 >;
 
+export type ProgressBarFillRequestedEvent = EventEnvelope<
+  'domain/progress-bar-fill-requested',
+  {
+    readonly commandType: 'SubmitPath';
+    readonly targetWord: string;
+    readonly pathCells: readonly GridCellRef[];
+    readonly levelId: string;
+    readonly stateVersion: number;
+    readonly progress: {
+      readonly previousFoundTargets: number;
+      readonly foundTargets: number;
+      readonly totalTargets: number;
+    };
+    readonly allTimeScore: number;
+    readonly levelCompleted: boolean;
+  }
+>;
+
 export type DisplayedTargetChangedEvent = EventEnvelope<
   'domain/displayed-target-changed',
   {
@@ -444,6 +462,7 @@ export type ApplicationEvent =
   | WordSubmittedEvent
   | TargetWordAcceptedEvent
   | BonusWordAcceptedEvent
+  | ProgressBarFillRequestedEvent
   | DisplayedTargetChangedEvent
   | HintPathProgressAdvancedEvent
   | LevelCompletedEvent

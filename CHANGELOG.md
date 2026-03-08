@@ -2,6 +2,24 @@
 
 ## 2026-03-08
 
+### [DATA]-[011] Event catalog расширен под visual/runtime contracts v1.1
+
+- `src/application/contracts.ts` и `src/application/index.ts` расширены новым обязательным runtime-событием `domain/progress-bar-fill-requested`:
+  - добавлен versioned typed payload для progress-fill контракта с `previousFoundTargets`, текущим `foundTargets`, `totalTargets`, `levelCompleted`, `pathCells` и `correlationId` через общий envelope;
+  - событие публикуется только для реального target acceptance и не эмитится для bonus/repeat flow.
+- `src/adapters/RenderMotion/index.ts` переведён на новый semantic event для target progress-related motion:
+  - полёт букв в зону прогресса теперь запускается по `domain/progress-bar-fill-requested`, а не по `domain/target-word-accepted`;
+  - target/bonus success остаются разведены по своим semantic events без ad hoc визуальных расширений поверх read-model diff.
+- `tests/application-command-bus.smoke.test.ts` дополнен regression-покрытием:
+  - проверяется публикация `domain/progress-bar-fill-requested` для обычного target acceptance;
+  - отдельно зафиксировано отсутствие progress-fill события у bonus word acceptance;
+  - completion pipeline подтверждает, что последний target тоже публикует progress-fill на `N/N`.
+- Синхронизирован `BACKLOG.md`: `[DATA]-[010]` отмечен выполненным в соответствии с фактическим состоянием Linear (`PVL-94 Done`), чтобы `[DATA]-[011]` снова соответствовал первому незавершённому пункту этапа данных.
+- Верификация:
+  - `npm test -- --run tests/application-command-bus.smoke.test.ts tests/persistence.adapter.test.ts tests/platform-yandex.adapter.test.ts` — passed;
+  - `npm run test:e2e:test-012` — не выполнен в sandbox-среде: `listen EPERM: operation not permitted 127.0.0.1:4173`;
+  - `npm run ci:baseline` — passed.
+
 ### [DATA]-[010] Quota/readability инварианты генератора вынесены в domain model
 
 - В `src/domain/GameState/index.ts` generator-контракт закреплён явными доменными validator/helper API:

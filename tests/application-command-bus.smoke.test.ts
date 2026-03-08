@@ -14,6 +14,7 @@ import { createWordValidationModule } from '../src/domain/WordValidation';
 import {
   createDefaultDictionaryWords,
   createNearCompletionFixtureState,
+  createWordPath,
 } from './helpers/game-state-fixtures';
 
 function createSmokeApplication() {
@@ -581,6 +582,23 @@ describe('application command/query bus smoke', () => {
       { row: 0, col: 1 },
       { row: 0, col: 2 },
     ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/progress-bar-fill-requested',
+        correlationId: result.type === 'ok' ? result.value.correlationId : '',
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          targetWord: 'дом',
+          progress: {
+            previousFoundTargets: 7,
+            foundTargets: 8,
+            totalTargets: 10,
+          },
+          allTimeScore: 7,
+          levelCompleted: false,
+        }),
+      }),
+    );
 
     const coreState = application.readModel.getCoreState();
     expect(coreState.gameplay).toMatchObject({
@@ -686,6 +704,51 @@ describe('application command/query bus smoke', () => {
     ).toEqual([]);
   });
 
+  it('does not request progress bar fill for bonus word acceptance', () => {
+    const application = createApplicationLayer({
+      coreState: createCoreStateModule({
+        initialGameState: createScoringFixtureState(),
+        wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
+        nowProvider: () => 3_750,
+      }),
+      helpEconomy: createHelpEconomyModule(0),
+    });
+
+    const events: ApplicationEvent[] = [];
+    application.events.subscribe((event) => {
+      events.push(event);
+    });
+
+    const result = application.commands.dispatch({
+      type: 'SubmitPath',
+      pathCells: createWordPath('том'),
+    });
+
+    expect(result.type).toBe('ok');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/bonus-word-accepted',
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          bonusWord: 'том',
+          scoreDelta: {
+            wordScore: 2,
+            levelClearScore: 0,
+            totalScore: 2,
+          },
+          progress: {
+            foundTargets: 7,
+            totalTargets: 10,
+          },
+          allTimeScore: 2,
+        }),
+      }),
+    );
+    expect(
+      events.filter((event) => event.eventType === 'domain/progress-bar-fill-requested'),
+    ).toEqual([]);
+  });
+
   it('processes completion pipeline and auto-next via acknowledge commands', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({
@@ -768,6 +831,23 @@ describe('application command/query bus smoke', () => {
             foundTargets: 10,
             totalTargets: 10,
           },
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/progress-bar-fill-requested',
+        correlationId: finalTargetCorrelationId,
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          targetWord: 'сон',
+          progress: {
+            previousFoundTargets: 9,
+            foundTargets: 10,
+            totalTargets: 10,
+          },
+          allTimeScore: 21,
+          levelCompleted: true,
         }),
       }),
     );
