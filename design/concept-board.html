@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Soberi Slova Design Concept</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23071220'/%3E%3Cpath d='M9 10h14v3H9zm0 9h14v3H9zm4-4h10v3H13z' fill='%2376E7FF'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./concept-board.css" />
+  </head>
+  <body>
+    <main class="board">
+      <section class="phone-stage">
+        <div class="phone-glow"></div>
+        <article class="phone-shell">
+          <div class="phone-screen">
+            <div class="screen-aura aura-top"></div>
+            <div class="screen-aura aura-bottom"></div>
+            <header class="hud">
+              <div class="stats-row">
+                <section class="stat-card stat-progress">
+                  <span class="stat-label">Цели</span>
+                  <strong class="stat-value">07/11</strong>
+                </section>
+                <section class="stat-card stat-score">
+                  <span class="stat-label">Общий счёт</span>
+                  <strong class="stat-value">1703</strong>
+                </section>
+              </div>
+              <section class="goal-card">
+                <span class="goal-kicker">Фокус слова</span>
+                <h1 class="goal-word">зал</h1>
+                <p class="goal-copy">Главная доминанта экрана, без визуального шума вокруг.</p>
+              </section>
+            </header>
+
+            <section class="grid-panel" aria-label="Игровое поле">
+              <div class="grid-frame">
+                <div class="grid ribbon-grid">
+                  <div class="cell cell-selected cell-anchor">т</div>
+                  <div class="cell">р</div>
+                  <div class="cell">е</div>
+                  <div class="cell">в</div>
+                  <div class="cell">д</div>
+                  <div class="cell">л</div>
+
+                  <div class="cell">ь</div>
+                  <div class="cell cell-selected">е</div>
+                  <div class="cell">м</div>
+                  <div class="cell">е</div>
+                  <div class="cell">ц</div>
+                  <div class="cell">и</div>
+
+                  <div class="cell">п</div>
+                  <div class="cell">н</div>
+                  <div class="cell cell-selected cell-target">з</div>
+                  <div class="cell">о</div>
+                  <div class="cell">б</div>
+                  <div class="cell">т</div>
+
+                  <div class="cell">у</div>
+                  <div class="cell">г</div>
+                  <div class="cell">ь</div>
+                  <div class="cell cell-selected cell-mid">а</div>
+                  <div class="cell">р</div>
+                  <div class="cell">с</div>
+
+                  <div class="cell">т</div>
+                  <div class="cell">ь</div>
+                  <div class="cell">о</div>
+                  <div class="cell">з</div>
+                  <div class="cell cell-selected cell-end">л</div>
+                  <div class="cell">а</div>
+
+                  <div class="cell">к</div>
+                  <div class="cell">о</div>
+                  <div class="cell">в</div>
+                  <div class="cell">с</div>
+                  <div class="cell">е</div>
+                  <div class="cell">н</div>
+                </div>
+                <div class="liquid-ribbon segment-a"></div>
+                <div class="liquid-ribbon segment-b"></div>
+                <div class="hint-orb"></div>
+              </div>
+            </section>
+
+            <footer class="controls">
+              <div class="primary-actions">
+                <button class="action-btn hint-btn" type="button">Подсказка</button>
+                <button class="action-btn reshuffle-btn" type="button">Пересобрать</button>
+              </div>
+              <button class="leaderboard-btn" type="button">Лидерборд</button>
+            </footer>
+          </div>
+        </article>
+      </section>
+
+      <aside class="notes-panel">
+        <span class="eyebrow">Концепт интерфейса</span>
+        <h2>Liquid Aurora</h2>
+        <p class="summary">
+          Редизайн усиливает спокойное premium-ощущение из PRD: один экран, крупная цель,
+          тактильный свайп-след и более читаемая иерархия без лишних сущностей.
+        </p>
+
+        <div class="note-list">
+          <article class="note-card">
+            <h3>1. Фокус на слове</h3>
+            <p>Текущая цель становится главным визуальным якорем, а прогресс и счёт уходят в компактные стеклянные метрики.</p>
+          </article>
+          <article class="note-card">
+            <h3>2. Жидкий путь</h3>
+            <p>Активный путь рисуется не точками, а мягкой лентой: cyan для движения, mint для подтверждения целевого слова.</p>
+          </article>
+          <article class="note-card">
+            <h3>3. Разделение наград</h3>
+            <p>Целевые, бонусные, hint- и служебные состояния получают отдельные акцентные цвета, чтобы игрок мгновенно различал тип события.</p>
+          </article>
+        </div>
+
+        <section class="palette-panel">
+          <div class="palette-header">
+            <h3>Акцентная палитра</h3>
+            <p>Для слов, подсветок и event-based эффектов.</p>
+          </div>
+          <div class="swatches">
+            <article class="swatch-card">
+              <span class="swatch swatch-target"></span>
+              <div>
+                <strong>Фокус цели</strong>
+                <span>#76E7FF</span>
+              </div>
+            </article>
+            <article class="swatch-card">
+              <span class="swatch swatch-swipe"></span>
+              <div>
+                <strong>Лента свайпа</strong>
+                <span>#55D8FF → #66F4CC</span>
+              </div>
+            </article>
+            <article class="swatch-card">
+              <span class="swatch swatch-success"></span>
+              <div>
+                <strong>Успех target-слова</strong>
+                <span>#8AF5A2</span>
+              </div>
+            </article>
+            <article class="swatch-card">
+              <span class="swatch swatch-bonus"></span>
+              <div>
+                <strong>Бонусное слово</strong>
+                <span>#FFC86B</span>
+              </div>
+            </article>
+            <article class="swatch-card">
+              <span class="swatch swatch-utility"></span>
+              <div>
+                <strong>Кнопки помощи</strong>
+                <span>#4EA6FF</span>
+              </div>
+            </article>
+            <article class="swatch-card">
+              <span class="swatch swatch-alert"></span>
+              <div>
+                <strong>Toast блокировки</strong>
+                <span>#FF8B63</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </aside>
+    </main>
+  </body>
+</html>

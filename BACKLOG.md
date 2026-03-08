@@ -2,6 +2,8 @@
 
 Ниже задачи расположены в оптимальном порядке исполнения по этапам: сначала фундамент и контракты, затем реализация core-loop, затем верификация и финальное security-hardening.
 Отмеченные `[x]` пункты отражают уже выполненный baseline. Неотмеченные `[ ]` пункты и обновленные формулировки ниже являются источником истины для доведения проекта до `TECHSPEC v1.1`.
+Источники истины для актуализации backlog в порядке убывания приоритета: `AGENTS.md`, `TECHSPEC.md`, `DESIGN.md`, `PRD.md`, `WORKFLOW.md`, `BACKLOG.md`.
+Если исторически выполненная задача расходится с текущими требованиями, она сохраняется как baseline-запись и актуализируется только новой follow-up задачей; выполненные задачи не редактируются.
 
 ## Этап 1: Инициализация
 
@@ -24,6 +26,14 @@
 - [x] [INIT]-[005] Настроить инженерный baseline (lint/typecheck/build/format)
       Task Context: Добавь quality-гейты для раннего контроля: `lint`, `typecheck`, `build`, `test` (пусть пока smoke); подготовь скрипты для CI в последовательности, совместимой с TECHSPEC gates.
       Task DOD: Все baseline-команды проходят на чистом проекте; CI-конфиг валиден; документация описывает обязательный pre-merge pipeline.
+
+- [ ] [INIT]-[006] Добавить VisualSystem как отдельный модуль архитектуры v1.1
+      Task Context: Ранее архитектурный baseline был собран без выделенного `VisualSystem`, но текущий `TECHSPEC.md` требует отдельный runtime/build-time модуль для design tokens, layout hierarchy и button/motion contracts. Добавь модуль и публичные контракты, не переписывая историю выполненных init-задач.
+      Task DOD: В архитектуре есть отдельный `VisualSystem` модуль; его границы задокументированы и не нарушают strict layered model; остальные слои могут зависеть от него только по утвержденному контракту.
+
+- [ ] [INIT]-[007] Актуализировать command bus под текущий контракт TECHSPEC v1.1
+      Task Context: Выполненный bootstrap командной шины опирался на более ранний набор команд. Добавь follow-up на выравнивание bus-контрактов под текущий `TECHSPEC.md`: `SubmitPath`, `RequestHint`, `RequestReshuffle`, `AcknowledgeAdResult`, `AcknowledgeWordSuccessAnimation`, `AcknowledgeLevelTransitionDone`, `RestoreSession`, `SyncLeaderboard`.
+      Task DOD: Актуальный набор команд и envelopes соответствует `TECHSPEC.md`; устаревшие команды либо удалены, либо явно помечены как legacy-adapter path; архитектурные тесты и документация это отражают.
 
 - [x] [INIT]-[090] Приборка этапа и удаление временных артефактов
       Task Context: Удали черновые файлы, экспериментальные скрипты, временные ассеты и неиспользуемые bootstrap-заглушки, появившиеся в этапе инициализации.
@@ -78,6 +88,18 @@
 - [x] [DATA]-[008] Расширить доменные события под guided loop и hint progression
       Task Context: Добавь в event model обязательные события `TargetWordAccepted`, `BonusWordAccepted`, `DisplayedTargetChanged`, `HintPathProgressAdvanced`, `LevelCompleted`, `HelpActionApplied`, `HelpActionFailed`, `StatePersisted`; сохрани `correlationId` и versioning.
       Task DOD: Все новые события типизированы и задокументированы; события публикуются из соответствующих use-cases и доступны для telemetry/render/persistence цепочек.
+
+- [ ] [DATA]-[009] Мигрировать доменную схему с legacy 5x5/free-help на v1.1 schema
+      Task Context: Выполненные data-задачи исторически зафиксировали `grid 5x5`, `HelpWindow` и free-help semantics. Добавь актуализирующую задачу на перевод runtime-схемы к текущему `TECHSPEC.md`: `grid[36]`, `HelpLockState`, `wordMixStats`, `currentDisplayedTargetId`, `currentHintPathProgress`.
+      Task DOD: Новая схема данных полностью соответствует текущему `TECHSPEC.md`; legacy-поля больше не являются рабочим source of truth; миграции безопасно переводят старые snapshots в новую форму.
+
+- [ ] [DATA]-[010] Добавить quota/readability инварианты генератора в domain model
+      Task Context: Текущий `TECHSPEC.md` требует не только диапазон `10..15`, но и scaffold около `35% short + 35% medium + 30% long`, минимум 30% длинных слов (`7+`, ceil), `wordMixStats` и rejection по читаемости displayed target. Эти ограничения должны быть выражены в явных domain-инвариантах, а не только в коде генератора.
+      Task DOD: Domain validators покрывают quota/mix/readability rules; инварианты детерминированы и пригодны для property-based тестов; invalid-level states отсекаются до gameplay.
+
+- [ ] [DATA]-[011] Расширить event catalog под visual/runtime contracts v1.1
+      Task Context: В текущем `TECHSPEC.md` появились обязательные runtime-события для прогресс-бара и визуальной системы, включая `ProgressBarFillRequested`. Добавь follow-up, чтобы event-catalog отражал полный текущий runtime contract, а не только исторически реализованный минимум.
+      Task DOD: Event catalog покрывает все обязательные события из `TECHSPEC.md`; render, visual, persistence и telemetry слои используют единый типизированный набор событий без ad hoc расширений.
 - [x] [DATA]-[190] Приборка этапа модели данных
       Task Context: Удали временные data-fixtures, отладочные dump-файлы, промежуточные миграционные черновики и неиспользуемые CSV-утилиты.
       Task DOD: В репозитории остаются только рабочие модели, миграции и актуальные тестовые фикстуры; нет “одноразовых” артефактов.
@@ -176,6 +198,30 @@
       Task Context: Сохраняй и восстанавливай не только score и уровень, но и `currentDisplayedTargetId` и `currentHintPathProgress`; при частичном restore guided loop должен оставаться консистентным или безопасно пересобираться по правилам TECHSPEC.
       Task DOD: После refresh/resume пользователь возвращается к тому же displayed target и тому же hint progress, если snapshot валиден; при деградации restore сохраняются score/timer и восстанавливается корректный guided context.
 
+- [ ] [CODE]-[025] Перевести runtime с исторической 5x5-сетки на актуальную 6x6
+      Task Context: Ряд уже выполненных задач был закрыт в эпоху `5x5`. Добавь явную migration-задачу на переход всей рабочей реализации к текущей `6x6` сетке из `TECHSPEC.md`: state shape, render layout, input hit-testing, coordinate math, debug-helpers и acceptance-поведение.
+      Task DOD: В runtime больше нет рабочих допущений про `5x5`; сетка, pathing, рендер и UI стабильно работают в `6x6`; регрессий по swipe/undo/word submit нет.
+
+- [ ] [CODE]-[026] Перевести help-экономику на paid-help с первого использования
+      Task Context: Исторически в backlog были выполнены задачи под free-window/free-action. Текущий `TECHSPEC.md` требует paid-help с первого применения для `hint` и `reshuffle`, `HelpLockState`, cooldown и единую ad-orchestration модель.
+      Task DOD: В коде не осталось рабочего free-help пути; оба help-действия используют rewarded ads с первого использования; `HelpLockState` является единственным источником истины для блокировок и cooldown.
+
+- [ ] [CODE]-[027] Довести генератор до quota-aware 6x6 scaffolding из TECHSPEC v1.1
+      Task Context: Ранее генератор был адаптирован только частично. Добавь follow-up на полноценную реализацию `6x6` generation scaffold: `10..15` слов, `35/35/30` short-medium-long с допустимыми отклонениями, минимум 30% длинных слов, `wordMixStats`, anti-repeat и displayed-target readability rejection.
+      Task DOD: Генератор выдает уровни, удовлетворяющие текущему quota/readability contract; `wordMixStats` сохраняется и доступен для диагностики; слабочитаемые или квотно-невалидные уровни отбраковываются детерминированно.
+
+- [ ] [CODE]-[028] Убрать legacy free-timer assumptions из persistence и restore
+      Task Context: Завершенные persistence-задачи все еще исторически опираются на free-action timer semantics. Добавь migration-задачу на очистку runtime и persistence контрактов от legacy timer/help-window assumptions в пользу current target + hint progress + level state.
+      Task DOD: Persisted payload и restore flow больше не зависят от legacy free-timer state; best-effort restore соответствует текущему `TECHSPEC.md`; backward migrations обрабатываются безопасно.
+
+- [ ] [CODE]-[029] Внедрить VisualSystem и централизованные visual tokens в runtime
+      Task Context: `TECHSPEC.md` требует `VisualSystem` и централизованный `visualTokens` contract как обязательную часть runtime, а не позднюю полировку. Добавь задачу на реальное внедрение токенов, color contracts и layout/motion rules в кодовую базу.
+      Task DOD: Runtime использует централизованный `visualTokens`; color, button states, progress bar и current-word transition читаются из единого visual contract; отклонения от `DESIGN.md` требуют изменения токенов, а не локальных ad hoc стилей.
+
+- [ ] [CODE]-[030] Суперседировать старые 5x5-допущения в layout и visual hierarchy
+      Task Context: Некоторые более ранние design/layout задачи были сформулированы под `5x5`. Добавь follow-up на реальную адаптацию иерархии экрана, spacing и композиции под текущую `6x6` игру и порядок `top metrics -> current word -> grid -> help buttons`.
+      Task DOD: Иерархия экрана соответствует `DESIGN.md` и текущей `6x6` игре; layout не выглядит сплюснутым или перегруженным из-за перехода с `5x5` на `6x6`; поле остается главным объектом внимания.
+
 - [ ] [CODE]-[020] Добавить telemetry и product guardrails для guided loop v1.1
       Task Context: Заинструментируй product/technical telemetry под новые метрики: `session length`, `D1`, `help-action share`, `mean time to find displayed target`, `restore success`, `ad outcomes`, `leaderboard sync success`, `error-rate by code`.
       Task DOD: Метрики доступны из кода через typed events/logs с `correlationId`; новые KPI можно собирать без PII; post-launch анализ pacing и scoring гипотез возможен без дописывания клиента.
@@ -183,6 +229,18 @@
 - [ ] [CODE]-[021] Зафиксировать детерминированную policy для ad technical error
       Task Context: Вынеси продуктовую policy для `showRewardedVideo` technical error в единый domain/config contract: либо deterministic goodwill, либо deterministic отказ с toast/cooldown; поведение должно быть единым во всех help flows.
       Task DOD: Поведение на ad technical error единообразно и тестируемо; код не содержит разрозненных веток goodwill/fail; policy отражена в документации и telemetry.
+
+- [ ] [CODE]-[022] Внедрить визуальную систему DESIGN.md
+      Task Context: Переведи UI на целевой арт-дирекшн из `DESIGN.md`: `airy`, `soft bloom`, `glassy`, `pastel`, `tactile`, `calm reward`; введи дизайн-токены для фона, glass-поверхностей, stroke, типографики, текста и акцентной палитры, исключи темный и агрессивный визуальный тон.
+      Task DOD: Экран визуально соответствует `DESIGN.md`; базовые поверхности, текст и акценты собраны из централизованных токенов; интерфейс не выглядит dark-heavy, кислотным или arcade-aggressive.
+
+- [ ] [CODE]-[023] Пересобрать иерархию экрана по DESIGN.md
+      Task Context: Обнови layout одного экрана: верхняя строка из двух равных блоков `progress/score`, компактный блок текущего слова без дополнительных подписей, доминирующая сетка 5x5 и вторичный блок help-кнопок; приоритет визуального внимания должен быть `word -> grid -> progress -> help`.
+      Task DOD: Иерархия экрана совпадает с `DESIGN.md`; текущее слово и сетка читаются как главные объекты, help-кнопки не перетягивают внимание, а верхние карточки выглядят как единая система.
+
+- [ ] [CODE]-[024] Довести motion и interactive states до DESIGN.md
+      Task Context: Синхронизируй motion contract с `DESIGN.md`: progress bar fill с мягкими частицами, focus-word transition `crossfade + blur-to-sharp`, hover/focus/pressed/disabled states у кнопок, liquid-glass reshuffle и мягкое затухание target/bonus feedback.
+      Task DOD: Ключевые анимации и interactive states соответствуют `DESIGN.md` по характеру движения и таймингам; нет жестких cut/spring-like эффектов, выбивающихся из calm-premium visual language.
 
 - [x] [CODE]-[290] Приборка этапа кодирования
       Task Context: Удали временные моки, debug UI, тестовые кнопки, неиспользуемые ассеты и экспериментальные рендер-фичи, добавленные в процессе разработки.
@@ -205,6 +263,26 @@
       Task DOD: Код читабелен и поддерживаем; `lint/typecheck/build` green; архитектурные границы не нарушены.
 
 ## Этап 4: Тесты
+
+- [ ] [TEST]-[021] Добавить migration-тесты на переход с legacy 5x5/free-help к текущему v1.1
+      Task Context: Так как часть выполненных задач была закрыта под старые контракты (`5x5`, `HelpWindow`, free-help), нужен отдельный набор regression/migration tests, который докажет безопасный переход runtime и snapshot-формата к текущему `TECHSPEC.md`.
+      Task DOD: Автотесты подтверждают корректную миграцию старых snapshots и отсутствие рабочих 5x5/free-help assumptions в новой реализации.
+
+- [ ] [TEST]-[022] Проверить quota/readability contract генератора на 6x6
+      Task Context: Добавь отдельные property-based и acceptance tests для current generator contract: `10..15` слов, scaffold `35/35/30`, минимум 30% длинных слов (`7+`), `wordMixStats`, displayed-target readability rejection и anti-repeat.
+      Task DOD: Генераторные тесты ловят нарушения квот, mix-статистики и readability; acceptance suite подтверждает соответствие текущему `TECHSPEC.md`.
+
+- [ ] [TEST]-[023] Проверить paid-help с первого использования и отсутствие legacy free-flow
+      Task Context: Добавь тесты, которые подтверждают новый help contract: `hint` и `reshuffle` всегда требуют rewarded ad, используют `HelpLockState`, корректно обрабатывают `reward/close/error/noFill`, а старый free-window путь неактивен.
+      Task DOD: Все help-сценарии проходят по paid-flow; free-help regressions ловятся тестами; повторные клики и cooldown ведут себя по текущему контракту.
+
+- [ ] [TEST]-[024] Добавить regression suite для VisualSystem и visual tokens
+      Task Context: Поскольку `TECHSPEC.md` требует `VisualSystem` и build-time token contract, добавь snapshot/contract tests на централизованные visual tokens, button states, progress bar contract и current-word transition rules.
+      Task DOD: Visual tokens и ключевые UI-состояния проверяются автоматически; нарушения токен-контракта или несанкционированные ad hoc стили выявляются до релиза.
+
+- [ ] [TEST]-[025] Проверить 6x6 touch-accuracy и readability длинных путей
+      Task Context: Текущий `TECHSPEC.md` отдельно подчеркивает риск `6x6` touch/readability. Добавь device-focused acceptance tests для плотных путей и длинных слов, включая ошибки выбора клетки, диагонали и читаемость displayed target path на мобильных размерах.
+      Task DOD: Есть воспроизводимый набор проверок на `6x6` touch/readability; риски длинных слов и плотных маршрутов выявляются до релиза и входят в release hardening.
 
 - [ ] [TEST]-[001] Unit-тесты CoreState/InputPath/WordValidation на доменные контракты
       Task Context: Покрой тестами scoring formulas v1.1, state transitions, displayed-target pointer semantics, idempotency, repeat ignore, adjacency/undo rules, dictionary normalization и `ё`-кейсы.
@@ -273,6 +351,14 @@
 - [ ] [TEST]-[017] Проверить telemetry availability для guided-loop guardrails
       Task Context: Добавь проверки, что клиент публикует события и метрики, достаточные для post-launch анализа `session length`, `help-action share`, `mean time to find displayed target`, `restore success`, `ad outcomes`, `leaderboard sync success`.
       Task DOD: Success metrics instrumentation доступна и не требует ручного патча клиента перед релизом; события типизированы и содержат `correlationId` без PII.
+
+- [ ] [TEST]-[018] Провести visual acceptance по DESIGN.md
+      Task Context: Добавь screenshot/manual acceptance набор для проверки соответствия `DESIGN.md`: светлый airy-фон, glass-карточки, корректная акцентная палитра, равная верхняя строка, компактный блок текущего слова, доминирующая сетка и вторичные help-кнопки.
+      Task DOD: Мобильные и desktop-centered screenshots подтверждают соответствие `DESIGN.md`; визуальные регрессии по иерархии, палитре и композиции ловятся до релиза.
+
+- [ ] [TEST]-[019] Проверить motion и control states по DESIGN.md
+      Task Context: Добавь acceptance checks для progress-bar fill, transition текущего слова, target/bonus feedback, hover/focus/pressed/disabled states help-кнопок и level-complete/reshuffle motion; ориентируйся на тайминги и характер движения из `DESIGN.md`.
+      Task DOD: Motion и control states подтверждены визуально и/или snapshot-проверками; анимации выглядят связно, мягко и не противоречат `DESIGN.md`.
 
 - [ ] [TEST]-[390] Приборка этапа тестирования
       Task Context: Удали временные тестовые артефакты, устаревшие snapshots, лишние фикстуры и экспериментальные сценарии, не несущие value.
