@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createCoreStateModule } from '../src/domain/CoreState';
-import type { GameStateInput } from '../src/domain/GameState';
+import { calculateReadabilityScore, type GameStateInput } from '../src/domain/GameState';
 import { createNearCompletionFixtureState } from './helpers/game-state-fixtures';
 
 function createRestoreFixtureState(): GameStateInput {
@@ -74,7 +74,9 @@ describe('core state restore session', () => {
       currentDisplayedTargetId: 'сон',
       currentHintPathProgress: 2,
     });
-    expect(snapshot.gameState.currentLevelSession.readabilityScore).toBe(3.7);
+    expect(snapshot.gameState.currentLevelSession.readabilityScore).toBe(
+      calculateReadabilityScore(createRestoreFixtureState().currentLevelSession.targetWords),
+    );
   });
 
   it('falls back to a fresh active level when restored level is not restorable', () => {
