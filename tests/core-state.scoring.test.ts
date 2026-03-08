@@ -410,6 +410,8 @@ describe('core state scoring/progression', () => {
     const coreState = createCoreStateModule({
       initialGameState: {
         ...createScoringFixtureState(),
+        currentDisplayedTargetId: 'дорога',
+        currentHintPathProgress: 0,
         currentLevelSession: {
           ...createScoringFixtureState().currentLevelSession,
           levelId: 'level-target-priority',
@@ -452,16 +454,16 @@ describe('core state scoring/progression', () => {
             'ы',
           ],
           targetWords: [
-            'дом',
             'нос',
             'сон',
             'литр',
             'мрак',
-            'нить',
-            'плод',
-            'путь',
-            'река',
+            'берег',
+            'лампа',
             'дорога',
+            'картина',
+            'парусник',
+            'берегов',
           ],
           foundTargets: [],
           foundBonuses: [],

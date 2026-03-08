@@ -4,6 +4,7 @@ import {
   HINT_META_TARGET_WORD_KEY,
   WORD_GRID_CELL_COUNT,
   WORD_GRID_SIDE,
+  findWordPathInGrid,
   sortWordsByDifficulty,
 } from '../../shared/word-grid';
 import { HELP_WINDOW_DURATION_MS, type HelpKind } from '../HelpEconomy';
@@ -86,6 +87,23 @@ export interface WordMixStats {
   readonly short: number;
   readonly medium: number;
   readonly long: number;
+}
+
+export interface WordMixBounds {
+  readonly min: number;
+  readonly max: number;
+}
+
+export interface LevelGeneratorScaffold {
+  readonly longWordQuota: number;
+  readonly wordMixBounds: Readonly<Record<keyof WordMixStats, WordMixBounds>>;
+}
+
+export interface DisplayedTargetReadabilityInspection {
+  readonly displayedTargetId: TargetWordId;
+  readonly path: readonly Readonly<{ readonly row: number; readonly col: number }>[] | null;
+  readonly turnCount: number | null;
+  readonly maxTurnCount: number;
 }
 
 export interface LevelSession {
@@ -237,11 +255,14 @@ const LEVEL_GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
 const LEVEL_TARGET_WORDS_MIN = 10;
 const LEVEL_TARGET_WORDS_MAX = 15;
 const SHORT_WORD_MAX_LENGTH = 4;
-const READABLE_TARGET_WORD_MIN_LENGTH = 3;
 const READABLE_TARGET_WORD_MAX_LENGTH = 6;
 const LONG_WORD_MIN_LENGTH = 7;
-const MIN_READABLE_TARGET_WORDS = 10;
 const MAX_LEVEL_READABILITY_SCORE = READABLE_TARGET_WORD_MAX_LENGTH;
+const SHORT_WORD_MIX_TARGET_RATIO = 0.35;
+const MEDIUM_WORD_MIX_TARGET_RATIO = 0.35;
+const LONG_WORD_MIX_TARGET_RATIO = 0.3;
+const WORD_MIX_CATEGORY_TOLERANCE = 1;
+const MAX_SHORT_WORD_ADVANTAGE = 1;
 const MAX_PENDING_OPERATIONS = 128;
 const LEGACY_GRID_FILLER_LETTERS = ['ц', 'ш', 'щ', 'ф', 'х', 'ч', 'з', 'э', 'ю', 'й', 'ы'] as const;
 
@@ -609,51 +630,6 @@ function assertTargetWordCount(words: readonly string[]): void {
   }
 }
 
-function isReadableTargetWord(word: string): boolean {
-  return isLengthInRange(
-    word.length,
-    READABLE_TARGET_WORD_MIN_LENGTH,
-    READABLE_TARGET_WORD_MAX_LENGTH,
-  );
-}
-
-function countReadableTargetWords(words: readonly string[]): number {
-  return words.reduce((count, word) => {
-    return isReadableTargetWord(word) ? count + 1 : count;
-  }, 0);
-}
-
-function assertReadableTargetWordFloor(words: readonly string[]): void {
-  const readableTargetCount = countReadableTargetWords(words);
-
-  if (readableTargetCount < MIN_READABLE_TARGET_WORDS) {
-    throw parseError(
-      `levelSession.targetWords must contain at least ${MIN_READABLE_TARGET_WORDS} readable short/medium words.`,
-      'game-state.invariant.readable-target-count',
-      {
-        readableTargetCount,
-        minReadableTargetCount: MIN_READABLE_TARGET_WORDS,
-      },
-    );
-  }
-}
-
-function assertReadableTargetWordPrevalence(words: readonly string[]): void {
-  const readableTargetCount = countReadableTargetWords(words);
-  const unreadableTargetCount = words.length - readableTargetCount;
-
-  if (readableTargetCount <= unreadableTargetCount) {
-    throw parseError(
-      'levelSession.targetWords must be dominated by short/medium readable words.',
-      'game-state.invariant.readable-target-prevalence',
-      {
-        readableTargetCount,
-        unreadableTargetCount,
-      },
-    );
-  }
-}
-
 function assertFoundTargetsBelongToTargetWords(
   targetWords: readonly string[],
   foundTargets: readonly string[],
@@ -752,7 +728,7 @@ function categorizeWordLength(word: string): keyof WordMixStats {
   return 'medium';
 }
 
-function calculateWordMixStats(targetWords: readonly string[]): WordMixStats {
+export function calculateWordMixStats(targetWords: readonly string[]): WordMixStats {
   return targetWords.reduce<WordMixStats>(
     (stats, targetWord) => {
       const category = categorizeWordLength(targetWord);
@@ -785,6 +761,113 @@ function assertWordMixStatsMatchesTargetWords(
       {
         actual: wordMixStats,
         expected,
+      },
+    );
+  }
+}
+
+function resolveWordMixBounds(targetWordCount: number, targetRatio: number): WordMixBounds {
+  return {
+    min: Math.max(0, Math.floor(targetWordCount * targetRatio - WORD_MIX_CATEGORY_TOLERANCE)),
+    max: Math.min(
+      targetWordCount,
+      Math.ceil(targetWordCount * targetRatio + WORD_MIX_CATEGORY_TOLERANCE),
+    ),
+  };
+}
+
+export function resolveLongWordQuota(targetWordCount: number): number {
+  return Math.ceil(targetWordCount * LONG_WORD_MIX_TARGET_RATIO);
+}
+
+export function resolveLevelGeneratorScaffold(targetWordCount: number): LevelGeneratorScaffold {
+  return {
+    longWordQuota: resolveLongWordQuota(targetWordCount),
+    wordMixBounds: {
+      short: resolveWordMixBounds(targetWordCount, SHORT_WORD_MIX_TARGET_RATIO),
+      medium: resolveWordMixBounds(targetWordCount, MEDIUM_WORD_MIX_TARGET_RATIO),
+      long: resolveWordMixBounds(targetWordCount, LONG_WORD_MIX_TARGET_RATIO),
+    },
+  };
+}
+
+function assertLongWordQuota(wordMixStats: WordMixStats, targetWordCount: number): void {
+  const requiredLongWordCount = resolveLongWordQuota(targetWordCount);
+
+  if (wordMixStats.long < requiredLongWordCount) {
+    throw parseError(
+      `levelSession.targetWords must contain at least ${requiredLongWordCount} long words.`,
+      'game-state.invariant.long-word-quota',
+      {
+        longWordCount: wordMixStats.long,
+        requiredLongWordCount,
+        targetWordCount,
+      },
+    );
+  }
+}
+
+function assertWordMixScaffold(wordMixStats: WordMixStats, targetWordCount: number): void {
+  const shortBounds = resolveWordMixBounds(targetWordCount, SHORT_WORD_MIX_TARGET_RATIO);
+  const mediumBounds = resolveWordMixBounds(targetWordCount, MEDIUM_WORD_MIX_TARGET_RATIO);
+  const longBounds = resolveWordMixBounds(targetWordCount, LONG_WORD_MIX_TARGET_RATIO);
+
+  if (wordMixStats.short < shortBounds.min || wordMixStats.short > shortBounds.max) {
+    throw parseError(
+      'levelSession.wordMixStats.short must stay within the supported generator scaffold window.',
+      'game-state.invariant.word-mix-scaffold',
+      {
+        category: 'short',
+        actual: wordMixStats.short,
+        min: shortBounds.min,
+        max: shortBounds.max,
+        targetWordCount,
+      },
+    );
+  }
+
+  if (wordMixStats.medium < mediumBounds.min || wordMixStats.medium > mediumBounds.max) {
+    throw parseError(
+      'levelSession.wordMixStats.medium must stay within the supported generator scaffold window.',
+      'game-state.invariant.word-mix-scaffold',
+      {
+        category: 'medium',
+        actual: wordMixStats.medium,
+        min: mediumBounds.min,
+        max: mediumBounds.max,
+        targetWordCount,
+      },
+    );
+  }
+
+  if (wordMixStats.long > longBounds.max) {
+    throw parseError(
+      'levelSession.wordMixStats.long must stay within the supported generator scaffold window.',
+      'game-state.invariant.word-mix-scaffold',
+      {
+        category: 'long',
+        actual: wordMixStats.long,
+        min: longBounds.min,
+        max: longBounds.max,
+        targetWordCount,
+      },
+    );
+  }
+}
+
+function assertShortWordBalance(wordMixStats: WordMixStats): void {
+  const allowedShortWordCount =
+    Math.max(wordMixStats.medium, wordMixStats.long) + MAX_SHORT_WORD_ADVANTAGE;
+
+  if (wordMixStats.short > allowedShortWordCount) {
+    throw parseError(
+      'levelSession.wordMixStats.short must not dominate medium/long target words.',
+      'game-state.invariant.short-word-dominance',
+      {
+        shortWordCount: wordMixStats.short,
+        mediumWordCount: wordMixStats.medium,
+        longWordCount: wordMixStats.long,
+        allowedShortWordCount,
       },
     );
   }
@@ -844,7 +927,7 @@ function resolveRemainingTargetWords(
   );
 }
 
-function calculateReadabilityScore(targetWords: readonly string[]): number {
+export function calculateReadabilityScore(targetWords: readonly string[]): number {
   if (targetWords.length === 0) {
     return 0;
   }
@@ -864,6 +947,105 @@ function assertLevelReadabilityScore(readabilityScore: number): void {
       {
         readabilityScore,
         maxReadabilityScore: MAX_LEVEL_READABILITY_SCORE,
+      },
+    );
+  }
+}
+
+export function assertLevelGeneratorInvariants(
+  levelSession: Pick<LevelSession, 'targetWords' | 'wordMixStats' | 'readabilityScore'>,
+): void {
+  assertTargetWordCount(levelSession.targetWords);
+  assertLevelReadabilityScore(levelSession.readabilityScore);
+  assertWordMixStatsMatchesTargetWords(levelSession.wordMixStats, levelSession.targetWords);
+  assertLongWordQuota(levelSession.wordMixStats, levelSession.targetWords.length);
+  assertWordMixScaffold(levelSession.wordMixStats, levelSession.targetWords.length);
+  assertShortWordBalance(levelSession.wordMixStats);
+}
+
+function calculateDisplayedTargetTurnCount(
+  path: readonly Readonly<{ readonly row: number; readonly col: number }>[],
+): number {
+  let turnCount = 0;
+  let previousDirection: readonly [rowDelta: number, colDelta: number] | null = null;
+
+  for (let index = 1; index < path.length; index += 1) {
+    const previousCell = path[index - 1];
+    const currentCell = path[index];
+
+    if (previousCell === undefined || currentCell === undefined) {
+      continue;
+    }
+
+    const direction: readonly [number, number] = [
+      currentCell.row - previousCell.row,
+      currentCell.col - previousCell.col,
+    ];
+
+    if (
+      previousDirection !== null &&
+      (previousDirection[0] !== direction[0] || previousDirection[1] !== direction[1])
+    ) {
+      turnCount += 1;
+    }
+
+    previousDirection = direction;
+  }
+
+  return turnCount;
+}
+
+function resolveDisplayedTargetMaxTurnCount(wordLength: number): number {
+  return wordLength <= SHORT_WORD_MAX_LENGTH ? 2 : 3;
+}
+
+export function inspectDisplayedTargetReadability(
+  levelSession: LevelSession,
+  displayedTargetId: TargetWordId | null,
+): DisplayedTargetReadabilityInspection | null {
+  if (displayedTargetId === null) {
+    return null;
+  }
+
+  const path = findWordPathInGrid(levelSession.grid, displayedTargetId);
+  return {
+    displayedTargetId,
+    path,
+    turnCount: path === null ? null : calculateDisplayedTargetTurnCount(path),
+    maxTurnCount: resolveDisplayedTargetMaxTurnCount(displayedTargetId.length),
+  };
+}
+
+export function assertDisplayedTargetReadabilityInvariant(
+  levelSession: LevelSession,
+  displayedTargetId: TargetWordId | null,
+): void {
+  const inspection = inspectDisplayedTargetReadability(levelSession, displayedTargetId);
+
+  if (inspection === null) {
+    return;
+  }
+
+  if (inspection.path === null) {
+    throw parseError(
+      'gameState.currentDisplayedTargetId must resolve to a path in levelSession.grid.',
+      'game-state.invariant.displayed-target-readability',
+      {
+        displayedTargetId: inspection.displayedTargetId,
+        reason: 'path-missing',
+      },
+    );
+  }
+
+  if (inspection.turnCount !== null && inspection.turnCount > inspection.maxTurnCount) {
+    throw parseError(
+      'gameState.currentDisplayedTargetId must resolve to a readable path.',
+      'game-state.invariant.displayed-target-readability',
+      {
+        displayedTargetId: inspection.displayedTargetId,
+        reason: 'turn-count',
+        turnCount: inspection.turnCount,
+        maxTurnCount: inspection.maxTurnCount,
       },
     );
   }
@@ -1159,12 +1341,8 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
     wordMixStats: resolveWordMixStats(targetWords, input.wordMixStats),
   };
 
-  assertTargetWordCount(levelSession.targetWords);
   assertUniqueWords(levelSession.targetWords, 'levelSession.targetWords');
-  assertReadableTargetWordFloor(levelSession.targetWords);
-  assertReadableTargetWordPrevalence(levelSession.targetWords);
-  assertLevelReadabilityScore(levelSession.readabilityScore);
-  assertWordMixStatsMatchesTargetWords(levelSession.wordMixStats, levelSession.targetWords);
+  assertLevelGeneratorInvariants(levelSession);
   assertUniqueWords(levelSession.foundTargets, 'levelSession.foundTargets');
   assertUniqueWords(levelSession.foundBonuses, 'levelSession.foundBonuses');
   assertFoundTargetsBelongToTargetWords(levelSession.targetWords, levelSession.foundTargets);
@@ -1275,6 +1453,10 @@ export function createGameState(
     currentLevelSession,
     resetGuidedTargetState ? undefined : input.currentDisplayedTargetId,
     resetGuidedTargetState ? undefined : input.currentHintPathProgress,
+  );
+  assertDisplayedTargetReadabilityInvariant(
+    currentLevelSession,
+    guidedTargetState.currentDisplayedTargetId,
   );
   const requestedSchemaVersion = assertNonNegativeSafeInteger(
     input.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,

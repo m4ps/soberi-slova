@@ -3,18 +3,23 @@ import { describe, expect, it } from 'vitest';
 import {
   GAME_STATE_SCHEMA_VERSION,
   GameStateDomainError,
+  assertLevelGeneratorInvariants,
+  calculateReadabilityScore,
   createGameState,
   createLevelSession,
   createWordEntry,
   deserializeGameState,
   deserializeGameStateWithMigrations,
+  inspectDisplayedTargetReadability,
   deserializeWordEntry,
   isGameStateDomainError,
   migrateGameStateSnapshot,
+  resolveLevelGeneratorScaffold,
   resolveLwwSnapshot,
   serializeGameState,
   serializeWordEntry,
   type GameStateInput,
+  type WordMixStats,
   type WordEntryInput,
 } from '../src/domain/GameState';
 import { cloneDefaultLevelGrid, cloneDefaultLevelTargetWords } from '../src/shared/default-level';
@@ -74,6 +79,62 @@ function createFixtureGameStateInput(): GameStateInput {
   };
 }
 
+const SYNTHETIC_CYRILLIC_ALPHABET = 'абвгдежзиклмнопрстуфхцчшыэюя';
+
+function createSyntheticWord(length: number, index: number): string {
+  const letters = new Array<string>(length).fill(SYNTHETIC_CYRILLIC_ALPHABET[0] ?? 'а');
+  let remainder = index;
+
+  for (let position = length - 1; position >= 0; position -= 1) {
+    const letter = SYNTHETIC_CYRILLIC_ALPHABET[remainder % SYNTHETIC_CYRILLIC_ALPHABET.length];
+    if (letter !== undefined) {
+      letters[position] = letter;
+    }
+
+    remainder = Math.floor(remainder / SYNTHETIC_CYRILLIC_ALPHABET.length);
+  }
+
+  return letters.join('');
+}
+
+function createSyntheticTargetWords(wordMixStats: WordMixStats): string[] {
+  return [
+    ...Array.from({ length: wordMixStats.short }, (_, index) => createSyntheticWord(3, index)),
+    ...Array.from({ length: wordMixStats.medium }, (_, index) => createSyntheticWord(5, index)),
+    ...Array.from({ length: wordMixStats.long }, (_, index) => createSyntheticWord(7, index)),
+  ];
+}
+
+function createSyntheticLevelSession(wordMixStats: WordMixStats) {
+  return createLevelSession({
+    levelId: `level-mix-${wordMixStats.short}-${wordMixStats.medium}-${wordMixStats.long}`,
+    grid: createValidGrid(),
+    targetWords: createSyntheticTargetWords(wordMixStats),
+    foundTargets: [],
+    foundBonuses: [],
+    status: 'active',
+    seed: 101,
+  });
+}
+
+function isSupportedWordMixDistribution(
+  wordMixStats: WordMixStats,
+  targetWordCount: number,
+): boolean {
+  const scaffold = resolveLevelGeneratorScaffold(targetWordCount);
+  const allowedShortWordCount = Math.max(wordMixStats.medium, wordMixStats.long) + 1;
+
+  return (
+    wordMixStats.long >= scaffold.longWordQuota &&
+    wordMixStats.short >= scaffold.wordMixBounds.short.min &&
+    wordMixStats.short <= scaffold.wordMixBounds.short.max &&
+    wordMixStats.medium >= scaffold.wordMixBounds.medium.min &&
+    wordMixStats.medium <= scaffold.wordMixBounds.medium.max &&
+    wordMixStats.long <= scaffold.wordMixBounds.long.max &&
+    wordMixStats.short <= allowedShortWordCount
+  );
+}
+
 function createLegacySnapshotV0WithoutStateVersion(): Record<string, unknown> {
   const legacySnapshot: Record<string, unknown> = {
     ...createFixtureGameStateInput(),
@@ -109,7 +170,14 @@ describe('game state model', () => {
     expect(state.currentDisplayedTargetId).toBe('нос');
     expect(state.currentHintPathProgress).toBe(0);
     expect(state.currentLevelSession.levelId).toBe('level-42');
-    expect(state.currentLevelSession.readabilityScore).toBe(3.7);
+    expect(state.currentLevelSession.readabilityScore).toBe(
+      calculateReadabilityScore(cloneDefaultLevelTargetWords()),
+    );
+    expect(state.currentLevelSession.wordMixStats).toEqual({
+      short: 4,
+      medium: 3,
+      long: 3,
+    });
     expect(state.helpLockState).toEqual({
       isLocked: true,
       lockedUntil: null,
@@ -196,7 +264,9 @@ describe('game state model', () => {
     expect(firstMigration.state.stateVersion).toBe(0);
     expect(firstMigration.state.currentDisplayedTargetId).toBe('нос');
     expect(firstMigration.state.currentHintPathProgress).toBe(0);
-    expect(firstMigration.state.currentLevelSession.readabilityScore).toBe(3.7);
+    expect(firstMigration.state.currentLevelSession.readabilityScore).toBe(
+      calculateReadabilityScore(cloneDefaultLevelTargetWords()),
+    );
     expect(firstMigration.state.pendingOps).toEqual([]);
   });
 
@@ -237,7 +307,9 @@ describe('game state model', () => {
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нос');
     expect(migration.state.currentHintPathProgress).toBe(0);
-    expect(migration.state.currentLevelSession.readabilityScore).toBe(3.7);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(
+      calculateReadabilityScore(cloneDefaultLevelTargetWords()),
+    );
     expect(migration.state.helpLockState).toEqual({
       isLocked: true,
       lockedUntil: null,
@@ -273,7 +345,9 @@ describe('game state model', () => {
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нора');
     expect(migration.state.currentHintPathProgress).toBe(3);
-    expect(migration.state.currentLevelSession.readabilityScore).toBe(3.7);
+    expect(migration.state.currentLevelSession.readabilityScore).toBe(
+      calculateReadabilityScore(cloneDefaultLevelTargetWords()),
+    );
   });
 
   it('rejects snapshots from unsupported future schema versions', () => {
@@ -440,10 +514,39 @@ describe('game state model', () => {
     );
   });
 
-  it('rejects level sessions without minimum 10 readable short/medium targets', () => {
+  it('rejects level sessions when the quota scaffold drifts outside supported bounds', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        targetWords: [
+          'дом',
+          'кора',
+          'нить',
+          'нора',
+          'море',
+          'картина',
+          'мореход',
+          'палисад',
+          'история',
+          'зигзаги',
+        ],
+        foundTargets: [],
+        foundBonuses: [],
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.word-mix-scaffold',
+    );
+  });
+
+  it('rejects level sessions without the minimum long-word quota', () => {
     const baseInput = createFixtureGameStateInput();
     const targetWords = cloneDefaultLevelTargetWords();
-    targetWords[9] = 'история';
+    targetWords[7] = 'ветер';
     const input: GameStateInput = {
       ...baseInput,
       currentLevelSession: {
@@ -454,9 +557,35 @@ describe('game state model', () => {
       },
     };
 
+    expectDomainErrorWithCode(() => createGameState(input), 'game-state.invariant.long-word-quota');
+  });
+
+  it('rejects level sessions when short words dominate the scaffold mix', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        targetWords: [
+          'дом',
+          'нос',
+          'сон',
+          'мак',
+          'луг',
+          'ветер',
+          'озеро',
+          'картина',
+          'парусник',
+          'берегов',
+        ],
+        foundTargets: [],
+        foundBonuses: [],
+      },
+    };
+
     expectDomainErrorWithCode(
       () => createGameState(input),
-      'game-state.invariant.readable-target-count',
+      'game-state.invariant.short-word-dominance',
     );
   });
 
@@ -488,6 +617,92 @@ describe('game state model', () => {
 
     expect(state.currentDisplayedTargetId).toBe('нос');
     expect(state.currentHintPathProgress).toBe(0);
+  });
+
+  it('rejects unreadable displayed targets before gameplay', () => {
+    const baseInput = createFixtureGameStateInput();
+    const input: GameStateInput = {
+      ...baseInput,
+      currentDisplayedTargetId: 'зигзаги',
+      currentLevelSession: {
+        ...baseInput.currentLevelSession,
+        targetWords: [
+          'дом',
+          'нос',
+          'сон',
+          'ветер',
+          'озеро',
+          'лампа',
+          'книга',
+          'картина',
+          'парусник',
+          'зигзаги',
+        ],
+        foundTargets: ['дом'],
+        foundBonuses: [],
+      },
+    };
+
+    expectDomainErrorWithCode(
+      () => createGameState(input),
+      'game-state.invariant.displayed-target-readability',
+    );
+  });
+
+  it('exposes deterministic scaffold and readability helpers for property-style checks', () => {
+    for (let targetWordCount = 10; targetWordCount <= 15; targetWordCount += 1) {
+      let acceptedDistributionCount = 0;
+
+      for (let short = 0; short <= targetWordCount; short += 1) {
+        for (let medium = 0; medium <= targetWordCount - short; medium += 1) {
+          const long = targetWordCount - short - medium;
+          const wordMixStats: WordMixStats = {
+            short,
+            medium,
+            long,
+          };
+
+          if (!isSupportedWordMixDistribution(wordMixStats, targetWordCount)) {
+            continue;
+          }
+
+          acceptedDistributionCount += 1;
+          const targetWords = createSyntheticTargetWords(wordMixStats);
+          const levelSession = createSyntheticLevelSession(wordMixStats);
+
+          expect(levelSession.wordMixStats).toEqual(wordMixStats);
+          expect(levelSession.readabilityScore).toBe(calculateReadabilityScore(targetWords));
+          expect(() => assertLevelGeneratorInvariants(levelSession)).not.toThrow();
+        }
+      }
+
+      expect(acceptedDistributionCount).toBeGreaterThan(0);
+    }
+  });
+
+  it('inspects displayed target readability deterministically before gameplay starts', () => {
+    const levelSession = createLevelSession({
+      levelId: 'level-readability-inspection',
+      grid: createValidGrid(),
+      targetWords: cloneDefaultLevelTargetWords(),
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: 303,
+    });
+
+    expect(inspectDisplayedTargetReadability(levelSession, 'берегов')).toMatchObject({
+      displayedTargetId: 'берегов',
+      maxTurnCount: 3,
+      turnCount: 3,
+      path: expect.any(Array),
+    });
+    expect(inspectDisplayedTargetReadability(levelSession, 'зигзаги')).toEqual({
+      displayedTargetId: 'зигзаги',
+      path: null,
+      turnCount: null,
+      maxTurnCount: 3,
+    });
   });
 
   it('resets displayed target and hint progress when transitioning to a new level', () => {

@@ -2,6 +2,21 @@
 
 ## 2026-03-08
 
+### [DATA]-[010] Quota/readability инварианты генератора вынесены в domain model
+
+- В `src/domain/GameState/index.ts` generator-контракт закреплён явными доменными validator/helper API:
+  - добавлены `assertLevelGeneratorInvariants` и `resolveLevelGeneratorScaffold` для детерминированной проверки диапазона `10..15`, `wordMixStats`, scaffold `35/35/30`, quota длинных слов и anti-dominance коротких слов;
+  - добавлены `inspectDisplayedTargetReadability` и `assertDisplayedTargetReadabilityInvariant`, чтобы unreadable `displayed target` отсекался на границе domain model до gameplay.
+- `createLevelSession` теперь собирает `readabilityScore`/`wordMixStats` и прогоняет level через единый validator вместо набора разрозненных локальных проверок.
+- `tests/game-state.model.test.ts` расширен:
+  - негативными кейсами на scaffold drift, long-word quota, short-word dominance и unreadable displayed target;
+  - детерминированным exhaustive property-style тестом по всем допустимым `short/medium/long` композициям для `targetWordCount` в диапазоне `10..15`;
+  - прямой проверкой инспекции displayed-target readability.
+- `tests/core-state.restore.test.ts` и `tests/application-command-bus.smoke.test.ts` переведены на вычисляемый `readabilityScore`, чтобы ожидания не расходились с актуальной domain-фикстурой.
+- Верификация:
+  - `npm test -- --run tests/game-state.model.test.ts tests/level-generator.test.ts tests/core-state.restore.test.ts tests/application-command-bus.smoke.test.ts` — passed;
+  - `npm run ci:baseline` — passed.
+
 ### [DATA]-[009] Доменная схема мигрирована с legacy `5x5/free-help` на `v1.1`
 
 - `src/domain/GameState/index.ts` переведён на `schemaVersion=4` и актуальную форму `TECHSPEC v1.1`:

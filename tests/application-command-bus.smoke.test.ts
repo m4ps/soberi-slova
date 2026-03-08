@@ -8,7 +8,7 @@ import {
   type ApplicationEvent,
 } from '../src/application';
 import { createCoreStateModule } from '../src/domain/CoreState';
-import type { GameStateInput } from '../src/domain/GameState';
+import { calculateReadabilityScore, type GameStateInput } from '../src/domain/GameState';
 import { createHelpEconomyModule } from '../src/domain/HelpEconomy';
 import { createWordValidationModule } from '../src/domain/WordValidation';
 import {
@@ -434,7 +434,9 @@ describe('application command/query bus smoke', () => {
         currentDisplayedTargetId: 'нос',
         currentHintPathProgress: 2,
       });
-      expect(restoredCoreState.gameState.currentLevelSession.readabilityScore).toBe(3.7);
+      expect(restoredCoreState.gameState.currentLevelSession.readabilityScore).toBe(
+        calculateReadabilityScore(createScoringFixtureState().currentLevelSession.targetWords),
+      );
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
       expect(restoredHelpWindow.windowStartTs).toBe(9_500);
