@@ -26,6 +26,85 @@ function createScoringFixtureState(): GameStateInput {
 }
 
 describe('core state scoring/progression', () => {
+  it('accepts out-of-focus target words without switching the displayed target prematurely', () => {
+    const coreState = createCoreStateModule({
+      initialGameState: {
+        ...createScoringFixtureState(),
+        currentDisplayedTargetId: 'дом',
+        currentHintPathProgress: 2,
+      },
+      wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
+      nowProvider: () => 4_500,
+    });
+
+    const outOfFocusTarget = coreState.submitPath([cell(1, 3), cell(1, 2), cell(1, 1)], 4_501);
+
+    expect(outOfFocusTarget).toMatchObject({
+      result: 'target',
+      normalizedWord: 'сон',
+      isSilent: false,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 16,
+        levelClearScore: 0,
+        totalScore: 16,
+      },
+      progress: {
+        foundTargets: 8,
+        totalTargets: 10,
+      },
+      allTimeScore: 16,
+      stateVersion: 1,
+      levelStatus: 'active',
+    });
+    expect(outOfFocusTarget.wordSuccessOperationId).toEqual(expect.any(String));
+
+    const pendingSnapshot = coreState.getSnapshot();
+    expect(pendingSnapshot.gameplay).toMatchObject({
+      isInputLocked: true,
+      pendingWordSuccessOperationId: outOfFocusTarget.wordSuccessOperationId,
+      progress: {
+        foundTargets: 8,
+        totalTargets: 10,
+      },
+      allTimeScore: 16,
+      levelStatus: 'active',
+      stateVersion: 1,
+    });
+    expect(pendingSnapshot.gameState).toMatchObject({
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 2,
+    });
+    expect(pendingSnapshot.gameplay.foundTargets).toEqual([
+      ...createScoringFixtureState().currentLevelSession.foundTargets,
+      'сон',
+    ]);
+
+    const wordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
+      outOfFocusTarget.wordSuccessOperationId!,
+      4_502,
+    );
+    expect(wordSuccessAck).toMatchObject({
+      operationId: outOfFocusTarget.wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      levelStatus: 'active',
+      showEphemeralCongrats: false,
+      allTimeScore: 16,
+      stateVersion: 2,
+    });
+
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 2,
+    });
+  });
+
   it('applies scoring formulas in state-first order and keeps accrual idempotent', () => {
     const coreState = createCoreStateModule({
       initialGameState: createScoringFixtureState(),

@@ -160,7 +160,7 @@
       Task Context: Переведи генератор на `N=10..15`, приоритет коротких/средних слов, minimum `10` target-слов, readability-first selection/placement, anti-repeat и rejection rules по читаемости; длинные слова больше не обязательны.
       Task DOD: Новый генератор стабильно выдает уровни в диапазоне `10..15` target-слов; уровни проходят readability checks и anti-repeat heuristics; deterministic tests по seed остаются зелеными.
 
-- [ ] [CODE]-[016] Реализовать out-of-focus target acceptance без штрафа
+- [x] [CODE]-[016] Реализовать out-of-focus target acceptance без штрафа
       Task Context: Если игрок собирает не текущее отображаемое, а другое еще не найденное target-слово, оно должно засчитываться без штрафа; если displayed target все еще не найден, он должен остаться текущим.
       Task DOD: Out-of-focus target засчитывается как обычный target; displayed target не переключается преждевременно; scoring и progression идентичны обычной target-разгадке.
 

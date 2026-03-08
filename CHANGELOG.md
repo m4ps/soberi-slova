@@ -2,6 +2,21 @@
 
 ## 2026-03-08
 
+### [CODE]-[016] Out-of-focus target acceptance без штрафа
+
+- Поведение `out-of-focus target` зафиксировано регрессионными тестами без изменения runtime-контракта:
+  - `tests/core-state.scoring.test.ts` теперь проверяет, что не текущее, но ещё не найденное target-слово засчитывается как обычный `target`;
+  - после такого submit сохраняются `currentDisplayedTargetId` и `currentHintPathProgress`, если ранее показанное слово всё ещё не найдено;
+  - scoring, progress и `wordSuccess` lifecycle остаются идентичны обычной target-разгадке.
+- `tests/application-command-bus.smoke.test.ts` дополнен сквозным сценарием:
+  - `SubmitPath` для out-of-focus target публикует `domain/target-word-accepted` с начислением очков и ростом прогресса;
+  - `domain/displayed-target-changed` не публикуется преждевременно, пока displayed target фактически не меняется.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[016]` отмечена выполненной.
+- Верификация:
+  - `npm test -- --run tests/core-state.scoring.test.ts tests/application-command-bus.smoke.test.ts` — passed;
+  - browser-smoke через `$WEB_GAME_CLIENT` не выполнен в sandbox-среде, потому что локальный dev-server не может открыть listener (`listen EPERM: operation not permitted 127.0.0.1:4173`);
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[015] LevelGenerator переведён на v1.1 readability-first contract
 
 - `src/domain/LevelGenerator/index.ts` переведён с legacy-диапазона `3..7` на `10..15` target-слов:
@@ -106,7 +121,6 @@
 - Верификация:
   - `npm run ci:baseline` — passed.
   - Попытка skill-smoke через Playwright client не выполнена из-за sandbox-ограничения на локальный HTTP listener (`listen EPERM`); прямой `file://` fallback также заблокирован средой.
-
 ## 2026-02-26
 
 ### [CODE]-[292] Удаление дублирования логики в domain/application/ui
