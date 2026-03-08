@@ -2,6 +2,23 @@
 
 ## 2026-03-09
 
+### [CODE]-[031] HUD copy и vertical rhythm доведены ближе к concept-board-v2
+
+- `src/adapters/VisualSystem/index.ts` уточнён как layout source of truth для верхнего HUD:
+  - добавлены отдельные anchors для `Цели`, счётчика `x / N`, `Общий счёт` и score value внутри metric cards;
+  - progress bar опущен в нижнюю часть progress-card, чтобы карточка читалась как `label + value + fill-bar`, ближе к `design/concept-board-v2`;
+  - перераспределён extra vertical space на portrait viewport’ах, чтобы gap между current-word, grid и controls оставался мягким, но не раздувался на `390x844`, `430x932` и lower-height smoke размерах.
+- `src/adapters/RenderMotion/index.ts` синхронизирован с обновлённым HUD contract:
+  - в runtime добавлен точный текст `Цели`;
+  - label справа исправлен с `Счёт` на `Общий счёт`;
+  - score card переведена на более макетную левую typographic hierarchy, а бонусные flying letters теперь прилетают в актуальную score-zone.
+- `tests/render-layout.test.ts` усилен регрессиями на новые metric anchors и верхнюю иерархию progress/score cards.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npx vitest run tests/render-layout.test.ts tests/visual-system.contract.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - before/after screenshots и browser-smoke не удалось приложить в текущей sandbox-среде: `vite.listen()` блокируется с `listen EPERM`, bundled Chromium падает на launch (`SIGTRAP`), системный Chrome — `SIGABRT`, а `webkit/firefox` browsers не установлены локально.
+
 ### [CODE]-[020] Telemetry и product guardrails для guided loop v1.1
 
 - `src/application/contracts.ts` и `src/application/index.ts` расширены typed observability-контрактами:
