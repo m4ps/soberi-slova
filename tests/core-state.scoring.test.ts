@@ -45,15 +45,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 16,
+        wordScore: 7,
         levelClearScore: 0,
-        totalScore: 16,
+        totalScore: 7,
       },
       progress: {
         foundTargets: 8,
         totalTargets: 10,
       },
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 1,
       levelStatus: 'active',
     });
@@ -67,7 +67,7 @@ describe('core state scoring/progression', () => {
         foundTargets: 8,
         totalTargets: 10,
       },
-      allTimeScore: 16,
+      allTimeScore: 7,
       levelStatus: 'active',
       stateVersion: 1,
     });
@@ -95,7 +95,7 @@ describe('core state scoring/progression', () => {
       },
       levelStatus: 'active',
       showEphemeralCongrats: false,
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 2,
     });
 
@@ -119,15 +119,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 16,
+        wordScore: 7,
         levelClearScore: 0,
-        totalScore: 16,
+        totalScore: 7,
       },
       progress: {
         foundTargets: 8,
         totalTargets: 10,
       },
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 1,
       levelStatus: 'active',
     });
@@ -155,7 +155,7 @@ describe('core state scoring/progression', () => {
         levelClearScore: 0,
         totalScore: 0,
       },
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 1,
       levelStatus: 'active',
     });
@@ -175,7 +175,7 @@ describe('core state scoring/progression', () => {
       },
       levelStatus: 'active',
       showEphemeralCongrats: false,
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 2,
     });
 
@@ -185,15 +185,15 @@ describe('core state scoring/progression', () => {
       normalizedWord: 'том',
       isSilent: false,
       scoreDelta: {
-        wordScore: 5,
+        wordScore: 2,
         levelClearScore: 0,
-        totalScore: 5,
+        totalScore: 2,
       },
       progress: {
         foundTargets: 8,
         totalTargets: 10,
       },
-      allTimeScore: 21,
+      allTimeScore: 9,
       stateVersion: 3,
       levelStatus: 'active',
     });
@@ -208,7 +208,7 @@ describe('core state scoring/progression', () => {
         levelClearScore: 0,
         totalScore: 0,
       },
-      allTimeScore: 21,
+      allTimeScore: 9,
       stateVersion: 3,
       levelStatus: 'active',
     });
@@ -220,15 +220,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 16,
+        wordScore: 7,
         levelClearScore: 0,
-        totalScore: 16,
+        totalScore: 7,
       },
       progress: {
         foundTargets: 9,
         totalTargets: 10,
       },
-      allTimeScore: 37,
+      allTimeScore: 16,
       stateVersion: 4,
       levelStatus: 'active',
     });
@@ -254,7 +254,7 @@ describe('core state scoring/progression', () => {
       },
       levelStatus: 'active',
       showEphemeralCongrats: false,
-      allTimeScore: 37,
+      allTimeScore: 16,
       stateVersion: 5,
     });
 
@@ -265,15 +265,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 16,
+        wordScore: 7,
         levelClearScore: 0,
-        totalScore: 16,
+        totalScore: 7,
       },
       progress: {
         foundTargets: 10,
         totalTargets: 10,
       },
-      allTimeScore: 53,
+      allTimeScore: 23,
       stateVersion: 6,
       levelStatus: 'completed',
     });
@@ -296,7 +296,7 @@ describe('core state scoring/progression', () => {
         foundTargets: 10,
         totalTargets: 10,
       },
-      allTimeScore: 53,
+      allTimeScore: 23,
       stateVersion: 6,
       levelStatus: 'completed',
     });
@@ -311,12 +311,12 @@ describe('core state scoring/progression', () => {
       levelClearAwarded: true,
       scoreDelta: {
         wordScore: 0,
-        levelClearScore: 80,
-        totalScore: 80,
+        levelClearScore: 20,
+        totalScore: 20,
       },
       levelStatus: 'reshuffling',
       showEphemeralCongrats: true,
-      allTimeScore: 133,
+      allTimeScore: 43,
       stateVersion: 7,
     });
     expect(levelClearAck.levelTransitionOperationId).toEqual(expect.any(String));
@@ -335,7 +335,7 @@ describe('core state scoring/progression', () => {
         totalScore: 0,
       },
       levelStatus: 'reshuffling',
-      allTimeScore: 133,
+      allTimeScore: 43,
       stateVersion: 7,
     });
 
@@ -352,7 +352,7 @@ describe('core state scoring/progression', () => {
         levelClearScore: 0,
         totalScore: 0,
       },
-      allTimeScore: 133,
+      allTimeScore: 43,
       stateVersion: 7,
       levelStatus: 'reshuffling',
     });
@@ -369,7 +369,7 @@ describe('core state scoring/progression', () => {
       handled: true,
       transitionedToNextLevel: true,
       levelStatus: 'active',
-      allTimeScore: 133,
+      allTimeScore: 43,
       stateVersion: 8,
     });
     expect(transitionAck.levelId).not.toBe('level-scoring');
@@ -382,13 +382,13 @@ describe('core state scoring/progression', () => {
       operationId: levelTransitionOperationId,
       handled: false,
       transitionedToNextLevel: false,
-      allTimeScore: 133,
+      allTimeScore: 43,
       stateVersion: 8,
     });
 
     const snapshot = coreState.getSnapshot();
     expect(snapshot.gameplay).toMatchObject({
-      allTimeScore: 133,
+      allTimeScore: 43,
       progress: {
         foundTargets: 0,
       },
@@ -471,15 +471,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 22,
+        wordScore: 10,
         levelClearScore: 0,
-        totalScore: 22,
+        totalScore: 10,
       },
       progress: {
         foundTargets: 1,
         totalTargets: 10,
       },
-      allTimeScore: 22,
+      allTimeScore: 10,
       levelStatus: 'active',
     });
   });
@@ -516,15 +516,15 @@ describe('core state scoring/progression', () => {
       isSilent: false,
       levelClearAwarded: false,
       scoreDelta: {
-        wordScore: 5,
+        wordScore: 2,
         levelClearScore: 0,
-        totalScore: 5,
+        totalScore: 2,
       },
       progress: {
         foundTargets: 7,
         totalTargets: 10,
       },
-      allTimeScore: 5,
+      allTimeScore: 2,
       levelStatus: 'active',
     });
 
@@ -538,7 +538,7 @@ describe('core state scoring/progression', () => {
         levelClearScore: 0,
         totalScore: 0,
       },
-      allTimeScore: 5,
+      allTimeScore: 2,
       levelStatus: 'active',
     });
   });

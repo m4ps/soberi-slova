@@ -164,7 +164,7 @@
       Task Context: Если игрок собирает не текущее отображаемое, а другое еще не найденное target-слово, оно должно засчитываться без штрафа; если displayed target все еще не найден, он должен остаться текущим.
       Task DOD: Out-of-focus target засчитывается как обычный target; displayed target не переключается преждевременно; scoring и progression идентичны обычной target-разгадке.
 
-- [ ] [CODE]-[017] Ребалансировать scoring-контракт на формулы v1.1
+- [x] [CODE]-[017] Ребалансировать scoring-контракт на формулы v1.1
       Task Context: Обнови доменные формулы очков до `target = 4 + length`, `bonus = 1 + floor(length / 2)`, `level clear = 10 + N`; убедись, что level clear, repeat-ignore и post-completion rules работают на новых числах без побочных регрессий.
       Task DOD: Все начисления используют новый numeric contract; persisted score и leaderboard sync работают на новой модели; unit/integration tests подтверждают отсутствие двойных начислений.
 
