@@ -2,6 +2,22 @@
 
 ## 2026-03-08
 
+### [CODE]-[027] Генератор доведён до quota-aware 6x6 scaffold из TECHSPEC v1.1
+
+- `src/domain/LevelGenerator/index.ts` синхронизирован с доменным generator contract:
+  - selection target-слов теперь выбирает допустимую `short/medium/long` композицию внутри scaffold `35/35/30`, соблюдает минимум `30%` длинных слов и сохраняет deterministic anti-repeat по `recentTargetWords`;
+  - generator output теперь явно несёт `readabilityScore` и `wordMixStats` как diagnostics alongside grid/placements;
+  - quota-invalid target sets, unreadable layouts и unreadable displayed target детерминированно отбраковываются до передачи уровня в gameplay.
+- `src/domain/CoreState/index.ts` начал прокидывать generator-computed `readabilityScore` и `wordMixStats` в `LevelSession`, чтобы runtime diagnostics не расходились с фактическим генератором.
+- `tests/level-generator.test.ts` переведён на актуальный quota/readability contract:
+  - проверки теперь валидируют scaffold bounds, long-word quota, сохранение diagnostics и прохождение generator output через `createGameState` без нарушения displayed-target readability;
+  - добавлен негативный кейс на словарь без достаточного long-word покрытия для scaffold quota.
+- Добавлен `ADR/ADR-045-level-generator-quota-aware-scaffold-code-027.md`, который закрепляет возврат генератора к quota-aware contract и supersede'ит ADR-042 в части word-mix стратегии.
+- Верификация:
+  - `npm test -- --run tests/level-generator.test.ts tests/game-state.model.test.ts tests/core-state.scoring.test.ts` — passed;
+  - `npm test -- --run tests/core-state.restore.test.ts tests/application-command-bus.smoke.test.ts tests/core-state.help.test.ts` — passed;
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[025] Runtime/acceptance-контракт очищен от legacy `5x5`
 
 - `src/adapters/RenderMotion/index.ts` расширен runtime debug snapshot для `render_game_to_text`:

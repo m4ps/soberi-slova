@@ -1,6 +1,19 @@
 import { MODULE_IDS } from '../../shared/module-ids';
-import { WORD_GRID_CELL_COUNT, WORD_GRID_SIDE } from '../../shared/word-grid';
-import type { WordEntry } from '../GameState';
+import {
+  WORD_GRID_CELL_COUNT,
+  WORD_GRID_SIDE,
+  sortWordsByDifficulty,
+} from '../../shared/word-grid';
+import {
+  assertLevelGeneratorInvariants,
+  calculateReadabilityScore,
+  calculateWordMixStats,
+  inspectDisplayedTargetReadability,
+  resolveLevelGeneratorScaffold,
+  type LevelSession,
+  type WordEntry,
+  type WordMixStats,
+} from '../GameState';
 import {
   isLowercaseCyrillicLetter,
   isLowercaseCyrillicWord,
@@ -17,10 +30,6 @@ const MEDIUM_WORD_MIN_LENGTH = 5;
 const MEDIUM_WORD_MAX_LENGTH = 6;
 const LONG_WORD_MIN_LENGTH = 7;
 const MAX_TARGET_WORD_LENGTH = 10;
-const READABLE_WORD_MIN_LENGTH = SHORT_WORD_MIN_LENGTH;
-const READABLE_WORD_MAX_LENGTH = MEDIUM_WORD_MAX_LENGTH;
-const MIN_READABLE_TARGET_WORDS = TARGET_WORDS_MIN;
-const MAX_LEVEL_READABILITY_SCORE = READABLE_WORD_MAX_LENGTH;
 const DEFAULT_RECENT_WORD_WINDOW_SIZE = 20;
 const MAX_LEVEL_GENERATION_ATTEMPTS = 24;
 const MAX_WORD_BACKTRACKS = 96;
@@ -88,6 +97,8 @@ export interface GeneratedLevel {
   readonly gridSize: typeof WORD_GRID_SIDE;
   readonly grid: readonly string[];
   readonly targetWords: readonly string[];
+  readonly readabilityScore: number;
+  readonly wordMixStats: WordMixStats;
   readonly placements: readonly GeneratedTargetPlacement[];
   readonly meta: GeneratedLevelMeta;
 }
@@ -236,6 +247,10 @@ function compareByRankAndWord(
   first: DictionaryWordCandidate,
   second: DictionaryWordCandidate,
 ): number {
+  if (first.word.length !== second.word.length) {
+    return first.word.length - second.word.length;
+  }
+
   if (first.rank !== second.rank) {
     return first.rank - second.rank;
   }
@@ -432,32 +447,17 @@ function normalizeRecentWords(
   return new Set(normalizedWords.slice(-windowSize));
 }
 
-function isReadableWord(word: string): boolean {
-  return word.length >= READABLE_WORD_MIN_LENGTH && word.length <= READABLE_WORD_MAX_LENGTH;
-}
-
-function countReadableWords(words: readonly string[]): number {
-  return words.reduce((count, word) => (isReadableWord(word) ? count + ONE : count), ZERO);
-}
-
-function calculateReadabilityScore(words: readonly string[]): number {
-  if (words.length === ZERO) {
-    return ZERO;
+function isTargetSetRejectedByQuotaContract(targetWords: readonly string[]): boolean {
+  try {
+    assertLevelGeneratorInvariants({
+      targetWords,
+      readabilityScore: calculateReadabilityScore(targetWords),
+      wordMixStats: calculateWordMixStats(targetWords),
+    });
+    return false;
+  } catch {
+    return true;
   }
-
-  const totalLetters = words.reduce((sum, word) => sum + word.length, ZERO);
-  return Number((totalLetters / words.length).toFixed(2));
-}
-
-function isTargetSetRejectedByReadability(targetWords: readonly string[]): boolean {
-  const readableTargetCount = countReadableWords(targetWords);
-  const unreadableTargetCount = targetWords.length - readableTargetCount;
-
-  return (
-    readableTargetCount < MIN_READABLE_TARGET_WORDS ||
-    readableTargetCount <= unreadableTargetCount ||
-    calculateReadabilityScore(targetWords) > MAX_LEVEL_READABILITY_SCORE
-  );
 }
 
 function resolveTargetWordCount(targetWordCount: number | undefined, random: SeededRandom): number {
@@ -489,20 +489,10 @@ function assertDictionaryCoverage(
   groupedCandidates: CandidatesByCategory,
   targetWordCount: number,
 ): void {
-  const readableCandidateCount = groupedCandidates.short.length + groupedCandidates.medium.length;
-
-  if (readableCandidateCount < MIN_READABLE_TARGET_WORDS) {
-    throw parseError(
-      'level-generator.missing-readable-words',
-      'Dictionary does not contain enough readable short/medium words for v1.1 generation.',
-      {
-        minReadableTargetWords: MIN_READABLE_TARGET_WORDS,
-        readableCandidateCount,
-      },
-    );
-  }
-
-  const totalUniqueWords = readableCandidateCount + groupedCandidates.long.length;
+  const totalUniqueWords =
+    groupedCandidates.short.length +
+    groupedCandidates.medium.length +
+    groupedCandidates.long.length;
 
   if (totalUniqueWords < targetWordCount) {
     throw parseError(
@@ -511,6 +501,19 @@ function assertDictionaryCoverage(
       {
         targetWordCount,
         totalUniqueWords,
+      },
+    );
+  }
+
+  const scaffold = resolveLevelGeneratorScaffold(targetWordCount);
+  if (groupedCandidates.long.length < scaffold.longWordQuota) {
+    throw parseError(
+      'level-generator.missing-long-words',
+      'Dictionary does not contain enough unique long words to satisfy the scaffold quota.',
+      {
+        requiredLongWordCount: scaffold.longWordQuota,
+        availableLongWordCount: groupedCandidates.long.length,
+        targetWordCount,
       },
     );
   }
@@ -549,73 +552,151 @@ function pickCandidateByRank(
   return pool[safeIndex] ?? null;
 }
 
-function uniqueCategoryOrder(order: readonly WordLengthCategory[]): WordLengthCategory[] {
-  const seen = new Set<WordLengthCategory>();
-  const result: WordLengthCategory[] = [];
-
-  for (const category of order) {
-    if (seen.has(category)) {
-      continue;
-    }
-
-    seen.add(category);
-    result.push(category);
-  }
-
-  return result;
+function createWordMixComposition(
+  short: number,
+  medium: number,
+  long: number,
+): Record<WordLengthCategory, number> {
+  return {
+    short,
+    medium,
+    long,
+  };
 }
 
-function pickCandidateForCategories(
-  categoryOrder: readonly WordLengthCategory[],
-  groupedCandidates: CandidatesByCategory,
-  excludedWords: ReadonlySet<string>,
-  recentWords: ReadonlySet<string>,
-  random: SeededRandom,
-): DictionaryWordCandidate | null {
-  for (const category of uniqueCategoryOrder(categoryOrder)) {
-    const candidate = pickCandidateByRank(
-      groupedCandidates[category],
-      excludedWords,
-      recentWords,
-      random,
-    );
-
-    if (candidate) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-function pickExtraCategory(random: SeededRandom): WordLengthCategory {
-  return random.next() < 0.7 ? 'short' : 'medium';
-}
-
-function createReadableCategoryOrder(
-  composition: Record<WordLengthCategory, number>,
-  random: SeededRandom,
-): readonly [WordLengthCategory, WordLengthCategory] {
-  if (composition.short < composition.medium + 2) {
-    return ['short', 'medium'];
-  }
-
-  if (composition.short > composition.medium + 3) {
-    return ['medium', 'short'];
-  }
-
-  return random.next() < 0.7 ? ['short', 'medium'] : ['medium', 'short'];
-}
-
-function createSupplementalCategoryOrder(
-  composition: Record<WordLengthCategory, number>,
-  random: SeededRandom,
-): readonly WordLengthCategory[] {
-  const [firstReadableCategory, secondReadableCategory] = createReadableCategoryOrder(
-    composition,
-    random,
+function calculateScaffoldDistance(targetWordCount: number, composition: WordMixStats): number {
+  return (
+    Math.abs(composition.short - targetWordCount * 0.35) +
+    Math.abs(composition.medium - targetWordCount * 0.35) +
+    Math.abs(composition.long - targetWordCount * 0.3)
   );
-  return [firstReadableCategory, secondReadableCategory, 'long'];
+}
+
+function compareWordMixCompositions(
+  targetWordCount: number,
+  left: WordMixStats,
+  right: WordMixStats,
+) {
+  const distanceDelta =
+    calculateScaffoldDistance(targetWordCount, left) -
+    calculateScaffoldDistance(targetWordCount, right);
+
+  if (distanceDelta !== ZERO) {
+    return distanceDelta;
+  }
+
+  const balanceDelta = Math.abs(left.short - left.medium) - Math.abs(right.short - right.medium);
+  if (balanceDelta !== ZERO) {
+    return balanceDelta;
+  }
+
+  if (left.short !== right.short) {
+    return left.short - right.short;
+  }
+
+  if (left.medium !== right.medium) {
+    return right.medium - left.medium;
+  }
+
+  return left.long - right.long;
+}
+
+function resolveSupportedWordMixCompositions(
+  targetWordCount: number,
+  groupedCandidates: CandidatesByCategory,
+): readonly WordMixStats[] {
+  const scaffold = resolveLevelGeneratorScaffold(targetWordCount);
+  const supportedCompositions: WordMixStats[] = [];
+
+  for (
+    let shortCount = scaffold.wordMixBounds.short.min;
+    shortCount <= scaffold.wordMixBounds.short.max;
+    shortCount += ONE
+  ) {
+    for (
+      let mediumCount = scaffold.wordMixBounds.medium.min;
+      mediumCount <= scaffold.wordMixBounds.medium.max;
+      mediumCount += ONE
+    ) {
+      const longCount = targetWordCount - shortCount - mediumCount;
+      const composition = createWordMixComposition(shortCount, mediumCount, longCount);
+
+      if (longCount < scaffold.longWordQuota || longCount > scaffold.wordMixBounds.long.max) {
+        continue;
+      }
+
+      if (shortCount > Math.max(mediumCount, longCount) + ONE) {
+        continue;
+      }
+
+      if (
+        groupedCandidates.short.length < composition.short ||
+        groupedCandidates.medium.length < composition.medium ||
+        groupedCandidates.long.length < composition.long
+      ) {
+        continue;
+      }
+
+      supportedCompositions.push(composition);
+    }
+  }
+
+  return supportedCompositions.sort((left, right) =>
+    compareWordMixCompositions(targetWordCount, left, right),
+  );
+}
+
+function pickSupportedWordMixComposition(
+  targetWordCount: number,
+  groupedCandidates: CandidatesByCategory,
+  random: SeededRandom,
+): WordMixStats {
+  const supportedCompositions = resolveSupportedWordMixCompositions(
+    targetWordCount,
+    groupedCandidates,
+  );
+
+  if (supportedCompositions.length === ZERO) {
+    throw parseError(
+      'level-generator.missing-scaffold-coverage',
+      'Dictionary does not contain enough category coverage for the supported 6x6 scaffold.',
+      {
+        targetWordCount,
+        availableCounts: {
+          short: groupedCandidates.short.length,
+          medium: groupedCandidates.medium.length,
+          long: groupedCandidates.long.length,
+        },
+      },
+    );
+  }
+
+  const pickWindow = Math.min(supportedCompositions.length, 4);
+  const rawIndex = Math.floor(Math.pow(random.next(), RANK_BIAS_EXPONENT) * pickWindow);
+  const safeIndex = Math.min(rawIndex, pickWindow - ONE);
+  return supportedCompositions[safeIndex] ?? supportedCompositions[ZERO]!;
+}
+
+function resolveCategorySelectionOrder(
+  composition: WordMixStats,
+  groupedCandidates: CandidatesByCategory,
+): readonly WordLengthCategory[] {
+  const categories: WordLengthCategory[] = ['long', 'medium', 'short'];
+
+  return categories.sort((left, right) => {
+    const leftScarcity = groupedCandidates[left].length - composition[left];
+    const rightScarcity = groupedCandidates[right].length - composition[right];
+
+    if (leftScarcity !== rightScarcity) {
+      return leftScarcity - rightScarcity;
+    }
+
+    if (composition[left] !== composition[right]) {
+      return composition[right] - composition[left];
+    }
+
+    return categories.indexOf(left) - categories.indexOf(right);
+  });
 }
 
 function compareWordsForPlacement(left: string, right: string): number {
@@ -649,56 +730,35 @@ function selectInitialTargetWords(
   recentWords: ReadonlySet<string>,
   random: SeededRandom,
 ): readonly string[] {
+  const composition = pickSupportedWordMixComposition(targetWordCount, groupedCandidates, random);
   const selectedWords: string[] = [];
   const selectedSet = new Set<string>();
-  const requiredReadableTargetCount = Math.min(targetWordCount, MIN_READABLE_TARGET_WORDS);
 
-  while (selectedWords.length < requiredReadableTargetCount) {
-    const composition = countWordComposition(selectedWords);
-    const candidate = pickCandidateForCategories(
-      createReadableCategoryOrder(composition, random),
-      groupedCandidates,
-      selectedSet,
-      recentWords,
-      random,
-    );
-
-    if (!candidate) {
-      throw parseError(
-        'level-generator.selection-failed',
-        'Unable to select enough readable short/medium target words.',
-        { selectedWords, requiredReadableTargetCount },
+  for (const category of resolveCategorySelectionOrder(composition, groupedCandidates)) {
+    while (countWordComposition(selectedWords)[category] < composition[category]) {
+      const candidate = pickCandidateByRank(
+        groupedCandidates[category],
+        selectedSet,
+        recentWords,
+        random,
       );
+
+      if (!candidate) {
+        throw parseError(
+          'level-generator.selection-failed',
+          'Unable to select enough unique target words for the requested scaffold mix.',
+          {
+            selectedWords,
+            targetWordCount,
+            category,
+            requestedCount: composition[category],
+          },
+        );
+      }
+
+      selectedWords.push(candidate.word);
+      selectedSet.add(candidate.word);
     }
-
-    selectedWords.push(candidate.word);
-    selectedSet.add(candidate.word);
-  }
-
-  while (selectedWords.length < targetWordCount) {
-    const preferredCategory = pickExtraCategory(random);
-    const composition = countWordComposition(selectedWords);
-    const candidate = pickCandidateForCategories(
-      [preferredCategory, ...createSupplementalCategoryOrder(composition, random)],
-      groupedCandidates,
-      selectedSet,
-      recentWords,
-      random,
-    );
-
-    if (!candidate) {
-      throw parseError(
-        'level-generator.selection-failed',
-        'Unable to select enough unique target words for requested v1.1 count.',
-        {
-          selectedWords,
-          targetWordCount,
-        },
-      );
-    }
-
-    selectedWords.push(candidate.word);
-    selectedSet.add(candidate.word);
   }
 
   return sortWordsForPlacement(selectedWords);
@@ -1078,25 +1138,6 @@ function countWordComposition(words: readonly string[]): Record<WordLengthCatego
   return counts;
 }
 
-function getReplacementCategoryOrder(
-  failedCategory: WordLengthCategory,
-  composition: Record<WordLengthCategory, number>,
-): readonly WordLengthCategory[] {
-  if (failedCategory === 'short') {
-    return composition.short <= composition.medium
-      ? ['short', 'medium', 'long']
-      : ['medium', 'short', 'long'];
-  }
-
-  if (failedCategory === 'medium') {
-    return composition.medium <= composition.short
-      ? ['medium', 'short', 'long']
-      : ['short', 'medium', 'long'];
-  }
-
-  return ['medium', 'short', 'long'];
-}
-
 function tryGenerateLayout(
   initialWords: readonly string[],
   groupedCandidates: CandidatesByCategory,
@@ -1144,11 +1185,8 @@ function tryGenerateLayout(
     }
 
     const failedCategory = classifyWordLength(word);
-    const composition = countWordComposition(workingWords);
-    const replacementCategoryOrder = getReplacementCategoryOrder(failedCategory, composition);
-    const replacement = pickCandidateForCategories(
-      replacementCategoryOrder,
-      groupedCandidates,
+    const replacement = pickCandidateByRank(
+      groupedCandidates[failedCategory],
       excludedWords,
       recentWords,
       random,
@@ -1317,7 +1355,28 @@ function isLayoutRejectedByReadability(
   );
 }
 
+function createGeneratedLevelInspectionSession(level: GeneratedLevel): LevelSession {
+  return {
+    levelId: `generated-${level.seed}`,
+    grid: [...level.grid],
+    targetWords: [...level.targetWords],
+    foundTargets: [],
+    foundBonuses: [],
+    status: 'active',
+    seed: level.seed,
+    readabilityScore: level.readabilityScore,
+    wordMixStats: level.wordMixStats,
+  };
+}
+
+function resolveDisplayedTargetId(targetWords: readonly string[]): string | null {
+  return sortWordsByDifficulty(targetWords)[ZERO] ?? null;
+}
+
 function assertGeneratedLevel(level: GeneratedLevel): void {
+  const expectedWordMixStats = calculateWordMixStats(level.targetWords);
+  const expectedReadabilityScore = calculateReadabilityScore(level.targetWords);
+
   if (level.grid.length !== GRID_CELL_COUNT) {
     throw parseError(
       'level-generator.invalid-grid-size',
@@ -1357,14 +1416,40 @@ function assertGeneratedLevel(level: GeneratedLevel): void {
     );
   }
 
-  if (isTargetSetRejectedByReadability(level.targetWords)) {
+  if (
+    level.wordMixStats.short !== expectedWordMixStats.short ||
+    level.wordMixStats.medium !== expectedWordMixStats.medium ||
+    level.wordMixStats.long !== expectedWordMixStats.long
+  ) {
     throw parseError(
-      'level-generator.unreadable-target-set',
-      'Generated target set violates readability-first v1.1 constraints.',
+      'level-generator.invalid-word-mix-stats',
+      'Generated level must expose wordMixStats matching the actual target words.',
+      {
+        actual: level.wordMixStats,
+        expected: expectedWordMixStats,
+      },
+    );
+  }
+
+  if (level.readabilityScore !== expectedReadabilityScore) {
+    throw parseError(
+      'level-generator.invalid-readability-score',
+      'Generated level must expose readabilityScore matching the actual target words.',
+      {
+        actual: level.readabilityScore,
+        expected: expectedReadabilityScore,
+      },
+    );
+  }
+
+  if (isTargetSetRejectedByQuotaContract(level.targetWords)) {
+    throw parseError(
+      'level-generator.invalid-target-set',
+      'Generated target set violates quota/readability v1.1 constraints.',
       {
         targetWords: level.targetWords,
-        readableTargetCount: countReadableWords(level.targetWords),
-        readabilityScore: calculateReadabilityScore(level.targetWords),
+        wordMixStats: expectedWordMixStats,
+        readabilityScore: expectedReadabilityScore,
       },
     );
   }
@@ -1466,6 +1551,28 @@ function assertGeneratedLevel(level: GeneratedLevel): void {
       },
     );
   }
+
+  const displayedTargetId = resolveDisplayedTargetId(level.targetWords);
+  const displayedTargetInspection = inspectDisplayedTargetReadability(
+    createGeneratedLevelInspectionSession(level),
+    displayedTargetId,
+  );
+
+  if (
+    displayedTargetInspection !== null &&
+    (displayedTargetInspection.path === null ||
+      (displayedTargetInspection.turnCount !== null &&
+        displayedTargetInspection.turnCount > displayedTargetInspection.maxTurnCount))
+  ) {
+    throw parseError(
+      'level-generator.unreadable-displayed-target',
+      'Generated level must reject unreadable displayed targets before gameplay starts.',
+      {
+        displayedTargetId,
+        inspection: displayedTargetInspection,
+      },
+    );
+  }
 }
 
 export function createLevelGeneratorModule(
@@ -1515,7 +1622,7 @@ export function createLevelGeneratorModule(
           continue;
         }
 
-        if (isTargetSetRejectedByReadability(layoutAttempt.targetWords)) {
+        if (isTargetSetRejectedByQuotaContract(layoutAttempt.targetWords)) {
           continue;
         }
 
@@ -1528,11 +1635,15 @@ export function createLevelGeneratorModule(
         }
 
         const rareMetrics = calculateRareMetrics(layoutAttempt.grid.join(''));
+        const wordMixStats = calculateWordMixStats(layoutAttempt.targetWords);
+        const readabilityScore = calculateReadabilityScore(layoutAttempt.targetWords);
         const generatedLevel: GeneratedLevel = {
           seed: normalizedSeed,
           gridSize: GRID_SIDE,
           grid: layoutAttempt.grid,
           targetWords: layoutAttempt.targetWords,
+          readabilityScore,
+          wordMixStats,
           placements: layoutAttempt.placements.map((placement) => ({
             word: placement.word,
             cellIndexes: [...placement.path],

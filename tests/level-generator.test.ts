@@ -3,24 +3,28 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import type { WordEntry } from '../src/domain/GameState';
+import {
+  createGameState,
+  resolveLevelGeneratorScaffold,
+  type WordEntry,
+} from '../src/domain/GameState';
 import {
   createLevelGeneratorModule,
   LevelGeneratorDomainError,
   type GeneratedLevel,
 } from '../src/domain/LevelGenerator';
 import { buildDictionaryIndexFromCsv } from '../src/domain/WordValidation';
-import { WORD_GRID_CELL_COUNT, WORD_GRID_SIDE } from '../src/shared/word-grid';
+import {
+  WORD_GRID_CELL_COUNT,
+  WORD_GRID_SIDE,
+  sortWordsByDifficulty,
+} from '../src/shared/word-grid';
 
 const GRID_SIDE = WORD_GRID_SIDE;
 const GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
-const SHORT_WORD_MIN = 3;
 const SHORT_WORD_MAX = 4;
-const MEDIUM_WORD_MAX = 6;
 const TARGET_WORDS_MIN = 10;
 const TARGET_WORDS_MAX = 15;
-const MIN_READABLE_TARGETS = 10;
-const MAX_LEVEL_READABILITY_SCORE = MEDIUM_WORD_MAX;
 const MAX_CELL_USAGE = 5;
 
 function loadDictionaryEntries(): readonly WordEntry[] {
@@ -37,14 +41,6 @@ function loadDictionaryEntries(): readonly WordEntry[] {
   }
 
   return entries;
-}
-
-function isReadableTargetWord(word: string): boolean {
-  return word.length >= SHORT_WORD_MIN && word.length <= MEDIUM_WORD_MAX;
-}
-
-function countReadableTargetWords(words: readonly string[]): number {
-  return words.reduce((count, word) => (isReadableTargetWord(word) ? count + 1 : count), 0);
 }
 
 function calculateReadabilityScore(words: readonly string[]): number {
@@ -100,17 +96,26 @@ function calculateCellUsage(placements: GeneratedLevel['placements']): number[] 
 }
 
 function expectGeneratedLevelToMatchInvariants(level: GeneratedLevel): void {
+  const scaffold = resolveLevelGeneratorScaffold(level.targetWords.length);
+  const displayedTargetId = sortWordsByDifficulty(level.targetWords)[0] ?? null;
+
   expect(level.gridSize).toBe(GRID_SIDE);
   expect(level.grid).toHaveLength(GRID_CELL_COUNT);
   expect(level.targetWords.length).toBeGreaterThanOrEqual(TARGET_WORDS_MIN);
   expect(level.targetWords.length).toBeLessThanOrEqual(TARGET_WORDS_MAX);
   expect(new Set(level.targetWords).size).toBe(level.targetWords.length);
-
-  const readableTargetCount = countReadableTargetWords(level.targetWords);
-  expect(readableTargetCount).toBeGreaterThanOrEqual(MIN_READABLE_TARGETS);
-  expect(readableTargetCount).toBeGreaterThan(level.targetWords.length - readableTargetCount);
-  expect(calculateReadabilityScore(level.targetWords)).toBeLessThanOrEqual(
-    MAX_LEVEL_READABILITY_SCORE,
+  expect(level.wordMixStats.short + level.wordMixStats.medium + level.wordMixStats.long).toBe(
+    level.targetWords.length,
+  );
+  expect(level.readabilityScore).toBe(calculateReadabilityScore(level.targetWords));
+  expect(level.wordMixStats.long).toBeGreaterThanOrEqual(scaffold.longWordQuota);
+  expect(level.wordMixStats.short).toBeGreaterThanOrEqual(scaffold.wordMixBounds.short.min);
+  expect(level.wordMixStats.short).toBeLessThanOrEqual(scaffold.wordMixBounds.short.max);
+  expect(level.wordMixStats.medium).toBeGreaterThanOrEqual(scaffold.wordMixBounds.medium.min);
+  expect(level.wordMixStats.medium).toBeLessThanOrEqual(scaffold.wordMixBounds.medium.max);
+  expect(level.wordMixStats.long).toBeLessThanOrEqual(scaffold.wordMixBounds.long.max);
+  expect(level.wordMixStats.short).toBeLessThanOrEqual(
+    Math.max(level.wordMixStats.medium, level.wordMixStats.long) + 1,
   );
 
   expect(level.placements).toHaveLength(level.targetWords.length);
@@ -162,6 +167,37 @@ function expectGeneratedLevelToMatchInvariants(level: GeneratedLevel): void {
   }
 
   expect(Math.max(...calculateCellUsage(level.placements))).toBeLessThanOrEqual(MAX_CELL_USAGE);
+
+  const state = createGameState({
+    updatedAt: 0,
+    allTimeScore: 0,
+    currentLevelSession: {
+      levelId: `generated-${level.seed}`,
+      grid: [...level.grid],
+      targetWords: [...level.targetWords],
+      foundTargets: [],
+      foundBonuses: [],
+      status: 'active',
+      seed: level.seed,
+      readabilityScore: level.readabilityScore,
+      wordMixStats: { ...level.wordMixStats },
+    },
+    helpLockState: {
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
+    },
+    pendingOps: [],
+    leaderboardSync: {
+      lastSubmittedScore: 0,
+      lastAckScore: 0,
+      lastSubmitTs: 0,
+    },
+  });
+
+  expect(state.currentLevelSession.wordMixStats).toEqual(level.wordMixStats);
+  expect(state.currentLevelSession.readabilityScore).toBe(level.readabilityScore);
+  expect(state.currentDisplayedTargetId).toBe(displayedTargetId);
 }
 
 function createDictionaryEntry(word: string, id: number, rank: number): WordEntry {
@@ -250,20 +286,32 @@ describe('LevelGenerator module', () => {
     );
   });
 
-  it('rejects dictionaries without minimum readable short/medium coverage', () => {
+  it('rejects dictionaries without enough long words for the scaffold quota', () => {
     const incompleteDictionary = [
       createDictionaryEntry('дом', 1, 10),
       createDictionaryEntry('сад', 2, 11),
       createDictionaryEntry('река', 3, 12),
       createDictionaryEntry('город', 4, 13),
+      createDictionaryEntry('лес', 5, 14),
+      createDictionaryEntry('мир', 6, 15),
+      createDictionaryEntry('ветер', 7, 16),
+      createDictionaryEntry('лампа', 8, 17),
+      createDictionaryEntry('озеро', 9, 18),
+      createDictionaryEntry('песня', 10, 19),
     ];
 
     const module = createLevelGeneratorModule({
       dictionaryEntries: incompleteDictionary,
     });
 
-    expect(() => module.generateLevel({ seed: 101, targetWordCount: 10 })).toThrowError(
-      LevelGeneratorDomainError,
-    );
+    try {
+      module.generateLevel({ seed: 101, targetWordCount: 10 });
+      throw new Error(
+        'Expected generator to reject dictionary without long-word scaffold coverage.',
+      );
+    } catch (error) {
+      expect(error).toBeInstanceOf(LevelGeneratorDomainError);
+      expect((error as LevelGeneratorDomainError).code).toBe('level-generator.missing-long-words');
+    }
   });
 });
