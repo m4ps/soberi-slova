@@ -29,13 +29,11 @@ function createScoringFixtureState(): GameStateInput {
   });
 }
 
-interface CapturedWordSubmittedEvent {
-  readonly eventType: 'domain/word-submitted';
+interface CapturedTargetWordAcceptedEvent {
+  readonly eventType: 'domain/target-word-accepted';
   readonly payload: {
     readonly commandType: 'SubmitPath';
-    readonly result: 'target' | 'bonus' | 'repeat' | 'invalid';
-    readonly normalizedWord: string | null;
-    readonly isSilent: boolean;
+    readonly targetWord: string;
     readonly scoreDelta: {
       readonly wordScore: number;
       readonly levelClearScore: number;
@@ -184,9 +182,32 @@ describe('application command/query bus smoke', () => {
         return event.eventType === 'domain/help' && event.payload.phase === 'ad-result';
       },
     );
+    const helpActionAppliedEvents = events.filter(
+      (event): event is Extract<ApplicationEvent, { eventType: 'domain/help-action-applied' }> => {
+        return event.eventType === 'domain/help-action-applied';
+      },
+    );
+    const helpActionFailedEvents = events.filter(
+      (event): event is Extract<ApplicationEvent, { eventType: 'domain/help-action-failed' }> => {
+        return event.eventType === 'domain/help-action-failed';
+      },
+    );
+    const hintProgressEvents = events.filter(
+      (
+        event,
+      ): event is Extract<
+        ApplicationEvent,
+        { eventType: 'domain/hint-path-progress-advanced' }
+      > => {
+        return event.eventType === 'domain/hint-path-progress-advanced';
+      },
+    );
 
     expect(helpRequestedEvents).toHaveLength(2);
     expect(helpAdResultEvents).toHaveLength(1);
+    expect(helpActionAppliedEvents).toHaveLength(1);
+    expect(helpActionFailedEvents).toHaveLength(1);
+    expect(hintProgressEvents).toHaveLength(1);
     expect(helpAdResultEvents[0]).toMatchObject({
       correlationId: 'op-ad',
       payload: {
@@ -200,6 +221,34 @@ describe('application command/query bus smoke', () => {
         cooldownApplied: false,
         cooldownDurationMs: 0,
         toastMessage: null,
+      },
+    });
+    expect(helpActionAppliedEvents[0]).toMatchObject({
+      payload: {
+        commandType: 'RequestHint',
+        helpKind: 'hint',
+        source: 'free',
+        effect: {
+          kind: 'hint',
+        },
+      },
+    });
+    expect(helpActionFailedEvents[0]).toMatchObject({
+      correlationId: 'op-ad',
+      payload: {
+        commandType: 'AcknowledgeAdResult',
+        helpKind: 'hint',
+        source: 'rewarded-ad',
+        reason: 'ad-reward-not-applied',
+        outcome: 'reward',
+        toastMessage: null,
+      },
+    });
+    expect(hintProgressEvents[0]).toMatchObject({
+      payload: {
+        commandType: 'RequestHint',
+        revealCount: expect.any(Number),
+        levelId: expect.any(String),
       },
     });
 
@@ -414,19 +463,17 @@ describe('application command/query bus smoke', () => {
     expect(result.type).toBe('ok');
     expect(scoreObservedAtRoute).toBe(16);
     const submitEvent = events.find((event) => {
-      return (event as { eventType: string }).eventType === 'domain/word-submitted';
-    }) as CapturedWordSubmittedEvent | undefined;
+      return (event as { eventType: string }).eventType === 'domain/target-word-accepted';
+    }) as CapturedTargetWordAcceptedEvent | undefined;
 
     expect(submitEvent).toBeDefined();
     if (!submitEvent) {
-      throw new Error('Expected domain/word-submitted event.');
+      throw new Error('Expected domain/target-word-accepted event.');
     }
 
     expect(submitEvent.payload).toMatchObject({
       commandType: 'SubmitPath',
-      result: 'target',
-      normalizedWord: 'дом',
-      isSilent: false,
+      targetWord: 'дом',
       scoreDelta: {
         wordScore: 16,
         levelClearScore: 0,
@@ -469,6 +516,10 @@ describe('application command/query bus smoke', () => {
       }),
       helpEconomy: createHelpEconomyModule(0),
     });
+    const events: ApplicationEvent[] = [];
+    application.events.subscribe((event) => {
+      events.push(event);
+    });
 
     const submitPath = (pathCells: ReadonlyArray<{ row: number; col: number }>): string => {
       const result = application.commands.dispatch({
@@ -510,6 +561,36 @@ describe('application command/query bus smoke', () => {
     });
     expect(completedSnapshot.gameplay.pendingWordSuccessOperationId).toEqual(expect.any(String));
     expect(finalTargetCorrelationId).toBe(completedSnapshot.gameplay.pendingWordSuccessOperationId);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/level-completed',
+        correlationId: finalTargetCorrelationId,
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          levelId: 'level-command-bus',
+          completedWord: 'сон',
+          wordSuccessOperationId: finalTargetCorrelationId,
+          displayedTargetId: null,
+          progress: {
+            foundTargets: 10,
+            totalTargets: 10,
+          },
+        }),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/displayed-target-changed',
+        correlationId: finalTargetCorrelationId,
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          reason: 'target-accepted',
+          previousLevelId: 'level-command-bus',
+          nextLevelId: 'level-command-bus',
+          nextTargetWordId: null,
+        }),
+      }),
+    );
 
     const wordSuccessOperationId = completedSnapshot.gameplay.pendingWordSuccessOperationId!;
     const wordSuccessAckResult = application.commands.dispatch({
@@ -555,6 +636,18 @@ describe('application command/query bus smoke', () => {
       foundTargets: 0,
     });
     expect(nextLevelSnapshot.gameplay.progress.totalTargets).toBeGreaterThanOrEqual(10);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/displayed-target-changed',
+        correlationId: levelTransitionOperationId,
+        payload: expect.objectContaining({
+          commandType: 'AcknowledgeLevelTransitionDone',
+          reason: 'level-transition',
+          previousLevelId: 'level-command-bus',
+          nextLevelId: nextLevelSnapshot.gameplay.levelId,
+        }),
+      }),
+    );
   });
 
   it('enforces shared help lock and releases it after ad acknowledgement', () => {

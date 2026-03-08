@@ -71,11 +71,11 @@ Task DOD: Все ключевые операции публикуют типиз
 Task Context: Расширь `GameState` и `LevelSession` полями `currentDisplayedTargetId`, `currentHintPathProgress` и `readabilityScore`; подготовь backward-compatible snapshot migration, чтобы ранее сохраненные состояния восстанавливались без потери `allTimeScore` и `free-action timer`.
 Task DOD: Схема состояния соответствует `TECHSPEC v1.1`; migration tests покрывают переход на новую модель; restore не теряет очки, таймер помощи и новый guided-target state.
 
-- [ ] [DATA]-[007] Зафиксировать инварианты v1.1 для target-count, readability и displayed-target pointer
+- [x] [DATA]-[007] Зафиксировать инварианты v1.1 для target-count, readability и displayed-target pointer
 Task Context: Добавь runtime-валидацию инвариантов `N=10..15`, minimum `10` target-слов, преобладание коротких/средних слов, читаемость уровня и правило, что `currentDisplayedTargetId` всегда указывает на еще не найденное слово, если такие слова есть.
 Task DOD: Невалидные уровни и состояния отклоняются до входа в gameplay; unit-тесты покрывают target-count bounds, readability constraints и корректность displayed-target pointer.
 
-- [ ] [DATA]-[008] Расширить доменные события под guided loop и hint progression
+- [x] [DATA]-[008] Расширить доменные события под guided loop и hint progression
 Task Context: Добавь в event model обязательные события `TargetWordAccepted`, `BonusWordAccepted`, `DisplayedTargetChanged`, `HintPathProgressAdvanced`, `LevelCompleted`, `HelpActionApplied`, `HelpActionFailed`, `StatePersisted`; сохрани `correlationId` и versioning.
 Task DOD: Все новые события типизированы и задокументированы; события публикуются из соответствующих use-cases и доступны для telemetry/render/persistence цепочек.
 - [x] [DATA]-[190] Приборка этапа модели данных

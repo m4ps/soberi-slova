@@ -611,15 +611,33 @@ export function createRenderMotionModule(
       };
 
       const handleDomainEvent = (event: ApplicationEvent): void => {
-        if (event.eventType === 'domain/word-submitted') {
-          const payload = event.payload;
-          if (payload.isSilent || (payload.result !== 'target' && payload.result !== 'bonus')) {
+        if (
+          event.eventType === 'domain/target-word-accepted' ||
+          event.eventType === 'domain/bonus-word-accepted'
+        ) {
+          const kind: SuccessKind =
+            event.eventType === 'domain/target-word-accepted' ? 'target' : 'bonus';
+          const color = kind === 'target' ? 0x22c55e : 0xfacc15;
+
+          if (event.eventType === 'domain/target-word-accepted') {
+            const payload = event.payload;
+            pathGlowAnimations.push({
+              kind,
+              pathCells: payload.pathCells,
+              color,
+              elapsedMs: 0,
+              durationMs: 520,
+            });
+            queueFlyingLetters(payload.targetWord, payload.pathCells, kind);
+
+            if (payload.wordSuccessOperationId) {
+              const normalizedWord = payload.targetWord || payload.wordSuccessOperationId;
+              scheduleWordSuccessAcknowledge(payload.wordSuccessOperationId, normalizedWord);
+            }
             return;
           }
 
-          const kind: SuccessKind = payload.result;
-          const color = kind === 'target' ? 0x22c55e : 0xfacc15;
-
+          const payload = event.payload;
           pathGlowAnimations.push({
             kind,
             pathCells: payload.pathCells,
@@ -627,23 +645,15 @@ export function createRenderMotionModule(
             elapsedMs: 0,
             durationMs: 520,
           });
-
-          if (payload.normalizedWord) {
-            queueFlyingLetters(payload.normalizedWord, payload.pathCells, kind);
-          }
-
-          if (payload.wordSuccessOperationId) {
-            const normalizedWord = payload.normalizedWord ?? payload.wordSuccessOperationId;
-            scheduleWordSuccessAcknowledge(payload.wordSuccessOperationId, normalizedWord);
-          }
+          queueFlyingLetters(payload.bonusWord, payload.pathCells, kind);
           return;
         }
 
-        if (event.eventType !== 'domain/help') {
+        if (event.eventType !== 'domain/help-action-failed') {
           return;
         }
 
-        if (event.payload.phase === 'ad-result' && event.payload.toastMessage) {
+        if (event.payload.toastMessage) {
           toastMessage = {
             text: event.payload.toastMessage,
             remainingMs: TOAST_DURATION_MS,

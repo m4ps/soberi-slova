@@ -16,7 +16,9 @@ import type {
   PersistedSessionSnapshot,
   RestoreSessionPayload,
   RoutedCommandType,
+  GridCellRef,
 } from './contracts';
+import type { CoreStateHelpEffect, CoreStateSnapshot } from '../domain/CoreState';
 import { toErrorMessage } from '../shared/errors';
 import { parseNonNegativeSafeInteger } from '../shared/runtime-guards';
 
@@ -64,10 +66,18 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'application/tick': 1,
   'application/command-routed': 1,
   'domain/word-submitted': 1,
+  'domain/target-word-accepted': 1,
+  'domain/bonus-word-accepted': 1,
+  'domain/displayed-target-changed': 1,
+  'domain/hint-path-progress-advanced': 1,
+  'domain/level-completed': 1,
+  'domain/help-action-applied': 1,
+  'domain/help-action-failed': 1,
   'domain/word-success': 1,
   'domain/level-clear': 1,
   'domain/help': 1,
   'domain/persistence': 1,
+  'domain/state-persisted': 1,
   'domain/leaderboard-sync': 1,
 };
 const HELP_NO_FILL_TOAST_MESSAGE = 'Реклама сейчас недоступна';
@@ -173,9 +183,38 @@ function resolveRestoreHelpWindow(
   return null;
 }
 
+function clonePathCells(pathCells: readonly GridCellRef[]): readonly GridCellRef[] {
+  return pathCells.map((cell) => ({ ...cell }));
+}
+
+function cloneHelpEffect(effect: CoreStateHelpEffect): CoreStateHelpEffect {
+  if (effect.kind === 'hint') {
+    return {
+      ...effect,
+      revealedPathCells: clonePathCells(effect.revealedPathCells),
+    };
+  }
+
+  return {
+    ...effect,
+  };
+}
+
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
   type EventType = ApplicationEvent['eventType'];
   type EventByType<TType extends EventType> = Extract<ApplicationEvent, { eventType: TType }>;
+  type DisplayedTargetChangedPayload = Extract<
+    ApplicationEvent,
+    { eventType: 'domain/displayed-target-changed' }
+  >['payload'];
+  type HelpActionAppliedPayload = Extract<
+    ApplicationEvent,
+    { eventType: 'domain/help-action-applied' }
+  >['payload'];
+  type HelpActionFailedPayload = Extract<
+    ApplicationEvent,
+    { eventType: 'domain/help-action-failed' }
+  >['payload'];
 
   const eventListeners = new Set<ApplicationEventListener>();
   let eventSequence = 0;
@@ -233,6 +272,41 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     } as EventByType<TType>;
   };
 
+  const publishDisplayedTargetChanged = (
+    commandType: DisplayedTargetChangedPayload['commandType'],
+    reason: DisplayedTargetChangedPayload['reason'],
+    correlationId: string,
+    previousSnapshot: CoreStateSnapshot,
+    nextSnapshot: CoreStateSnapshot,
+  ): void => {
+    const previousLevelId = previousSnapshot.gameplay.levelId;
+    const nextLevelId = nextSnapshot.gameplay.levelId;
+    const previousTargetWordId = previousSnapshot.gameState.currentDisplayedTargetId;
+    const nextTargetWordId = nextSnapshot.gameState.currentDisplayedTargetId;
+
+    if (previousLevelId === nextLevelId && previousTargetWordId === nextTargetWordId) {
+      return;
+    }
+
+    publish(
+      createEvent('domain/displayed-target-changed', correlationId, {
+        commandType,
+        reason,
+        previousLevelId,
+        nextLevelId,
+        previousTargetWordId,
+        nextTargetWordId,
+        previousHintPathProgress: previousSnapshot.gameState.currentHintPathProgress,
+        nextHintPathProgress: nextSnapshot.gameState.currentHintPathProgress,
+        stateVersion: nextSnapshot.gameplay.stateVersion,
+        progress: {
+          foundTargets: nextSnapshot.gameplay.progress.foundTargets,
+          totalTargets: nextSnapshot.gameplay.progress.totalTargets,
+        },
+      }),
+    );
+  };
+
   const acknowledge = (
     commandType: ApplicationCommand['type'],
     correlationId: string,
@@ -266,6 +340,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     commandType: 'RequestHint' | 'RequestReshuffle',
     helpKind: 'hint' | 'reshuffle',
   ): ApplicationResult<CommandAck> => {
+    const previousCoreState = modules.coreState.getSnapshot();
     const requestedAt = Date.now();
     const decision = modules.helpEconomy.requestHelp(helpKind, requestedAt);
 
@@ -297,13 +372,10 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
 
     let applied = false;
     const requiresAd = decision.type === 'await-ad';
+    let helpApplyResult: ReturnType<DomainModules['coreState']['applyHelp']> | null = null;
 
     if (decision.type === 'apply-now') {
-      const helpApplyResult = modules.coreState.applyHelp(
-        helpKind,
-        decision.operationId,
-        requestedAt,
-      );
+      helpApplyResult = modules.coreState.applyHelp(helpKind, decision.operationId, requestedAt);
       applied = helpApplyResult.applied;
       modules.helpEconomy.finalizePendingRequest(
         decision.operationId,
@@ -311,6 +383,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
         requestedAt,
       );
     }
+
+    const nextCoreState = modules.coreState.getSnapshot();
 
     return routeCommand(commandType, decision.operationId, (correlationId) => {
       publish(
@@ -322,6 +396,74 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           isFreeAction: decision.isFreeAction,
           requiresAd,
           applied,
+        }),
+      );
+
+      if (!helpApplyResult) {
+        return;
+      }
+
+      const helpSource: HelpActionAppliedPayload['source'] = decision.isFreeAction
+        ? 'free'
+        : 'rewarded-ad';
+
+      if (helpApplyResult.applied && helpApplyResult.effect) {
+        const effect = cloneHelpEffect(helpApplyResult.effect);
+
+        publish(
+          createEvent('domain/help-action-applied', correlationId, {
+            commandType,
+            operationId: decision.operationId,
+            helpKind: helpApplyResult.kind,
+            source: helpSource,
+            levelId: helpApplyResult.levelId,
+            stateVersion: helpApplyResult.stateVersion,
+            allTimeScore: helpApplyResult.allTimeScore,
+            effect,
+          }),
+        );
+
+        if (effect.kind === 'hint') {
+          publish(
+            createEvent('domain/hint-path-progress-advanced', correlationId, {
+              commandType: 'RequestHint',
+              operationId: decision.operationId,
+              targetWord: effect.targetWord,
+              revealCount: effect.revealCount,
+              revealedLetters: effect.revealedLetters,
+              revealedPathCells: clonePathCells(effect.revealedPathCells),
+              levelId: helpApplyResult.levelId,
+              stateVersion: helpApplyResult.stateVersion,
+            }),
+          );
+        }
+
+        publishDisplayedTargetChanged(
+          commandType,
+          helpKind === 'hint' ? 'hint-applied' : 'reshuffle-applied',
+          correlationId,
+          previousCoreState,
+          nextCoreState,
+        );
+        return;
+      }
+
+      publish(
+        createEvent('domain/help-action-failed', correlationId, {
+          commandType,
+          operationId: decision.operationId,
+          helpKind,
+          source: helpSource,
+          reason: helpApplyResult.reason,
+          levelId: helpApplyResult.levelId,
+          stateVersion: helpApplyResult.stateVersion,
+          allTimeScore: helpApplyResult.allTimeScore,
+          outcome: null,
+          durationMs: null,
+          outcomeContext: null,
+          cooldownApplied: false,
+          cooldownDurationMs: 0,
+          toastMessage: null,
         }),
       );
     });
@@ -360,7 +502,9 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               );
             }
 
+            const previousCoreState = modules.coreState.getSnapshot();
             const submitResult = modules.coreState.submitPath(command.pathCells);
+            const nextCoreState = modules.coreState.getSnapshot();
             return routeCommand(
               command.type,
               submitResult.wordSuccessOperationId,
@@ -384,9 +528,100 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                     },
                     levelStatus: submitResult.levelStatus,
                     allTimeScore: submitResult.allTimeScore,
-                    pathCells: command.pathCells.map((cell) => ({ ...cell })),
+                    pathCells: clonePathCells(command.pathCells),
                   }),
                 );
+
+                if (
+                  submitResult.result === 'target' &&
+                  !submitResult.isSilent &&
+                  submitResult.normalizedWord
+                ) {
+                  publish(
+                    createEvent('domain/target-word-accepted', correlationId, {
+                      commandType: command.type,
+                      targetWord: submitResult.normalizedWord,
+                      pathCells: clonePathCells(command.pathCells),
+                      wordSuccessOperationId: submitResult.wordSuccessOperationId,
+                      levelCompleted: submitResult.levelStatus === 'completed',
+                      levelId: nextCoreState.gameplay.levelId,
+                      stateVersion: submitResult.stateVersion,
+                      displayedTargetId: nextCoreState.gameState.currentDisplayedTargetId,
+                      scoreDelta: {
+                        wordScore: submitResult.scoreDelta.wordScore,
+                        levelClearScore: submitResult.scoreDelta.levelClearScore,
+                        totalScore: submitResult.scoreDelta.totalScore,
+                      },
+                      progress: {
+                        foundTargets: submitResult.progress.foundTargets,
+                        totalTargets: submitResult.progress.totalTargets,
+                      },
+                      allTimeScore: submitResult.allTimeScore,
+                    }),
+                  );
+
+                  if (
+                    submitResult.levelStatus === 'completed' &&
+                    submitResult.wordSuccessOperationId
+                  ) {
+                    publish(
+                      createEvent('domain/level-completed', correlationId, {
+                        commandType: command.type,
+                        levelId: nextCoreState.gameplay.levelId,
+                        completedWord: submitResult.normalizedWord,
+                        wordSuccessOperationId: submitResult.wordSuccessOperationId,
+                        stateVersion: submitResult.stateVersion,
+                        displayedTargetId: nextCoreState.gameState.currentDisplayedTargetId,
+                        scoreDelta: {
+                          wordScore: submitResult.scoreDelta.wordScore,
+                          levelClearScore: submitResult.scoreDelta.levelClearScore,
+                          totalScore: submitResult.scoreDelta.totalScore,
+                        },
+                        progress: {
+                          foundTargets: submitResult.progress.foundTargets,
+                          totalTargets: submitResult.progress.totalTargets,
+                        },
+                        allTimeScore: submitResult.allTimeScore,
+                      }),
+                    );
+                  }
+
+                  publishDisplayedTargetChanged(
+                    command.type,
+                    'target-accepted',
+                    correlationId,
+                    previousCoreState,
+                    nextCoreState,
+                  );
+                  return;
+                }
+
+                if (
+                  submitResult.result === 'bonus' &&
+                  !submitResult.isSilent &&
+                  submitResult.normalizedWord
+                ) {
+                  publish(
+                    createEvent('domain/bonus-word-accepted', correlationId, {
+                      commandType: command.type,
+                      bonusWord: submitResult.normalizedWord,
+                      pathCells: clonePathCells(command.pathCells),
+                      levelId: nextCoreState.gameplay.levelId,
+                      stateVersion: submitResult.stateVersion,
+                      displayedTargetId: nextCoreState.gameState.currentDisplayedTargetId,
+                      scoreDelta: {
+                        wordScore: submitResult.scoreDelta.wordScore,
+                        levelClearScore: submitResult.scoreDelta.levelClearScore,
+                        totalScore: submitResult.scoreDelta.totalScore,
+                      },
+                      progress: {
+                        foundTargets: submitResult.progress.foundTargets,
+                        totalTargets: submitResult.progress.totalTargets,
+                      },
+                      allTimeScore: submitResult.allTimeScore,
+                    }),
+                  );
+                }
               },
             );
           }
@@ -397,6 +632,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             return routeHelpCommand(command.type, 'reshuffle');
           }
           case 'AcknowledgeAdResult': {
+            const previousCoreState = modules.coreState.getSnapshot();
             const acknowledgedAt = Date.now();
             const helpWindowState = modules.helpEconomy.getWindowState(acknowledgedAt);
             const pendingRequest = helpWindowState.pendingRequest;
@@ -404,9 +640,10 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               pendingRequest?.operationId === command.operationId &&
               pendingRequest.kind === command.helpType;
             const shouldApplyHelp = isMatchingPendingRequest && command.outcome === 'reward';
-            const helpApplyResult = shouldApplyHelp
-              ? modules.coreState.applyHelp(command.helpType, command.operationId, acknowledgedAt)
-              : null;
+            const helpApplyResult: ReturnType<DomainModules['coreState']['applyHelp']> | null =
+              shouldApplyHelp
+                ? modules.coreState.applyHelp(command.helpType, command.operationId, acknowledgedAt)
+                : null;
             const applied = helpApplyResult?.applied ?? false;
             const durationMs = normalizeDurationMs(command.durationMs);
             const outcomeContext = normalizeOutcomeContext(command.outcomeContext);
@@ -420,6 +657,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               finalizeResult.finalized && !applied
                 ? resolveHelpAdToastMessage(command.outcome)
                 : null;
+            const nextCoreState = modules.coreState.getSnapshot();
 
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
@@ -430,6 +668,76 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                   helpKind: command.helpType,
                   outcome: command.outcome,
                   applied,
+                  durationMs,
+                  outcomeContext,
+                  cooldownApplied: finalizeResult.cooldownApplied,
+                  cooldownDurationMs: finalizeResult.cooldownDurationMs,
+                  toastMessage,
+                }),
+              );
+
+              if (applied && helpApplyResult?.effect) {
+                const effect = cloneHelpEffect(helpApplyResult.effect);
+                publish(
+                  createEvent('domain/help-action-applied', correlationId, {
+                    commandType: command.type,
+                    operationId: command.operationId,
+                    helpKind: command.helpType,
+                    source: 'rewarded-ad',
+                    levelId: helpApplyResult.levelId,
+                    stateVersion: helpApplyResult.stateVersion,
+                    allTimeScore: helpApplyResult.allTimeScore,
+                    effect,
+                  }),
+                );
+
+                if (effect.kind === 'hint') {
+                  publish(
+                    createEvent('domain/hint-path-progress-advanced', correlationId, {
+                      commandType: command.type,
+                      operationId: command.operationId,
+                      targetWord: effect.targetWord,
+                      revealCount: effect.revealCount,
+                      revealedLetters: effect.revealedLetters,
+                      revealedPathCells: clonePathCells(effect.revealedPathCells),
+                      levelId: helpApplyResult.levelId,
+                      stateVersion: helpApplyResult.stateVersion,
+                    }),
+                  );
+                }
+
+                publishDisplayedTargetChanged(
+                  command.type,
+                  command.helpType === 'hint' ? 'hint-applied' : 'reshuffle-applied',
+                  correlationId,
+                  previousCoreState,
+                  nextCoreState,
+                );
+                return;
+              }
+
+              const reason: HelpActionFailedPayload['reason'] =
+                command.outcome === 'reward'
+                  ? (helpApplyResult?.reason ?? 'ad-reward-not-applied')
+                  : command.outcome === 'close'
+                    ? 'ad-close'
+                    : command.outcome === 'error'
+                      ? 'ad-error'
+                      : 'ad-no-fill';
+
+              publish(
+                createEvent('domain/help-action-failed', correlationId, {
+                  commandType: command.type,
+                  operationId: command.operationId,
+                  helpKind: command.helpType,
+                  source: 'rewarded-ad',
+                  reason,
+                  levelId: helpApplyResult?.levelId ?? previousCoreState.gameplay.levelId,
+                  stateVersion:
+                    helpApplyResult?.stateVersion ?? previousCoreState.gameplay.stateVersion,
+                  allTimeScore:
+                    helpApplyResult?.allTimeScore ?? previousCoreState.gameplay.allTimeScore,
+                  outcome: command.outcome,
                   durationMs,
                   outcomeContext,
                   cooldownApplied: finalizeResult.cooldownApplied,
@@ -460,16 +768,26 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             });
           }
           case 'AcknowledgeLevelTransitionDone': {
+            const previousCoreState = modules.coreState.getSnapshot();
             modules.coreState.acknowledgeLevelTransitionDone(command.operationId);
+            const nextCoreState = modules.coreState.getSnapshot();
             return routeCommand(command.type, command.operationId, (correlationId) => {
               publish(
                 createEvent('domain/level-clear', correlationId, {
                   commandType: command.type,
                 }),
               );
+              publishDisplayedTargetChanged(
+                command.type,
+                'level-transition',
+                correlationId,
+                previousCoreState,
+                nextCoreState,
+              );
             });
           }
           case 'RestoreSession': {
+            const previousCoreState = modules.coreState.getSnapshot();
             const restorePayload = command.payload;
             const restoreTs = Date.now();
             const restoreResult = modules.coreState.restoreSession(
@@ -507,6 +825,13 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                   commandType: command.type,
                   operation: 'restore-session',
                 }),
+              );
+              publishDisplayedTargetChanged(
+                command.type,
+                'restore-session',
+                correlationId,
+                previousCoreState,
+                modules.coreState.getSnapshot(),
               );
             });
           }

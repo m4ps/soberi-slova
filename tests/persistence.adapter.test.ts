@@ -88,6 +88,10 @@ function createQueryBusFixture(nowTs: number): ApplicationQueryBus {
 describe('persistence adapter', () => {
   it('loads local/cloud snapshots, dispatches RestoreSession and persists merged snapshot', async () => {
     const eventBus = createEventBus();
+    const observedEvents: ApplicationEvent[] = [];
+    eventBus.subscribe((event) => {
+      observedEvents.push(event);
+    });
     const { commandBus, dispatchedCommands } = createCommandBusSpy();
     const queryBus = createQueryBusFixture(5_000);
     const localGameState = createCoreStateModule({
@@ -159,6 +163,19 @@ describe('persistence adapter', () => {
       allTimeScore: 0,
       stateVersion: 0,
     });
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/state-persisted',
+        correlationId: 'RestoreSession-correlation',
+        payload: expect.objectContaining({
+          operation: 'flush',
+          triggerEventType: 'domain/persistence',
+          capturedAt: 5_000,
+          stateVersion: 0,
+          allTimeScore: 0,
+        }),
+      }),
+    );
   });
 
   it('ignores malformed persisted snapshots during restore payload mapping', async () => {

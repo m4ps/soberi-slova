@@ -1040,7 +1040,14 @@ export function createPlatformYandexModule(
       return;
     }
 
-    if (event.eventType === 'domain/word-submitted') {
+    if (event.eventType === 'domain/target-word-accepted') {
+      if (event.payload.scoreDelta.totalScore > 0) {
+        queueLeaderboardSync(event.payload.allTimeScore, 'auto');
+      }
+      return;
+    }
+
+    if (event.eventType === 'domain/bonus-word-accepted') {
       if (event.payload.scoreDelta.totalScore > 0) {
         queueLeaderboardSync(event.payload.allTimeScore, 'auto');
       }
