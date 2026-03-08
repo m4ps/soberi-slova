@@ -985,6 +985,28 @@ export function createPlatformYandexModule(
     }
   };
 
+  const ensureLeaderboardSyncLoop = (): void => {
+    if (activeLeaderboardSyncPromise) {
+      return;
+    }
+
+    activeLeaderboardSyncPromise = runLeaderboardSyncLoop()
+      .catch((error: unknown) => {
+        record('leaderboard-sync-failed', {
+          trigger: queuedLeaderboardSync?.trigger ?? 'auto',
+          score: queuedLeaderboardSync?.score ?? lastLeaderboardSubmittedScore,
+          reason: toErrorMessage(error),
+        });
+      })
+      .finally(() => {
+        activeLeaderboardSyncPromise = null;
+
+        if (queuedLeaderboardSync) {
+          ensureLeaderboardSyncLoop();
+        }
+      });
+  };
+
   const queueLeaderboardSync = (score: number, trigger: 'auto' | 'manual'): void => {
     const normalizedScore = parseNonNegativeSafeInteger(score);
     if (normalizedScore === null) {
@@ -1008,19 +1030,7 @@ export function createPlatformYandexModule(
       queuedTrigger: queuedLeaderboardSync.trigger,
     });
 
-    if (!activeLeaderboardSyncPromise) {
-      activeLeaderboardSyncPromise = runLeaderboardSyncLoop()
-        .catch((error: unknown) => {
-          record('leaderboard-sync-failed', {
-            trigger: queuedLeaderboardSync?.trigger ?? trigger,
-            score: queuedLeaderboardSync?.score ?? normalizedScore,
-            reason: toErrorMessage(error),
-          });
-        })
-        .finally(() => {
-          activeLeaderboardSyncPromise = null;
-        });
-    }
+    ensureLeaderboardSyncLoop();
   };
 
   const handleApplicationEvent = (event: ApplicationEvent): void => {

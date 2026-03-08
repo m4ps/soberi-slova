@@ -218,4 +218,209 @@ describe('persistence adapter', () => {
       },
     });
   });
+
+  it('flushes rebalance score snapshots for score events and ignores zero-delta repeats', async () => {
+    const eventBus = createEventBus();
+    const { commandBus } = createCommandBusSpy();
+    let nowTs = 7_000;
+    let coreStateSnapshot = createCoreStateModule({
+      nowProvider: () => nowTs,
+    }).getSnapshot();
+    const helpEconomy = createHelpEconomyModule({
+      windowStartTs: nowTs,
+      freeActionAvailable: true,
+      nowProvider: () => nowTs,
+    });
+    const writePersistenceState = vi.fn().mockResolvedValue(undefined);
+    createPersistenceModule(
+      commandBus,
+      {
+        execute: <TQuery extends ApplicationQuery>(query: TQuery) => {
+          if (query.type === 'GetCoreState') {
+            return {
+              type: 'ok',
+              value: coreStateSnapshot,
+            } as never;
+          }
+
+          return {
+            type: 'ok',
+            value: helpEconomy.getWindowState(nowTs),
+          } as never;
+        },
+      },
+      {
+        eventBus,
+        platform: {
+          readPersistenceState: async () => ({
+            localSnapshot: null,
+            cloudSnapshot: null,
+            cloudAllTimeScore: null,
+          }),
+          writePersistenceState,
+        },
+        now: () => nowTs,
+      },
+    );
+
+    nowTs = 7_101;
+    coreStateSnapshot = {
+      ...coreStateSnapshot,
+      runtimeMode: 'ready',
+      gameState: {
+        ...coreStateSnapshot.gameState,
+        updatedAt: nowTs,
+        stateVersion: 1,
+        allTimeScore: 7,
+      },
+      gameplay: {
+        ...coreStateSnapshot.gameplay,
+        updatedAt: nowTs,
+        stateVersion: 1,
+        allTimeScore: 7,
+      },
+    };
+    eventBus.publish({
+      eventId: 'evt-target-rebalance',
+      eventType: 'domain/target-word-accepted',
+      eventVersion: 1,
+      occurredAt: nowTs,
+      correlationId: 'score-1',
+      payload: {
+        commandType: 'SubmitPath',
+        targetWord: 'дом',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 },
+          { row: 0, col: 2 },
+        ],
+        wordSuccessOperationId: 'op-word-1',
+        levelCompleted: false,
+        levelId: coreStateSnapshot.gameplay.levelId,
+        stateVersion: 1,
+        displayedTargetId: 'нос',
+        scoreDelta: {
+          wordScore: 7,
+          levelClearScore: 0,
+          totalScore: 7,
+        },
+        progress: {
+          foundTargets: 8,
+          totalTargets: 10,
+        },
+        allTimeScore: 7,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(writePersistenceState).toHaveBeenCalledTimes(1);
+    });
+
+    expect(writePersistenceState).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        allTimeScore: 7,
+      }),
+    );
+    expect(
+      JSON.parse(
+        JSON.parse(writePersistenceState.mock.calls[0]?.[0]?.serializedSnapshot as string)
+          .gameStateSerialized as string,
+      ),
+    ).toMatchObject({
+      allTimeScore: 7,
+      stateVersion: 1,
+    });
+
+    nowTs = 7_102;
+    eventBus.publish({
+      eventId: 'evt-target-repeat',
+      eventType: 'domain/target-word-accepted',
+      eventVersion: 1,
+      occurredAt: nowTs,
+      correlationId: 'score-repeat',
+      payload: {
+        commandType: 'SubmitPath',
+        targetWord: 'дом',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 },
+          { row: 0, col: 2 },
+        ],
+        wordSuccessOperationId: 'op-word-1',
+        levelCompleted: false,
+        levelId: coreStateSnapshot.gameplay.levelId,
+        stateVersion: 1,
+        displayedTargetId: 'нос',
+        scoreDelta: {
+          wordScore: 0,
+          levelClearScore: 0,
+          totalScore: 0,
+        },
+        progress: {
+          foundTargets: 8,
+          totalTargets: 10,
+        },
+        allTimeScore: 7,
+      },
+    });
+
+    await Promise.resolve();
+    expect(writePersistenceState).toHaveBeenCalledTimes(1);
+
+    nowTs = 7_120;
+    coreStateSnapshot = {
+      ...coreStateSnapshot,
+      gameState: {
+        ...coreStateSnapshot.gameState,
+        updatedAt: nowTs,
+        stateVersion: 2,
+        allTimeScore: 27,
+      },
+      gameplay: {
+        ...coreStateSnapshot.gameplay,
+        updatedAt: nowTs,
+        stateVersion: 2,
+        allTimeScore: 27,
+      },
+    };
+    eventBus.publish({
+      eventId: 'evt-word-success-rebalance',
+      eventType: 'domain/word-success',
+      eventVersion: 1,
+      occurredAt: nowTs,
+      correlationId: 'score-2',
+      payload: {
+        commandType: 'AcknowledgeWordSuccessAnimation',
+        wordId: 'дом',
+        levelClearAwarded: true,
+        scoreDelta: {
+          wordScore: 0,
+          levelClearScore: 20,
+          totalScore: 20,
+        },
+        allTimeScore: 27,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(writePersistenceState).toHaveBeenCalledTimes(2);
+    });
+
+    expect(writePersistenceState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        allTimeScore: 27,
+      }),
+    );
+    expect(
+      JSON.parse(
+        JSON.parse(writePersistenceState.mock.calls[1]?.[0]?.serializedSnapshot as string)
+          .gameStateSerialized as string,
+      ),
+    ).toMatchObject({
+      allTimeScore: 27,
+      stateVersion: 2,
+    });
+  });
 });

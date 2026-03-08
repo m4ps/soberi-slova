@@ -461,7 +461,7 @@ describe('application command/query bus smoke', () => {
     });
 
     expect(result.type).toBe('ok');
-    expect(scoreObservedAtRoute).toBe(16);
+    expect(scoreObservedAtRoute).toBe(7);
     if (result.type === 'ok') {
       expect(result.value.correlationId).toEqual(expect.any(String));
     }
@@ -478,15 +478,15 @@ describe('application command/query bus smoke', () => {
       commandType: 'SubmitPath',
       targetWord: 'дом',
       scoreDelta: {
-        wordScore: 16,
+        wordScore: 7,
         levelClearScore: 0,
-        totalScore: 16,
+        totalScore: 7,
       },
       progress: {
         foundTargets: 8,
         totalTargets: 10,
       },
-      allTimeScore: 16,
+      allTimeScore: 7,
     });
     expect(submitEvent.payload.pathCells).toEqual([
       { row: 0, col: 0 },
@@ -496,7 +496,7 @@ describe('application command/query bus smoke', () => {
 
     const coreState = application.readModel.getCoreState();
     expect(coreState.gameplay).toMatchObject({
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 1,
       isInputLocked: true,
       progress: {
@@ -547,7 +547,7 @@ describe('application command/query bus smoke', () => {
 
     const coreState = application.readModel.getCoreState();
     expect(coreState.gameplay).toMatchObject({
-      allTimeScore: 16,
+      allTimeScore: 7,
       stateVersion: 1,
       isInputLocked: true,
       levelStatus: 'active',
@@ -579,11 +579,11 @@ describe('application command/query bus smoke', () => {
             totalTargets: 10,
           },
           scoreDelta: {
-            wordScore: 16,
+            wordScore: 7,
             levelClearScore: 0,
-            totalScore: 16,
+            totalScore: 7,
           },
-          allTimeScore: 16,
+          allTimeScore: 7,
         }),
       }),
     );
@@ -654,7 +654,7 @@ describe('application command/query bus smoke', () => {
 
     const completedSnapshot = application.readModel.getCoreState();
     expect(completedSnapshot.gameplay).toMatchObject({
-      allTimeScore: 48,
+      allTimeScore: 21,
       levelStatus: 'completed',
       isInputLocked: true,
       showEphemeralCongrats: false,
@@ -702,7 +702,7 @@ describe('application command/query bus smoke', () => {
 
     const reshufflingSnapshot = application.readModel.getCoreState();
     expect(reshufflingSnapshot.gameplay).toMatchObject({
-      allTimeScore: 128,
+      allTimeScore: 41,
       levelStatus: 'reshuffling',
       isInputLocked: true,
       showEphemeralCongrats: true,
@@ -723,7 +723,7 @@ describe('application command/query bus smoke', () => {
 
     const nextLevelSnapshot = application.readModel.getCoreState();
     expect(nextLevelSnapshot.gameplay).toMatchObject({
-      allTimeScore: 128,
+      allTimeScore: 41,
       levelStatus: 'active',
       isInputLocked: false,
       showEphemeralCongrats: false,

@@ -10,8 +10,8 @@ const TEST_PORT = 4173;
 const DEV_TARGET_WORDS_PREFIX = '[dev][target-words]';
 const PERSISTENCE_LOCAL_STORAGE_KEY = 'endless-word-grid/session/v1';
 const GRID_SIDE = 5;
-const TARGET_SCORE_BASE = 10;
-const TARGET_SCORE_PER_LETTER = 2;
+const TARGET_SCORE_BASE = 4;
+const TARGET_SCORE_PER_LETTER = 1;
 
 const MOCK_SDK_SOURCE = `
 (() => {

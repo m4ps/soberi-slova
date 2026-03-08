@@ -34,12 +34,12 @@ import {
 export type RuntimeMode = 'bootstrapping' | 'ready';
 
 const DEFAULT_LEVEL_ID = 'level-1';
-const TARGET_SCORE_BASE = 10;
-const TARGET_SCORE_PER_LETTER = 2;
-const BONUS_SCORE_BASE = 2;
-const BONUS_SCORE_PER_LETTER = 1;
-const LEVEL_CLEAR_SCORE_BASE = 30;
-const LEVEL_CLEAR_SCORE_PER_TARGET = 5;
+const TARGET_SCORE_BASE = 4;
+const TARGET_SCORE_PER_LETTER = 1;
+const BONUS_SCORE_BASE = 1;
+const BONUS_SCORE_LENGTH_DIVISOR = 2;
+const LEVEL_CLEAR_SCORE_BASE = 10;
+const LEVEL_CLEAR_SCORE_PER_TARGET = 1;
 const PENDING_OPERATION_STATUS_PENDING: PendingOperationStatus = 'pending';
 const PENDING_OPERATION_KIND_WORD_SUCCESS: PendingOperationKind = 'word-success-animation';
 const PENDING_OPERATION_KIND_LEVEL_TRANSITION: PendingOperationKind = 'level-transition';
@@ -666,7 +666,7 @@ function calculateWordScore(result: WordValidationResult, normalizedWord: string
   }
 
   if (result === 'bonus') {
-    return BONUS_SCORE_BASE + BONUS_SCORE_PER_LETTER * normalizedWord.length;
+    return BONUS_SCORE_BASE + Math.floor(normalizedWord.length / BONUS_SCORE_LENGTH_DIVISOR);
   }
 
   return 0;

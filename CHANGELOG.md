@@ -2,6 +2,27 @@
 
 ## 2026-03-08
 
+### [CODE]-[017] Ребалансировка scoring-контракта на формулы v1.1
+
+- `src/domain/CoreState/index.ts` переведён на новый numeric contract `v1.1`:
+  - `target = 4 + length`;
+  - `bonus = 1 + floor(length / 2)`;
+  - `level clear = 10 + N`;
+  - порядок начисления и completion lifecycle сохранены: финальный `target` даёт только word-score, а `level clear` по-прежнему начисляется ровно один раз на `AcknowledgeWordSuccessAnimation`.
+- В `src/adapters/PlatformYandex/index.ts` исправлен race в очереди auto leaderboard sync:
+  - новый score, пришедший в окно между завершением sync-loop и очисткой `activeLeaderboardSyncPromise`, больше не теряется;
+  - повторный auto-submit с уже подтверждённым total score по-прежнему пропускается как stale duplicate.
+- Обновлено покрытие под новые суммы и anti-regression invariants:
+  - `tests/core-state.scoring.test.ts` и `tests/application-command-bus.smoke.test.ts` пересчитаны на новый scoring contract;
+  - `tests/persistence.adapter.test.ts` подтверждает, что persisted snapshot фиксирует новые `allTimeScore` после score-событий и не flush'ится на zero-delta repeat;
+  - `tests/platform-yandex.adapter.test.ts` проверяет auto leaderboard sync для новых total score и отсутствие duplicate-submit по одинаковому total;
+  - `tests/e2e/test-012-target-word-submit.mjs` синхронизирован с новой target-формулой.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[017]` отмечена выполненной.
+- Верификация:
+  - `npm test -- --run tests/core-state.scoring.test.ts tests/application-command-bus.smoke.test.ts tests/persistence.adapter.test.ts tests/platform-yandex.adapter.test.ts` — passed;
+  - `npm run test:e2e:test-012` — не выполнен в sandbox-среде: `listen EPERM: operation not permitted 127.0.0.1:4173`;
+  - `npm run ci:baseline` — passed.
+
 ### [CODE]-[016] Out-of-focus target acceptance без штрафа
 
 - Поведение `out-of-focus target` зафиксировано регрессионными тестами без изменения runtime-контракта:

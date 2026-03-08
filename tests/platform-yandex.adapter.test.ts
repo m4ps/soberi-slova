@@ -683,4 +683,115 @@ describe('PlatformYandex adapter', () => {
       vi.useRealTimers();
     }
   });
+
+  it('auto-syncs rebalance scores once per new total and skips stale duplicates', async () => {
+    const sdkRuntime = createRichSdkRuntime();
+    const { commandBus } = createCommandBusSpy();
+    const eventBus = createEventBus();
+    const platformModule = createPlatformYandexModule(commandBus, eventBus, {
+      resolveSdkInstance: async () => sdkRuntime.sdkInstance,
+      now: () => 6_000,
+      logger: () => {
+        // keep test output clean
+      },
+    });
+
+    await platformModule.bootstrap();
+    eventBus.publish({
+      eventId: 'evt-auto-target-1',
+      eventType: 'domain/target-word-accepted',
+      eventVersion: 1,
+      occurredAt: 6_001,
+      correlationId: 'auto-score-1',
+      payload: {
+        commandType: 'SubmitPath',
+        targetWord: 'дом',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 },
+          { row: 0, col: 2 },
+        ],
+        wordSuccessOperationId: 'op-word-1',
+        levelCompleted: false,
+        levelId: 'level-score-auto',
+        stateVersion: 1,
+        displayedTargetId: 'нос',
+        scoreDelta: {
+          wordScore: 7,
+          levelClearScore: 0,
+          totalScore: 7,
+        },
+        progress: {
+          foundTargets: 8,
+          totalTargets: 10,
+        },
+        allTimeScore: 7,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(sdkRuntime.setScoreCalls).toEqual([7]);
+    });
+
+    eventBus.publish({
+      eventId: 'evt-auto-target-duplicate',
+      eventType: 'domain/target-word-accepted',
+      eventVersion: 1,
+      occurredAt: 6_002,
+      correlationId: 'auto-score-duplicate',
+      payload: {
+        commandType: 'SubmitPath',
+        targetWord: 'дом',
+        pathCells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 },
+          { row: 0, col: 2 },
+        ],
+        wordSuccessOperationId: 'op-word-1',
+        levelCompleted: false,
+        levelId: 'level-score-auto',
+        stateVersion: 1,
+        displayedTargetId: 'нос',
+        scoreDelta: {
+          wordScore: 7,
+          levelClearScore: 0,
+          totalScore: 7,
+        },
+        progress: {
+          foundTargets: 8,
+          totalTargets: 10,
+        },
+        allTimeScore: 7,
+      },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sdkRuntime.setScoreCalls).toEqual([7]);
+
+    eventBus.publish({
+      eventId: 'evt-auto-level-clear',
+      eventType: 'domain/word-success',
+      eventVersion: 1,
+      occurredAt: 6_003,
+      correlationId: 'auto-score-2',
+      payload: {
+        commandType: 'AcknowledgeWordSuccessAnimation',
+        wordId: 'дом',
+        levelClearAwarded: true,
+        scoreDelta: {
+          wordScore: 0,
+          levelClearScore: 20,
+          totalScore: 20,
+        },
+        allTimeScore: 27,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(sdkRuntime.setScoreCalls).toEqual([7, 27]);
+    });
+
+    platformModule.dispose();
+  });
 });
