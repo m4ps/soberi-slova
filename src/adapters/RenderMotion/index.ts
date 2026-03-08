@@ -898,6 +898,7 @@ export function createRenderMotionModule(
         button.container.position.set(rect.x, rect.y + button.renderState.offsetY);
         button.label.text = labelText;
         button.label.position.set(rect.width / 2, rect.height / 2);
+        button.label.style.fontSize = rect.height < 50 ? 18 : 20;
         button.label.alpha = button.renderState.labelAlpha;
         button.label.tint = button.renderState.labelColor;
 
@@ -1334,10 +1335,18 @@ export function createRenderMotionModule(
         );
 
         const isCompactHud = currentLayout.progressCard.height < 78;
+        const currentWordFontSize =
+          currentLayout.currentWord.height < 54
+            ? 22
+            : currentLayout.currentWord.height < 64
+              ? 24
+              : currentLayout.currentWord.height < 72
+                ? 28
+                : 32;
         progressCountText.style.fontSize = isCompactHud ? 18 : 20;
         scoreLabelText.style.fontSize = isCompactHud ? 12 : 14;
         scoreValueText.style.fontSize = isCompactHud ? 24 : 30;
-        currentWordPrimaryText.style.fontSize = currentLayout.currentWord.height < 64 ? 24 : 32;
+        currentWordPrimaryText.style.fontSize = currentWordFontSize;
         currentWordSecondaryText.style.fontSize = currentWordPrimaryText.style.fontSize;
         currentWordPrimaryText.style.wordWrapWidth = currentLayout.currentWord.width * 0.82;
         currentWordSecondaryText.style.wordWrapWidth = currentWordPrimaryText.style.wordWrapWidth;

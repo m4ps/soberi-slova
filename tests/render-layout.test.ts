@@ -22,6 +22,19 @@ describe('render layout contract', () => {
     );
   });
 
+  it('keeps current-word and help areas compact enough for the 6x6 grid to stay dominant', () => {
+    const layout = computeGameLayout(390, 693);
+    const currentWordToGridRatio = layout.currentWord.height / layout.grid.height;
+    const controlsToGridRatio = layout.controls.height / layout.grid.height;
+    const metricsToWordGap =
+      layout.currentWord.y - (layout.metricsRow.y + layout.metricsRow.height);
+    const wordToGridGap = layout.grid.y - (layout.currentWord.y + layout.currentWord.height);
+
+    expect(currentWordToGridRatio).toBeLessThan(0.16);
+    expect(controlsToGridRatio).toBeLessThan(0.32);
+    expect(wordToGridGap).toBeGreaterThan(metricsToWordGap);
+  });
+
   it('keeps controls, current word block and grid inside viewport bounds on small screens', () => {
     const layout = computeGameLayout(320, 568);
 
@@ -35,6 +48,8 @@ describe('render layout contract', () => {
     expect(layout.controls.y + layout.controls.height).toBeLessThanOrEqual(
       layout.viewport.height + 1,
     );
+    expect(layout.currentWord.height / layout.grid.height).toBeLessThan(0.18);
+    expect(layout.controls.height / layout.grid.height).toBeLessThan(0.39);
     expect(layout.buttons.hint.x).toBeGreaterThanOrEqual(layout.controls.x);
     expect(layout.buttons.leaderboard.x + layout.buttons.leaderboard.width).toBeLessThanOrEqual(
       layout.controls.x + layout.controls.width + 1,

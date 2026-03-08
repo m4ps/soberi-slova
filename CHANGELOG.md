@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 2026-03-09
+
+### [CODE]-[030] Layout и visual hierarchy переведены с legacy 5x5-пропорций на актуальную 6x6 композицию
+
+- `src/adapters/VisualSystem/index.ts` пересобран вокруг более компактной `6x6`-иерархии:
+  - уменьшены базовые высоты верхних метрик, current-word блока и help controls, чтобы они больше не конкурировали с полем;
+  - свободная вертикаль теперь уходит в spacing композиции, в первую очередь между current word и grid, а не в раздувание вспомогательных зон;
+  - сохранён порядок `top metrics -> current word -> grid -> help buttons`, при этом сетка остаётся самым крупным объектом на экране.
+- `src/adapters/RenderMotion/index.ts` синхронизирован с новым layout:
+  - размер текста текущего слова теперь адаптируется мягче под более компактный word block;
+  - подписи help-кнопок уменьшаются на низких по высоте кнопках, чтобы вторичный блок оставался читаемым без визуальной тяжести.
+- `tests/render-layout.test.ts` усилен регрессиями под реальную `6x6` композицию:
+  - добавлены явные ratio-checks, что current-word и controls остаются компактнее сетки;
+  - закреплено, что gap между current word и grid больше, чем gap между верхними метриками и current word.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npx vitest run tests/render-layout.test.ts tests/visual-system.contract.test.ts tests/input-path.adapter.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke по skill `develop-web-game` не выполнен в sandbox-среде: локальные listeners для `vite`/proxy запрещены (`listen EPERM`).
+
 ## 2026-03-08
 
 ### [CODE]-[029] VisualSystem внедрён как единый runtime contract для визуала
