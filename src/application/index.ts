@@ -1,9 +1,11 @@
 import type {
   ApplicationCommand,
+  ApplicationDomainErrorResult,
   ApplicationError,
   ApplicationEvent,
   ApplicationEventBus,
   ApplicationEventListener,
+  ApplicationInfraErrorResult,
   ApplicationLayer,
   ApplicationQuery,
   ApplicationQueryBus,
@@ -36,22 +38,22 @@ function ok<TValue>(value: TValue): ApplicationResult<TValue> {
   return { type: 'ok', value };
 }
 
-function domainError<TValue>(
+function domainError(
   code: string,
   message: string,
   context: Readonly<Record<string, unknown>> = {},
-): ApplicationResult<TValue> {
+): ApplicationDomainErrorResult {
   return {
     type: 'domainError',
     error: createError(code, message, false, context),
   };
 }
 
-function infraError<TValue>(
+function infraError(
   code: string,
   message: string,
   context: Readonly<Record<string, unknown>> = {},
-): ApplicationResult<TValue> {
+): ApplicationInfraErrorResult {
   return {
     type: 'infraError',
     error: createError(code, message, true, context),
@@ -62,6 +64,7 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'application/runtime-ready': 1,
   'application/tick': 1,
   'application/command-routed': 1,
+  'application/command-failed': 1,
   'domain/word-submitted': 1,
   'domain/target-word-accepted': 1,
   'domain/bonus-word-accepted': 1,
@@ -77,6 +80,7 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'domain/persistence': 1,
   'domain/state-persisted': 1,
   'domain/leaderboard-sync': 1,
+  'platform/leaderboard-sync-result': 1,
 };
 
 function normalizeDurationMs(durationMs: number | undefined): number | null {
@@ -115,6 +119,10 @@ function cloneHelpEffect(effect: CoreStateHelpEffect): CoreStateHelpEffect {
   return {
     ...effect,
   };
+}
+
+function hasSerializedSnapshot(gameStateSerialized: string | null | undefined): boolean {
+  return typeof gameStateSerialized === 'string' && gameStateSerialized.trim().length > 0;
 }
 
 export function createApplicationLayer(modules: DomainModules): ApplicationLayer {
@@ -297,6 +305,23 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     return acknowledge(commandType, resolvedCorrelationId);
   };
 
+  const publishCommandFailed = (
+    commandType: ApplicationCommand['type'],
+    errorType: 'domainError' | 'infraError',
+    error: ApplicationError,
+    correlationId: string | null = null,
+  ): void => {
+    const resolvedCorrelationId = resolveCorrelationId(commandType, correlationId);
+    publish(
+      createEvent('application/command-failed', resolvedCorrelationId, {
+        commandType,
+        errorType,
+        code: error.code,
+        retryable: error.retryable,
+      }),
+    );
+  };
+
   const routeHelpCommand = (
     commandType: 'RequestHint' | 'RequestReshuffle',
     helpKind: 'hint' | 'reshuffle',
@@ -306,7 +331,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     syncHelpLockState(requestedAt);
 
     if (decision.type === 'locked') {
-      return domainError(
+      const result = domainError(
         'help.request.locked',
         'Help request is ignored while another help operation is pending.',
         {
@@ -315,10 +340,12 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           pendingOperationId: decision.pendingOperationId,
         },
       );
+      publishCommandFailed(commandType, result.type, result.error, decision.pendingOperationId);
+      return result;
     }
 
     if (decision.type === 'cooldown') {
-      return domainError(
+      const result = domainError(
         'help.request.cooldown',
         'Help request is temporarily blocked during ad cooldown.',
         {
@@ -329,6 +356,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           cooldownReason: decision.cooldownReason,
         },
       );
+      publishCommandFailed(commandType, result.type, result.error);
+      return result;
     }
 
     return routeCommand(commandType, decision.operationId, (correlationId) => {
@@ -370,11 +399,13 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           }
           case 'SubmitPath': {
             if (command.pathCells.length === 0) {
-              return domainError(
+              const result = domainError(
                 'submit-path.empty',
                 'SubmitPath requires at least one grid cell.',
                 { pathCells: command.pathCells },
               );
+              publishCommandFailed(command.type, result.type, result.error);
+              return result;
             }
 
             const previousCoreState = modules.coreState.getSnapshot();
@@ -677,7 +708,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             const previousCoreState = modules.coreState.getSnapshot();
             const restorePayload = command.payload;
             const restoreTs = Date.now();
-            modules.coreState.restoreSession(
+            const restoreResult = modules.coreState.restoreSession(
               {
                 localSnapshot: {
                   gameStateSerialized: restorePayload?.localSnapshot?.gameStateSerialized ?? null,
@@ -697,12 +728,28 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               restoreTs,
             );
             syncHelpLockState(restoreTs);
+            const restoredCoreState = modules.coreState.getSnapshot();
 
             return routeCommand(command.type, null, (correlationId) => {
               publish(
                 createEvent('domain/persistence', correlationId, {
                   commandType: command.type,
                   operation: 'restore-session',
+                  restored: restoreResult.restored,
+                  levelRestored: restoreResult.levelRestored,
+                  source: restoreResult.source,
+                  localSnapshotAvailable: hasSerializedSnapshot(
+                    restorePayload?.localSnapshot?.gameStateSerialized,
+                  ),
+                  cloudSnapshotAvailable: hasSerializedSnapshot(
+                    restorePayload?.cloudSnapshot?.gameStateSerialized,
+                  ),
+                  cloudAllTimeScoreAvailable: typeof restorePayload?.cloudAllTimeScore === 'number',
+                  restoredAllTimeScore: restoreResult.allTimeScore,
+                  restoredStateVersion: restoreResult.stateVersion,
+                  restoredLevelId: restoreResult.levelId,
+                  restoredDisplayedTargetId: restoredCoreState.gameState.currentDisplayedTargetId,
+                  restoredHintPathProgress: restoredCoreState.gameState.currentHintPathProgress,
                 }),
               );
               publishDisplayedTargetChanged(
@@ -710,7 +757,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                 'restore-session',
                 correlationId,
                 previousCoreState,
-                modules.coreState.getSnapshot(),
+                restoredCoreState,
               );
             });
           }
@@ -731,10 +778,12 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           }
         }
       } catch (error: unknown) {
-        return infraError('command.execution-failed', 'Command handler crashed.', {
+        const result = infraError('command.execution-failed', 'Command handler crashed.', {
           commandType: command.type,
           reason: toErrorMessage(error),
         });
+        publishCommandFailed(command.type, result.type, result.error);
+        return result;
       }
     },
   };
@@ -826,5 +875,6 @@ export type {
   RewardedAdOutcome,
   TechspecApplicationCommand,
   TechspecCommandType,
+  LeaderboardSyncTriggerEventType,
 } from './contracts';
 export { INTERNAL_ADAPTER_COMMAND_TYPES, TECHSPEC_V1_1_COMMAND_TYPES } from './contracts';

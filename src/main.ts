@@ -182,7 +182,9 @@ async function bootstrap(): Promise<void> {
     },
     visualSystem: visualSystemModule,
   });
-  const telemetryModule = createTelemetryModule(application.events);
+  const telemetryModule = createTelemetryModule(application.events, {
+    getCurrentCoreState: application.readModel.getCoreState,
+  });
   const platformYandexModule = createPlatformYandexModule(application.commands, application.events);
   const persistenceModule = createPersistenceModule(application.commands, application.queries, {
     platform: platformYandexModule,
@@ -196,6 +198,7 @@ async function bootstrap(): Promise<void> {
 
     renderMotionRuntime = await renderMotionModule.mount(rootElement);
     const mountedRuntime = renderMotionRuntime;
+    telemetryModule.syncStateFromReadModel();
     inputPathModule.bindToCanvas(mountedRuntime.canvas);
 
     if (DIAGNOSTIC_HOOKS_ENABLED) {
@@ -226,6 +229,8 @@ async function bootstrap(): Promise<void> {
           help: sceneSnapshot.help,
           ui: sceneSnapshot.ui,
           telemetryBufferSize: telemetryModule.getBufferedEvents().length,
+          telemetryRecordCount: telemetryModule.getBufferedRecords().length,
+          telemetry: telemetryModule.getSessionSnapshot(),
           persistence: persistenceModule.getLastSnapshot(),
           platformLifecycle: platformYandexModule.getLifecycleLog(),
         });

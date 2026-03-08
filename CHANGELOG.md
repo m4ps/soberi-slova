@@ -2,6 +2,31 @@
 
 ## 2026-03-09
 
+### [CODE]-[020] Telemetry и product guardrails для guided loop v1.1
+
+- `src/application/contracts.ts` и `src/application/index.ts` расширены typed observability-контрактами:
+  - добавлено событие `application/command-failed` для `error-rate by code`;
+  - `domain/persistence` теперь несёт outcome restore (`restored`, `levelRestored`, `source`, snapshot availability, guided-state result);
+  - сохранён единый `correlationId` contract для routed/failure/restore цепочек.
+- `src/adapters/PlatformYandex/index.ts` публикует typed outcome `platform/leaderboard-sync-result`:
+  - auto/manual leaderboard sync теперь сохраняет trigger `correlationId` и `triggerEventType`;
+  - success/failed/skipped outcomes становятся доступны telemetry без разбора adapter-local lifecycle log.
+- `src/adapters/Telemetry/index.ts` переведён с raw event-buffer на session-aware telemetry:
+  - добавлены derived records `telemetry/session-started`, `telemetry/session-summary`, `telemetry/guardrail-snapshot`;
+  - считаются `session length`, `retentionDay`/D1-ready signal, `helpActionShare`, `meanDisplayedTargetFindTimeMs`, `restore success rate`, `ad outcomes`, `leaderboard sync success`, `errorRateByCode`;
+  - локально хранится только anonymous install state без PII.
+- `src/main.ts` синхронизирует telemetry c актуальным read-model после restore/mount и выводит live telemetry snapshot в dev diagnostic hooks.
+- Обновлены регрессии и документация:
+  - добавлен `tests/telemetry.adapter.test.ts`;
+  - `tests/application-command-bus.smoke.test.ts` закрепляет `application/command-failed` и enriched `domain/persistence`;
+  - `tests/platform-yandex.adapter.test.ts` закрепляет `platform/leaderboard-sync-result` и перенос trigger correlation;
+  - `docs/observability/event-contracts.md` и `ADR/ADR-050-telemetry-session-guardrails-guided-loop-code-020.md` синхронизированы с новым telemetry contract.
+- Верификация:
+  - `npm run typecheck` — passed;
+  - `npm test -- --run tests/application-command-bus.smoke.test.ts tests/platform-yandex.adapter.test.ts tests/telemetry.adapter.test.ts` — passed;
+  - `npm run ci:baseline` — passed;
+  - browser-smoke по skill `develop-web-game` заблокирован sandbox-средой: `vite` не может открыть локальный listener (`listen EPERM`), поэтому Playwright client не был запущен поверх live runtime.
+
 ### [CODE]-[024] Motion и interactive states доведены до DESIGN.md
 
 - `src/adapters/VisualSystem/index.ts` расширен как motion/source-of-truth для интерактивных состояний:

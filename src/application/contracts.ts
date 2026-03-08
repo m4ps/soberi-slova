@@ -157,6 +157,15 @@ export type CommandRoutedEvent = EventEnvelope<
   'application/command-routed',
   { readonly commandType: RoutedCommandType }
 >;
+export type CommandFailedEvent = EventEnvelope<
+  'application/command-failed',
+  {
+    readonly commandType: ApplicationCommand['type'];
+    readonly errorType: 'domainError' | 'infraError';
+    readonly code: string;
+    readonly retryable: boolean;
+  }
+>;
 
 export type WordSubmittedEvent = EventEnvelope<
   'domain/word-submitted',
@@ -414,6 +423,17 @@ export type PersistenceEvent = EventEnvelope<
   {
     readonly commandType: 'RestoreSession';
     readonly operation: 'restore-session';
+    readonly restored: boolean;
+    readonly levelRestored: boolean;
+    readonly source: 'local' | 'cloud' | 'none';
+    readonly localSnapshotAvailable: boolean;
+    readonly cloudSnapshotAvailable: boolean;
+    readonly cloudAllTimeScoreAvailable: boolean;
+    readonly restoredAllTimeScore: number;
+    readonly restoredStateVersion: number;
+    readonly restoredLevelId: string;
+    readonly restoredDisplayedTargetId: string | null;
+    readonly restoredHintPathProgress: number;
   }
 >;
 
@@ -450,10 +470,30 @@ export type LeaderboardSyncEvent = EventEnvelope<
   }
 >;
 
+export type LeaderboardSyncTriggerEventType =
+  | 'domain/target-word-accepted'
+  | 'domain/bonus-word-accepted'
+  | 'domain/word-success'
+  | 'domain/leaderboard-sync';
+
+export type PlatformLeaderboardSyncResultEvent = EventEnvelope<
+  'platform/leaderboard-sync-result',
+  {
+    readonly trigger: 'auto' | 'manual';
+    readonly triggerEventType: LeaderboardSyncTriggerEventType;
+    readonly score: number;
+    readonly status: 'success' | 'failed' | 'skipped';
+    readonly attempt: number;
+    readonly totalAttempts: number;
+    readonly reason: string | null;
+  }
+>;
+
 export type ApplicationEvent =
   | RuntimeReadyEvent
   | TickEvent
   | CommandRoutedEvent
+  | CommandFailedEvent
   | WordSubmittedEvent
   | TargetWordAcceptedEvent
   | BonusWordAcceptedEvent
@@ -468,7 +508,8 @@ export type ApplicationEvent =
   | HelpEvent
   | PersistenceEvent
   | StatePersistedEvent
-  | LeaderboardSyncEvent;
+  | LeaderboardSyncEvent
+  | PlatformLeaderboardSyncResultEvent;
 
 export type ApplicationEventListener = (event: ApplicationEvent) => void;
 

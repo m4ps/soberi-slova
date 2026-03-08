@@ -2,6 +2,7 @@ import type {
   ApplicationCommandBus,
   ApplicationEvent,
   ApplicationEventBus,
+  LeaderboardSyncTriggerEventType,
   ApplicationResult,
   CommandAck,
   RewardedAdOutcome,
@@ -453,10 +454,13 @@ export function createPlatformYandexModule(
   let queuedLeaderboardSync: {
     score: number;
     trigger: 'auto' | 'manual';
+    correlationId: string;
+    triggerEventType: LeaderboardSyncTriggerEventType;
   } | null = null;
   let activeLeaderboardSyncPromise: Promise<void> | null = null;
   let lastLeaderboardAckScore = 0;
   let lastLeaderboardSubmittedScore = 0;
+  let platformEventSequence = 0;
 
   const record = (
     type: PlatformLifecycleEventType,
@@ -470,6 +474,24 @@ export function createPlatformYandexModule(
 
     lifecycleLog.push(entry);
     logger(entry);
+  };
+
+  const publishPlatformLeaderboardSyncResult = (
+    correlationId: string,
+    payload: Extract<
+      ApplicationEvent,
+      { eventType: 'platform/leaderboard-sync-result' }
+    >['payload'],
+  ): void => {
+    platformEventSequence += 1;
+    eventBus.publish({
+      eventId: `evt-platform-leaderboard-sync-${now()}-${platformEventSequence}`,
+      eventType: 'platform/leaderboard-sync-result',
+      eventVersion: 1,
+      occurredAt: now(),
+      correlationId,
+      payload,
+    });
   };
 
   const resolveSafeStorage = async (): Promise<YandexSafeStorageApi | null> => {
@@ -904,7 +926,13 @@ export function createPlatformYandexModule(
     }
   };
 
-  const runLeaderboardSync = async (score: number, trigger: 'auto' | 'manual'): Promise<void> => {
+  const runLeaderboardSync = async (syncRequest: {
+    readonly score: number;
+    readonly trigger: 'auto' | 'manual';
+    readonly correlationId: string;
+    readonly triggerEventType: LeaderboardSyncTriggerEventType;
+  }): Promise<void> => {
+    const { score, trigger, correlationId, triggerEventType } = syncRequest;
     const normalizedScore = parseNonNegativeSafeInteger(score);
     if (normalizedScore === null) {
       return;
@@ -914,6 +942,15 @@ export function createPlatformYandexModule(
       record('leaderboard-sync-skipped', {
         trigger,
         score: normalizedScore,
+        reason: 'score-already-acked',
+      });
+      publishPlatformLeaderboardSyncResult(correlationId, {
+        trigger,
+        triggerEventType,
+        score: normalizedScore,
+        status: 'skipped',
+        attempt: 0,
+        totalAttempts: 0,
         reason: 'score-already-acked',
       });
       return;
@@ -926,6 +963,15 @@ export function createPlatformYandexModule(
         score: normalizedScore,
         reason: 'player-unauthorized',
       });
+      publishPlatformLeaderboardSyncResult(correlationId, {
+        trigger,
+        triggerEventType,
+        score: normalizedScore,
+        status: 'skipped',
+        attempt: 0,
+        totalAttempts: 0,
+        reason: 'player-unauthorized',
+      });
       return;
     }
 
@@ -934,6 +980,15 @@ export function createPlatformYandexModule(
       record('leaderboard-sync-skipped', {
         trigger,
         score: normalizedScore,
+        reason: 'leaderboard-api-unavailable',
+      });
+      publishPlatformLeaderboardSyncResult(correlationId, {
+        trigger,
+        triggerEventType,
+        score: normalizedScore,
+        status: 'skipped',
+        attempt: 0,
+        totalAttempts: 0,
         reason: 'leaderboard-api-unavailable',
       });
       return;
@@ -962,15 +1017,34 @@ export function createPlatformYandexModule(
           score: normalizedScore,
           attempt: attempt + 1,
         });
+        publishPlatformLeaderboardSyncResult(correlationId, {
+          trigger,
+          triggerEventType,
+          score: normalizedScore,
+          status: 'success',
+          attempt: attempt + 1,
+          totalAttempts: retryDelays.length,
+          reason: null,
+        });
         return;
       } catch (error: unknown) {
         const isLastAttempt = attempt === retryDelays.length - 1;
         if (isLastAttempt) {
+          const reason = toErrorMessage(error);
           record('leaderboard-sync-failed', {
             trigger,
             score: normalizedScore,
             attempt: attempt + 1,
-            reason: toErrorMessage(error),
+            reason,
+          });
+          publishPlatformLeaderboardSyncResult(correlationId, {
+            trigger,
+            triggerEventType,
+            score: normalizedScore,
+            status: 'failed',
+            attempt: attempt + 1,
+            totalAttempts: retryDelays.length,
+            reason,
           });
         }
       }
@@ -981,7 +1055,25 @@ export function createPlatformYandexModule(
     while (queuedLeaderboardSync) {
       const nextSync = queuedLeaderboardSync;
       queuedLeaderboardSync = null;
-      await runLeaderboardSync(nextSync.score, nextSync.trigger);
+      try {
+        await runLeaderboardSync(nextSync);
+      } catch (error: unknown) {
+        const reason = toErrorMessage(error);
+        record('leaderboard-sync-failed', {
+          trigger: nextSync.trigger,
+          score: nextSync.score,
+          reason,
+        });
+        publishPlatformLeaderboardSyncResult(nextSync.correlationId, {
+          trigger: nextSync.trigger,
+          triggerEventType: nextSync.triggerEventType,
+          score: nextSync.score,
+          status: 'failed',
+          attempt: 0,
+          totalAttempts: 0,
+          reason,
+        });
+      }
     }
   };
 
@@ -990,36 +1082,46 @@ export function createPlatformYandexModule(
       return;
     }
 
-    activeLeaderboardSyncPromise = runLeaderboardSyncLoop()
-      .catch((error: unknown) => {
-        record('leaderboard-sync-failed', {
-          trigger: queuedLeaderboardSync?.trigger ?? 'auto',
-          score: queuedLeaderboardSync?.score ?? lastLeaderboardSubmittedScore,
-          reason: toErrorMessage(error),
-        });
-      })
-      .finally(() => {
-        activeLeaderboardSyncPromise = null;
+    activeLeaderboardSyncPromise = runLeaderboardSyncLoop().finally(() => {
+      activeLeaderboardSyncPromise = null;
 
-        if (queuedLeaderboardSync) {
-          ensureLeaderboardSyncLoop();
-        }
-      });
+      if (queuedLeaderboardSync) {
+        ensureLeaderboardSyncLoop();
+      }
+    });
   };
 
-  const queueLeaderboardSync = (score: number, trigger: 'auto' | 'manual'): void => {
+  const queueLeaderboardSync = (
+    score: number,
+    trigger: 'auto' | 'manual',
+    correlationId: string,
+    triggerEventType: LeaderboardSyncTriggerEventType,
+  ): void => {
     const normalizedScore = parseNonNegativeSafeInteger(score);
     if (normalizedScore === null) {
       return;
     }
 
     if (!queuedLeaderboardSync) {
-      queuedLeaderboardSync = { score: normalizedScore, trigger };
+      queuedLeaderboardSync = {
+        score: normalizedScore,
+        trigger,
+        correlationId,
+        triggerEventType,
+      };
     } else {
+      const preferIncomingCorrelation =
+        trigger === 'manual' || queuedLeaderboardSync.trigger !== 'manual';
       queuedLeaderboardSync = {
         score: Math.max(queuedLeaderboardSync.score, normalizedScore),
         trigger:
           queuedLeaderboardSync.trigger === 'manual' || trigger === 'manual' ? 'manual' : 'auto',
+        correlationId: preferIncomingCorrelation
+          ? correlationId
+          : queuedLeaderboardSync.correlationId,
+        triggerEventType: preferIncomingCorrelation
+          ? triggerEventType
+          : queuedLeaderboardSync.triggerEventType,
       };
     }
 
@@ -1052,27 +1154,47 @@ export function createPlatformYandexModule(
 
     if (event.eventType === 'domain/target-word-accepted') {
       if (event.payload.scoreDelta.totalScore > 0) {
-        queueLeaderboardSync(event.payload.allTimeScore, 'auto');
+        queueLeaderboardSync(
+          event.payload.allTimeScore,
+          'auto',
+          event.correlationId,
+          event.eventType,
+        );
       }
       return;
     }
 
     if (event.eventType === 'domain/bonus-word-accepted') {
       if (event.payload.scoreDelta.totalScore > 0) {
-        queueLeaderboardSync(event.payload.allTimeScore, 'auto');
+        queueLeaderboardSync(
+          event.payload.allTimeScore,
+          'auto',
+          event.correlationId,
+          event.eventType,
+        );
       }
       return;
     }
 
     if (event.eventType === 'domain/word-success') {
       if (event.payload.scoreDelta.totalScore > 0) {
-        queueLeaderboardSync(event.payload.allTimeScore, 'auto');
+        queueLeaderboardSync(
+          event.payload.allTimeScore,
+          'auto',
+          event.correlationId,
+          event.eventType,
+        );
       }
       return;
     }
 
     if (event.eventType === 'domain/leaderboard-sync') {
-      queueLeaderboardSync(event.payload.requestedScore, 'manual');
+      queueLeaderboardSync(
+        event.payload.requestedScore,
+        'manual',
+        event.correlationId,
+        event.eventType,
+      );
       return;
     }
   };
