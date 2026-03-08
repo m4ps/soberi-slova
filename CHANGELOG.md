@@ -2,6 +2,25 @@
 
 ## 2026-03-08
 
+### [DATA]-[009] Доменная схема мигрирована с legacy `5x5/free-help` на `v1.1`
+
+- `src/domain/GameState/index.ts` переведён на `schemaVersion=4` и актуальную форму `TECHSPEC v1.1`:
+  - `GameState` теперь хранит `helpLockState` вместо `helpWindow`;
+  - `LevelSession` теперь хранит `wordMixStats` вместо legacy `meta` как runtime source of truth;
+  - snapshot migration `v3 -> v4` детерминированно переводит legacy `5x5` grid в `6x6`, переносит lock-состояние из `helpWindow` и продолжает принимать старые snapshot через backward-compatible input path.
+- Общие runtime/grid-контракты синхронизированы с новой схемой:
+  - `src/shared/word-grid.ts`, `src/shared/default-level.ts`, `src/domain/LevelGenerator/index.ts`, `src/domain/WordValidation/index.ts` и `src/adapters/InputPath/index.ts` переведены на `6x6`;
+  - shared path-утилиты при этом сохраняют поддержку legacy квадратных grid-массивов по длине, чтобы миграции старых snapshot оставались безопасными.
+- Legacy help-state выведен из доменной модели, но сохранён как migration/restore compatibility path:
+  - `src/main.ts` больше не инициализирует `HelpEconomy` из `GameState`;
+  - `src/application/index.ts` перестал использовать `gameState.helpWindow` как fallback при restore;
+  - `src/adapters/Persistence/index.ts` сериализует в `gameState` уже вычисленный `helpLockState`, собранный из текущего `HelpEconomy`, а legacy `helpWindow` остаётся только persistence-sidecar для переходного периода.
+- `src/domain/CoreState/index.ts` и тестовые fixture-ы очищены от runtime-зависимости на `helpWindow/meta`, при этом restore/migration тесты продолжают проверять старые payload через explicit legacy inputs.
+- Обновлены `BACKLOG.md`, тесты и добавлен `ADR/ADR-044-data-schema-v11-migration-data-009.md` с решением о переходной границе между `GameState` и `HelpEconomy`.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - `npm run test:e2e:test-012` — не выполнен в sandbox-среде: `listen EPERM: operation not permitted 127.0.0.1:4173`.
+
 ### [INIT]-[007] Command bus приведён к текущему контракту TECHSPEC v1.1
 
 - `src/application/contracts.ts` разделён на два явных слоя команд:

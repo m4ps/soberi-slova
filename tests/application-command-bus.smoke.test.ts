@@ -367,6 +367,7 @@ describe('application command/query bus smoke', () => {
     try {
       const restoredState: GameStateInput = {
         ...createScoringFixtureState(),
+        schemaVersion: 2,
         stateVersion: 7,
         updatedAt: 9_000,
         allTimeScore: 123,
@@ -505,8 +506,8 @@ describe('application command/query bus smoke', () => {
       });
 
       const restoredHelpWindow = application.readModel.getHelpWindowState();
-      expect(restoredHelpWindow.windowStartTs).toBe(11_500);
-      expect(restoredHelpWindow.freeActionAvailable).toBe(false);
+      expect(restoredHelpWindow.windowStartTs).toBe(0);
+      expect(restoredHelpWindow.freeActionAvailable).toBe(true);
     } finally {
       nowSpy.mockRestore();
     }

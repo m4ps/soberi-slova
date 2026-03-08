@@ -2,9 +2,11 @@ import { toErrorMessage } from '../../shared/errors';
 import {
   HINT_META_REVEAL_COUNT_KEY,
   HINT_META_TARGET_WORD_KEY,
+  WORD_GRID_CELL_COUNT,
+  WORD_GRID_SIDE,
   sortWordsByDifficulty,
 } from '../../shared/word-grid';
-import type { HelpKind } from '../HelpEconomy';
+import { HELP_WINDOW_DURATION_MS, type HelpKind } from '../HelpEconomy';
 import {
   isLengthInRange,
   isLowercaseCyrillicLetter,
@@ -15,12 +17,13 @@ const SNAPSHOT_SCHEMA_VERSION_V0 = 0;
 const SNAPSHOT_SCHEMA_VERSION_V1 = 1;
 const SNAPSHOT_SCHEMA_VERSION_V2 = 2;
 const SNAPSHOT_SCHEMA_VERSION_V3 = 3;
+const SNAPSHOT_SCHEMA_VERSION_V4 = 4;
 const DEFAULT_STATE_VERSION = 0;
 const LEADERBOARD_EMPTY_SCORE = 0;
 const LEADERBOARD_EMPTY_SUBMIT_TS = 0;
 const MIGRATION_VERSION_STEP = 1;
 
-export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V3;
+export const GAME_STATE_SCHEMA_VERSION = SNAPSHOT_SCHEMA_VERSION_V4;
 
 export type LevelSessionStatus = 'active' | 'completed' | 'reshuffling';
 
@@ -33,6 +36,7 @@ export type PendingOperationKind =
   | 'leaderboard-sync';
 
 export type PendingOperationStatus = 'pending' | 'applied' | 'failed';
+export type HelpLockReason = 'pending-request' | 'cooldown' | 'legacy-free-window';
 
 export interface WordEntry {
   readonly id: number;
@@ -55,6 +59,12 @@ export interface HelpWindow {
   readonly pendingHelpRequest: PendingHelpRequest | null;
 }
 
+export interface HelpLockState {
+  readonly isLocked: boolean;
+  readonly lockedUntil: number | null;
+  readonly reason: HelpLockReason | null;
+}
+
 export interface PendingOperation {
   readonly operationId: string;
   readonly kind: PendingOperationKind;
@@ -72,6 +82,12 @@ export interface LeaderboardSyncState {
 
 export type LevelSessionMetaValue = string | number | boolean | null;
 
+export interface WordMixStats {
+  readonly short: number;
+  readonly medium: number;
+  readonly long: number;
+}
+
 export interface LevelSession {
   readonly levelId: string;
   readonly grid: readonly string[];
@@ -81,7 +97,7 @@ export interface LevelSession {
   readonly status: LevelSessionStatus;
   readonly seed: number;
   readonly readabilityScore: number;
-  readonly meta: Readonly<Record<string, LevelSessionMetaValue>>;
+  readonly wordMixStats: WordMixStats;
 }
 
 export interface GameState {
@@ -92,7 +108,7 @@ export interface GameState {
   readonly currentDisplayedTargetId: TargetWordId | null;
   readonly currentHintPathProgress: number;
   readonly currentLevelSession: LevelSession;
-  readonly helpWindow: HelpWindow;
+  readonly helpLockState: HelpLockState;
   readonly pendingOps: readonly PendingOperation[];
   readonly leaderboardSync: LeaderboardSyncState;
 }
@@ -100,6 +116,8 @@ export interface GameState {
 export type WordEntryInput = WordEntry;
 
 export type PendingHelpRequestInput = PendingHelpRequest;
+export type HelpLockStateInput = HelpLockState;
+export type WordMixStatsInput = WordMixStats;
 
 export interface HelpWindowInput extends Omit<HelpWindow, 'pendingHelpRequest'> {
   readonly pendingHelpRequest?: PendingHelpRequestInput | null;
@@ -109,8 +127,9 @@ export type PendingOperationInput = PendingOperation;
 
 export type LeaderboardSyncStateInput = LeaderboardSyncState;
 
-export interface LevelSessionInput extends Omit<LevelSession, 'meta' | 'readabilityScore'> {
+export interface LevelSessionInput extends Omit<LevelSession, 'wordMixStats' | 'readabilityScore'> {
   readonly readabilityScore?: number;
+  readonly wordMixStats?: WordMixStatsInput;
   readonly meta?: Readonly<Record<string, LevelSessionMetaValue>>;
 }
 
@@ -121,7 +140,7 @@ export interface GameStateInput extends Omit<
   | 'currentDisplayedTargetId'
   | 'currentHintPathProgress'
   | 'currentLevelSession'
-  | 'helpWindow'
+  | 'helpLockState'
   | 'pendingOps'
 > {
   readonly schemaVersion?: number;
@@ -129,7 +148,8 @@ export interface GameStateInput extends Omit<
   readonly currentDisplayedTargetId?: TargetWordId | null;
   readonly currentHintPathProgress?: number;
   readonly currentLevelSession: LevelSessionInput;
-  readonly helpWindow: HelpWindowInput;
+  readonly helpLockState?: HelpLockStateInput;
+  readonly helpWindow?: HelpWindowInput;
   readonly pendingOps?: readonly PendingOperationInput[];
 }
 
@@ -204,16 +224,95 @@ const PENDING_OPERATION_STATUSES: ReadonlySet<PendingOperationStatus> = new Set(
 ]);
 
 const HELP_KINDS: ReadonlySet<HelpKind> = new Set(['hint', 'reshuffle']);
+const HELP_LOCK_REASONS: ReadonlySet<HelpLockReason> = new Set([
+  'pending-request',
+  'cooldown',
+  'legacy-free-window',
+]);
 
-const LEVEL_GRID_SIDE = 5;
-const LEVEL_GRID_CELL_COUNT = LEVEL_GRID_SIDE * LEVEL_GRID_SIDE;
+const LEGACY_LEVEL_GRID_SIDE = 5;
+const LEGACY_LEVEL_GRID_CELL_COUNT = LEGACY_LEVEL_GRID_SIDE * LEGACY_LEVEL_GRID_SIDE;
+const LEVEL_GRID_SIDE = WORD_GRID_SIDE;
+const LEVEL_GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
 const LEVEL_TARGET_WORDS_MIN = 10;
 const LEVEL_TARGET_WORDS_MAX = 15;
+const SHORT_WORD_MAX_LENGTH = 4;
 const READABLE_TARGET_WORD_MIN_LENGTH = 3;
 const READABLE_TARGET_WORD_MAX_LENGTH = 6;
+const LONG_WORD_MIN_LENGTH = 7;
 const MIN_READABLE_TARGET_WORDS = 10;
 const MAX_LEVEL_READABILITY_SCORE = READABLE_TARGET_WORD_MAX_LENGTH;
 const MAX_PENDING_OPERATIONS = 128;
+const LEGACY_GRID_FILLER_LETTERS = ['ц', 'ш', 'щ', 'ф', 'х', 'ч', 'з', 'э', 'ю', 'й', 'ы'] as const;
+
+function migrateLegacyGridSnapshot(gridCandidate: unknown): unknown {
+  if (!Array.isArray(gridCandidate) || gridCandidate.length !== LEGACY_LEVEL_GRID_CELL_COUNT) {
+    return gridCandidate;
+  }
+
+  const nextGrid: unknown[] = [];
+  let fillerIndex = 0;
+
+  for (let row = 0; row < LEGACY_LEVEL_GRID_SIDE; row += 1) {
+    const rowStart = row * LEGACY_LEVEL_GRID_SIDE;
+    nextGrid.push(...gridCandidate.slice(rowStart, rowStart + LEGACY_LEVEL_GRID_SIDE));
+    nextGrid.push(LEGACY_GRID_FILLER_LETTERS[fillerIndex % LEGACY_GRID_FILLER_LETTERS.length]);
+    fillerIndex += 1;
+  }
+
+  while (nextGrid.length < LEVEL_GRID_CELL_COUNT) {
+    nextGrid.push(LEGACY_GRID_FILLER_LETTERS[fillerIndex % LEGACY_GRID_FILLER_LETTERS.length]);
+    fillerIndex += 1;
+  }
+
+  return nextGrid;
+}
+
+function deriveLegacyHelpLockStateSnapshot(
+  helpWindowCandidate: unknown,
+): Record<string, unknown> | undefined {
+  if (
+    !helpWindowCandidate ||
+    typeof helpWindowCandidate !== 'object' ||
+    Array.isArray(helpWindowCandidate)
+  ) {
+    return undefined;
+  }
+
+  const helpWindow = helpWindowCandidate as Record<string, unknown>;
+  const pendingHelpRequest = helpWindow.pendingHelpRequest;
+  if (
+    pendingHelpRequest &&
+    typeof pendingHelpRequest === 'object' &&
+    !Array.isArray(pendingHelpRequest)
+  ) {
+    return {
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
+    };
+  }
+
+  if (helpWindow.freeActionAvailable === false) {
+    const windowStartTs = helpWindow.windowStartTs;
+    const lockedUntil =
+      typeof windowStartTs === 'number' && Number.isFinite(windowStartTs)
+        ? Math.max(0, Math.trunc(windowStartTs)) + HELP_WINDOW_DURATION_MS
+        : null;
+
+    return {
+      isLocked: true,
+      lockedUntil,
+      reason: 'legacy-free-window',
+    };
+  }
+
+  return {
+    isLocked: false,
+    lockedUntil: null,
+    reason: null,
+  };
+}
 
 // Migration chain must stay deterministic and stepwise: vN -> vN+1 only.
 const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
@@ -282,6 +381,34 @@ const SNAPSHOT_MIGRATION_STEPS: readonly SnapshotMigrationStep[] = [
               nextSnapshot.currentHintPathProgress = hintRevealCount;
             }
           }
+        }
+      }
+
+      return nextSnapshot;
+    },
+  },
+  {
+    fromVersion: SNAPSHOT_SCHEMA_VERSION_V3,
+    toVersion: SNAPSHOT_SCHEMA_VERSION_V4,
+    migrate: (snapshot) => {
+      const nextSnapshot: Record<string, unknown> = {
+        ...snapshot,
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION_V4,
+      };
+
+      const levelSession = snapshot.currentLevelSession;
+      if (levelSession && typeof levelSession === 'object' && !Array.isArray(levelSession)) {
+        const legacyLevelSession = levelSession as Record<string, unknown>;
+        nextSnapshot.currentLevelSession = {
+          ...legacyLevelSession,
+          grid: migrateLegacyGridSnapshot(legacyLevelSession.grid),
+        };
+      }
+
+      if (nextSnapshot.helpLockState === undefined) {
+        const helpLockState = deriveLegacyHelpLockStateSnapshot(snapshot.helpWindow);
+        if (helpLockState) {
+          nextSnapshot.helpLockState = helpLockState;
         }
       }
 
@@ -374,6 +501,14 @@ function assertBoolean(value: unknown, fieldName: string): boolean {
   }
 
   return value;
+}
+
+function assertNullableNonNegativeSafeInteger(value: unknown, fieldName: string): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return assertNonNegativeSafeInteger(value, fieldName);
 }
 
 function assertNonEmptyString(value: unknown, fieldName: string): string {
@@ -605,6 +740,56 @@ function assertLiteral<TValue extends string>(
   return parsed as TValue;
 }
 
+function categorizeWordLength(word: string): keyof WordMixStats {
+  if (word.length >= LONG_WORD_MIN_LENGTH) {
+    return 'long';
+  }
+
+  if (word.length <= SHORT_WORD_MAX_LENGTH) {
+    return 'short';
+  }
+
+  return 'medium';
+}
+
+function calculateWordMixStats(targetWords: readonly string[]): WordMixStats {
+  return targetWords.reduce<WordMixStats>(
+    (stats, targetWord) => {
+      const category = categorizeWordLength(targetWord);
+      return {
+        ...stats,
+        [category]: stats[category] + 1,
+      };
+    },
+    {
+      short: 0,
+      medium: 0,
+      long: 0,
+    },
+  );
+}
+
+function assertWordMixStatsMatchesTargetWords(
+  wordMixStats: WordMixStats,
+  targetWords: readonly string[],
+): void {
+  const expected = calculateWordMixStats(targetWords);
+  if (
+    wordMixStats.short !== expected.short ||
+    wordMixStats.medium !== expected.medium ||
+    wordMixStats.long !== expected.long
+  ) {
+    throw parseError(
+      'levelSession.wordMixStats must match actual target word length distribution.',
+      'game-state.invariant.word-mix-stats',
+      {
+        actual: wordMixStats,
+        expected,
+      },
+    );
+  }
+}
+
 function assertLevelSessionMeta(
   value: unknown,
   fieldName: string,
@@ -633,6 +818,21 @@ function assertLevelSessionMeta(
   }
 
   return result;
+}
+
+function resolveWordMixStats(
+  targetWords: readonly string[],
+  candidate: WordMixStatsInput | undefined,
+): WordMixStats {
+  if (candidate === undefined) {
+    return calculateWordMixStats(targetWords);
+  }
+
+  return {
+    short: assertNonNegativeSafeInteger(candidate.short, 'levelSession.wordMixStats.short'),
+    medium: assertNonNegativeSafeInteger(candidate.medium, 'levelSession.wordMixStats.medium'),
+    long: assertNonNegativeSafeInteger(candidate.long, 'levelSession.wordMixStats.long'),
+  };
 }
 
 function resolveRemainingTargetWords(
@@ -813,6 +1013,39 @@ function assertLeaderboardSyncConsistency(
   }
 }
 
+function createLegacyHelpLockState(helpWindow: HelpWindowInput | undefined): HelpLockState {
+  if (!helpWindow) {
+    return {
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
+    };
+  }
+
+  const normalizedHelpWindow = createHelpWindow(helpWindow);
+  if (normalizedHelpWindow.pendingHelpRequest) {
+    return {
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
+    };
+  }
+
+  if (!normalizedHelpWindow.freeActionAvailable) {
+    return {
+      isLocked: true,
+      lockedUntil: normalizedHelpWindow.windowStartTs + HELP_WINDOW_DURATION_MS,
+      reason: 'legacy-free-window',
+    };
+  }
+
+  return {
+    isLocked: false,
+    lockedUntil: null,
+    reason: null,
+  };
+}
+
 export function createWordEntry(input: WordEntryInput): WordEntry {
   return {
     id: assertNonNegativeSafeInteger(input.id, 'wordEntry.id'),
@@ -838,6 +1071,42 @@ export function createHelpWindow(input: HelpWindowInput): HelpWindow {
       input.pendingHelpRequest === undefined || input.pendingHelpRequest === null
         ? null
         : createPendingHelpRequest(input.pendingHelpRequest),
+  };
+}
+
+export function createHelpLockState(input: HelpLockStateInput): HelpLockState {
+  const isLocked = assertBoolean(input.isLocked, 'helpLockState.isLocked');
+  const lockedUntil = assertNullableNonNegativeSafeInteger(
+    input.lockedUntil,
+    'helpLockState.lockedUntil',
+  );
+  const reason =
+    input.reason === undefined || input.reason === null
+      ? null
+      : assertLiteral(input.reason, 'helpLockState.reason', HELP_LOCK_REASONS);
+
+  if (!isLocked && (lockedUntil !== null || reason !== null)) {
+    throw parseError(
+      'helpLockState.lockedUntil and helpLockState.reason must be null when helpLockState.isLocked is false.',
+      'game-state.invariant.help-lock-unlocked-shape',
+      {
+        lockedUntil,
+        reason,
+      },
+    );
+  }
+
+  if (isLocked && reason === null) {
+    throw parseError(
+      'helpLockState.reason must be provided when helpLockState.isLocked is true.',
+      'game-state.invariant.help-lock-reason',
+    );
+  }
+
+  return {
+    isLocked,
+    lockedUntil,
+    reason,
   };
 }
 
@@ -871,6 +1140,9 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
   const targetWords = assertCyrillicWordArray(input.targetWords, 'levelSession.targetWords');
   const foundTargets = assertCyrillicWordArray(input.foundTargets, 'levelSession.foundTargets');
   const foundBonuses = assertCyrillicWordArray(input.foundBonuses, 'levelSession.foundBonuses');
+  if (input.meta !== undefined) {
+    assertLevelSessionMeta(input.meta, 'levelSession.meta');
+  }
   const readabilityScore =
     input.readabilityScore === undefined
       ? calculateReadabilityScore(targetWords)
@@ -884,7 +1156,7 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
     status: assertLiteral(input.status, 'levelSession.status', LEVEL_SESSION_STATUSES),
     seed: assertFiniteNumber(input.seed, 'levelSession.seed'),
     readabilityScore,
-    meta: assertLevelSessionMeta(input.meta, 'levelSession.meta'),
+    wordMixStats: resolveWordMixStats(targetWords, input.wordMixStats),
   };
 
   assertTargetWordCount(levelSession.targetWords);
@@ -892,6 +1164,7 @@ export function createLevelSession(input: LevelSessionInput): LevelSession {
   assertReadableTargetWordFloor(levelSession.targetWords);
   assertReadableTargetWordPrevalence(levelSession.targetWords);
   assertLevelReadabilityScore(levelSession.readabilityScore);
+  assertWordMixStatsMatchesTargetWords(levelSession.wordMixStats, levelSession.targetWords);
   assertUniqueWords(levelSession.foundTargets, 'levelSession.foundTargets');
   assertUniqueWords(levelSession.foundBonuses, 'levelSession.foundBonuses');
   assertFoundTargetsBelongToTargetWords(levelSession.targetWords, levelSession.foundTargets);
@@ -1018,7 +1291,10 @@ export function createGameState(
     currentDisplayedTargetId: guidedTargetState.currentDisplayedTargetId,
     currentHintPathProgress: guidedTargetState.currentHintPathProgress,
     currentLevelSession,
-    helpWindow: createHelpWindow(input.helpWindow),
+    helpLockState:
+      input.helpLockState === undefined
+        ? createLegacyHelpLockState(input.helpWindow)
+        : createHelpLockState(input.helpLockState),
     pendingOps: (input.pendingOps ?? []).map((operation) => createPendingOperation(operation)),
     leaderboardSync: createLeaderboardSyncState(input.leaderboardSync),
   };
@@ -1046,6 +1322,10 @@ function toHelpWindowInput(value: unknown): HelpWindowInput {
   return createHelpWindow(assertRecord(value, 'helpWindow') as unknown as HelpWindowInput);
 }
 
+function toHelpLockStateInput(value: unknown): HelpLockStateInput {
+  return createHelpLockState(assertRecord(value, 'helpLockState') as unknown as HelpLockStateInput);
+}
+
 function toPendingOperationInput(value: unknown): PendingOperationInput {
   return createPendingOperation(
     assertRecord(value, 'pendingOperation') as unknown as PendingOperationInput,
@@ -1059,7 +1339,32 @@ function toLeaderboardSyncStateInput(value: unknown): LeaderboardSyncStateInput 
 }
 
 function toLevelSessionInput(value: unknown): LevelSessionInput {
-  return createLevelSession(assertRecord(value, 'levelSession') as unknown as LevelSessionInput);
+  const source = assertRecord(value, 'levelSession');
+
+  return createLevelSession({
+    levelId: source.levelId as string,
+    grid: source.grid as readonly string[],
+    targetWords: source.targetWords as readonly string[],
+    foundTargets: source.foundTargets as readonly string[],
+    foundBonuses: source.foundBonuses as readonly string[],
+    status: source.status as LevelSessionStatus,
+    seed: source.seed as number,
+    ...(source.readabilityScore === undefined
+      ? {}
+      : {
+          readabilityScore: source.readabilityScore as number,
+        }),
+    ...(source.wordMixStats === undefined
+      ? {}
+      : {
+          wordMixStats: source.wordMixStats as WordMixStatsInput,
+        }),
+    ...(source.meta === undefined
+      ? {}
+      : {
+          meta: assertLevelSessionMeta(source.meta, 'levelSession.meta'),
+        }),
+  });
 }
 
 function toGameStateInput(value: unknown): GameStateInput {
@@ -1092,7 +1397,16 @@ function toGameStateInput(value: unknown): GameStateInput {
           currentHintPathProgress: source.currentHintPathProgress as number,
         }),
     currentLevelSession: toLevelSessionInput(source.currentLevelSession),
-    helpWindow: toHelpWindowInput(source.helpWindow),
+    ...(source.helpLockState === undefined
+      ? {}
+      : {
+          helpLockState: toHelpLockStateInput(source.helpLockState),
+        }),
+    ...(source.helpWindow === undefined
+      ? {}
+      : {
+          helpWindow: toHelpWindowInput(source.helpWindow),
+        }),
     pendingOps,
     leaderboardSync: toLeaderboardSyncStateInput(source.leaderboardSync),
   };
@@ -1204,7 +1518,7 @@ function resolveSnapshotCandidate(snapshot: GameState | string, source: Snapshot
   }
 
   try {
-    return createGameState(toGameStateInput(snapshot));
+    return applySnapshotMigrations(assertRecord(snapshot, `${source} snapshot`)).state;
   } catch (error: unknown) {
     throw parseError(
       `Failed to normalize ${source} snapshot: ${toErrorMessage(error)}.`,

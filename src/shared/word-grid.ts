@@ -17,10 +17,19 @@ const WORD_GRID_DIRECTIONS: readonly Readonly<{
   { rowOffset: 1, colOffset: 1 },
 ];
 
-export const WORD_GRID_SIDE = 5;
+export const WORD_GRID_SIDE = 6;
 export const WORD_GRID_CELL_COUNT = WORD_GRID_SIDE * WORD_GRID_SIDE;
 export const HINT_META_TARGET_WORD_KEY = 'hintTargetWord';
 export const HINT_META_REVEAL_COUNT_KEY = 'hintRevealCount';
+
+export function resolveWordGridSideFromLength(length: number): number | null {
+  if (!Number.isSafeInteger(length) || length <= 0) {
+    return null;
+  }
+
+  const side = Math.sqrt(length);
+  return Number.isSafeInteger(side) ? side : null;
+}
 
 export function compareWordsByDifficulty(left: string, right: string): number {
   if (left.length !== right.length) {
@@ -42,19 +51,20 @@ export function sortWordsByDifficulty(words: readonly string[]): readonly string
   return [...words].sort(compareWordsByDifficulty);
 }
 
-function isGridCellInsideBounds(row: number, col: number): boolean {
-  return row >= 0 && row < WORD_GRID_SIDE && col >= 0 && col < WORD_GRID_SIDE;
+function isGridCellInsideBounds(row: number, col: number, gridSide: number): boolean {
+  return row >= 0 && row < gridSide && col >= 0 && col < gridSide;
 }
 
-function toGridCellIndex(row: number, col: number): number {
-  return row * WORD_GRID_SIDE + col;
+function toGridCellIndex(row: number, col: number, gridSide: number): number {
+  return row * gridSide + col;
 }
 
 export function findWordPathInGrid(
   grid: readonly string[],
   targetWord: string,
 ): readonly WordGridCellRef[] | null {
-  if (targetWord.length === 0 || grid.length !== WORD_GRID_CELL_COUNT) {
+  const gridSide = resolveWordGridSideFromLength(grid.length);
+  if (targetWord.length === 0 || gridSide === null) {
     return null;
   }
 
@@ -62,11 +72,11 @@ export function findWordPathInGrid(
   const visited = new Set<number>();
 
   const dfs = (row: number, col: number, letterIndex: number): boolean => {
-    if (!isGridCellInsideBounds(row, col)) {
+    if (!isGridCellInsideBounds(row, col, gridSide)) {
       return false;
     }
 
-    const cellIndex = toGridCellIndex(row, col);
+    const cellIndex = toGridCellIndex(row, col, gridSide);
     if (visited.has(cellIndex)) {
       return false;
     }
@@ -93,8 +103,8 @@ export function findWordPathInGrid(
     return false;
   };
 
-  for (let row = 0; row < WORD_GRID_SIDE; row += 1) {
-    for (let col = 0; col < WORD_GRID_SIDE; col += 1) {
+  for (let row = 0; row < gridSide; row += 1) {
+    for (let col = 0; col < gridSide; col += 1) {
       if (dfs(row, col, 0)) {
         return [...path];
       }

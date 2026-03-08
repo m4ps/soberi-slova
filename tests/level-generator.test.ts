@@ -10,9 +10,10 @@ import {
   type GeneratedLevel,
 } from '../src/domain/LevelGenerator';
 import { buildDictionaryIndexFromCsv } from '../src/domain/WordValidation';
+import { WORD_GRID_CELL_COUNT, WORD_GRID_SIDE } from '../src/shared/word-grid';
 
-const GRID_SIDE = 5;
-const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
+const GRID_SIDE = WORD_GRID_SIDE;
+const GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
 const SHORT_WORD_MIN = 3;
 const SHORT_WORD_MAX = 4;
 const MEDIUM_WORD_MAX = 6;
