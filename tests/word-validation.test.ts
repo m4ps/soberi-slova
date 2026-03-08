@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { createWordValidationModule, resolveWordFromPath } from '../src/domain/WordValidation';
+import { WORD_GRID_SIDE } from '../src/shared/word-grid';
 
 function buildGrid(rows: readonly string[]): readonly string[] {
-  if (rows.length !== 5 || rows.some((row) => row.length !== 5)) {
-    throw new Error('Grid rows must be 5x5.');
+  if (rows.length !== WORD_GRID_SIDE || rows.some((row) => row.length !== WORD_GRID_SIDE)) {
+    throw new Error(`Grid rows must be ${WORD_GRID_SIDE}x${WORD_GRID_SIDE}.`);
   }
 
   return rows.join('').split('');
 }
 
-const BASE_GRID = buildGrid(['домяя', 'котяя', 'ёлкая', 'елкая', 'сырок']);
+const BASE_GRID = buildGrid(['домяяя', 'котяяя', 'ёлкаяя', 'елкаяя', 'сырокя', 'паруся']);
 
 describe('WordValidation module', () => {
   it('classifies words as target, bonus, repeat or invalid', () => {
@@ -87,10 +88,12 @@ describe('WordValidation module', () => {
       ]),
     ).toBe('ёлка');
 
-    expect(resolveWordFromPath(BASE_GRID, [{ row: 5, col: 0 }])).toBeNull();
-    expect(resolveWordFromPath(BASE_GRID.slice(0, 24), [{ row: 0, col: 0 }])).toBeNull();
+    expect(resolveWordFromPath(BASE_GRID, [{ row: WORD_GRID_SIDE, col: 0 }])).toBeNull();
     expect(
-      resolveWordFromPath(buildGrid(['дом1я', 'котяя', 'ёлкая', 'елкая', 'сырок']), [
+      resolveWordFromPath(BASE_GRID.slice(0, BASE_GRID.length - 1), [{ row: 0, col: 0 }]),
+    ).toBeNull();
+    expect(
+      resolveWordFromPath(buildGrid(['дом1яя', 'котяяя', 'ёлкаяя', 'елкаяя', 'сырокя', 'паруся']), [
         { row: 0, col: 3 },
       ]),
     ).toBeNull();

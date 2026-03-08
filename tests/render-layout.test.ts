@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { computeGameLayout } from '../src/adapters/VisualSystem';
 
 describe('render layout contract', () => {
-  it('keeps 5x5 grid as a square priority element in portrait viewport', () => {
+  it('keeps 6x6 grid as a square priority element in portrait viewport', () => {
     const layout = computeGameLayout(540, 960);
 
     expect(layout.grid.width).toBeCloseTo(layout.grid.height, 5);

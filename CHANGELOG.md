@@ -2,6 +2,22 @@
 
 ## 2026-03-08
 
+### [CODE]-[025] Runtime/acceptance-контракт очищен от legacy `5x5`
+
+- `src/adapters/RenderMotion/index.ts` расширен runtime debug snapshot для `render_game_to_text`:
+  - добавлены актуальный `layout` и `gameplay.grid` (`side`, `letters`), чтобы debug-helpers и acceptance читали реальные bounds и содержимое `6x6` поля напрямую из runtime;
+  - coordinate math для hit-testing и acceptance теперь опирается на один runtime source of truth вместо локально продублированной layout-логики.
+- `tests/e2e/test-012-target-word-submit.mjs` синхронизирован с актуальным runtime-контрактом:
+  - удалены локальные `5x5` layout/grid helper-расчёты и чтение grid из persisted snapshot;
+  - real-swipe acceptance теперь берёт `reshuffle` button bounds, `grid` bounds и `6x6` letters из `render_game_to_text`, после чего строит path по фактическому runtime grid.
+- Stale regression-контракты переведены на `6x6`:
+  - `tests/word-validation.test.ts` использует `WORD_GRID_SIDE` и новые `6x6` fixture-строки вместо legacy `5x5`;
+  - `tests/render-layout.test.ts` и `tests/game-state.model.test.ts` обновлены под актуальную терминологию и ожидания `6x6`.
+- Верификация:
+  - `npm test -- --run tests/word-validation.test.ts tests/game-state.model.test.ts tests/render-layout.test.ts tests/input-path.adapter.test.ts` — passed;
+  - `npm run test:e2e:test-012` — не выполнен в sandbox-среде: `listen EPERM: operation not permitted 127.0.0.1:4173`;
+  - `npm run ci:baseline` — passed.
+
 ### [DATA]-[011] Event catalog расширен под visual/runtime contracts v1.1
 
 - `src/application/contracts.ts` и `src/application/index.ts` расширены новым обязательным runtime-событием `domain/progress-bar-fill-requested`:

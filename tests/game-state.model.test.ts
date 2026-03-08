@@ -437,13 +437,14 @@ describe('game state model', () => {
     expect(resolution.resolvedState.allTimeScore).toBe(111);
   });
 
-  it('rejects level session with grid that is not 5x5', () => {
+  it('rejects level session with grid that is not 6x6', () => {
     const baseInput = createFixtureGameStateInput();
+    const validGrid = createValidGrid();
     const input: GameStateInput = {
       ...baseInput,
       currentLevelSession: {
         ...baseInput.currentLevelSession,
-        grid: createValidGrid().slice(0, 24),
+        grid: validGrid.slice(0, validGrid.length - 1),
       },
     };
 

@@ -81,10 +81,15 @@ export interface RenderMotionSnapshot {
     readonly height: number;
     readonly isPortrait: boolean;
   };
+  readonly layout: GameLayout;
   readonly stageChildren: number;
   readonly gameplay: {
     readonly levelId: string;
     readonly levelStatus: 'active' | 'completed' | 'reshuffling';
+    readonly grid: {
+      readonly side: number;
+      readonly letters: readonly string[];
+    };
     readonly allTimeScore: number;
     readonly displayedTargetWord: string | null;
     readonly currentHintPathProgress: number;
@@ -1133,10 +1138,15 @@ export function createRenderMotionModule(
             height: Math.round(app.screen.height),
             isPortrait: app.screen.height >= app.screen.width,
           },
+          layout: currentLayout,
           stageChildren: app.stage.children.length,
           gameplay: {
             levelId: latestCoreState.gameplay.levelId,
             levelStatus: latestCoreState.gameplay.levelStatus,
+            grid: {
+              side: GRID_SIZE,
+              letters: [...latestCoreState.gameState.currentLevelSession.grid],
+            },
             allTimeScore: latestCoreState.gameplay.allTimeScore,
             displayedTargetWord,
             currentHintPathProgress: latestCoreState.gameState.currentHintPathProgress,

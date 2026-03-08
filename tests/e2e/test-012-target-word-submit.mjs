@@ -8,8 +8,6 @@ import { createServer } from 'vite';
 const TEST_HOST = '127.0.0.1';
 const TEST_PORT = 4173;
 const DEV_TARGET_WORDS_PREFIX = '[dev][target-words]';
-const PERSISTENCE_LOCAL_STORAGE_KEY = 'endless-word-grid/session/v1';
-const GRID_SIDE = 5;
 const TARGET_SCORE_BASE = 4;
 const TARGET_SCORE_PER_LETTER = 1;
 
@@ -127,73 +125,6 @@ const MOCK_SDK_SOURCE = `
 })();
 `;
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function normalizeViewportDimension(value) {
-  if (!Number.isFinite(value)) {
-    return 1;
-  }
-
-  return Math.max(1, value);
-}
-
-function computeGameLayout(viewportWidthInput, viewportHeightInput) {
-  const viewportWidth = normalizeViewportDimension(viewportWidthInput);
-  const viewportHeight = normalizeViewportDimension(viewportHeightInput);
-
-  const horizontalPadding = clamp(viewportWidth * 0.06, 14, 28);
-  const verticalPadding = clamp(viewportHeight * 0.02, 10, 24);
-  let hudHeight = clamp(viewportHeight * 0.11, 72, 128);
-  let controlsHeight = clamp(viewportHeight * 0.19, 120, 196);
-  const maxGridWidth = Math.max(180, viewportWidth - horizontalPadding * 2);
-  let availableGridHeight = viewportHeight - hudHeight - controlsHeight - verticalPadding * 4;
-
-  if (availableGridHeight < 180) {
-    const shortfall = 180 - availableGridHeight;
-    const maxControlReduction = Math.max(0, controlsHeight - 104);
-    const controlReduction = Math.min(shortfall * 0.65, maxControlReduction);
-    controlsHeight -= controlReduction;
-
-    const remainingShortfall = shortfall - controlReduction;
-    if (remainingShortfall > 0) {
-      const maxHudReduction = Math.max(0, hudHeight - 64);
-      const hudReduction = Math.min(remainingShortfall, maxHudReduction);
-      hudHeight -= hudReduction;
-    }
-
-    availableGridHeight = viewportHeight - hudHeight - controlsHeight - verticalPadding * 4;
-  }
-
-  const gridSize = Math.max(180, Math.min(maxGridWidth, availableGridHeight));
-  const gridX = (viewportWidth - gridSize) / 2;
-  const hudY = verticalPadding;
-  const gridY = hudY + hudHeight + verticalPadding;
-  const controlsY = gridY + gridSize + verticalPadding;
-  const controlsWidth = viewportWidth - horizontalPadding * 2;
-  const buttonGap = clamp(controlsWidth * 0.025, 8, 14);
-  const topRowHeight = Math.max(42, (controlsHeight - buttonGap) / 2);
-  const topRowButtonWidth = Math.max(56, (controlsWidth - buttonGap) / 2);
-
-  return {
-    grid: {
-      x: gridX,
-      y: gridY,
-      width: gridSize,
-      height: gridSize,
-    },
-    buttons: {
-      reshuffle: {
-        x: horizontalPadding + topRowButtonWidth + buttonGap,
-        y: controlsY,
-        width: topRowButtonWidth,
-        height: topRowHeight,
-      },
-    },
-  };
-}
-
 function parseJsonOrNull(value) {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return null;
@@ -259,8 +190,14 @@ function extractWordLogPayload(payload) {
   };
 }
 
-function findPathForWord(grid, targetWord) {
-  if (!Array.isArray(grid) || grid.length !== GRID_SIDE * GRID_SIDE || targetWord.length === 0) {
+function findPathForWord(grid, gridSide, targetWord) {
+  if (
+    !Array.isArray(grid) ||
+    !Number.isInteger(gridSide) ||
+    gridSide <= 0 ||
+    grid.length !== gridSide * gridSide ||
+    targetWord.length === 0
+  ) {
     return null;
   }
 
@@ -279,11 +216,11 @@ function findPathForWord(grid, targetWord) {
   const path = [];
 
   const dfs = (row, col, letterIndex) => {
-    if (row < 0 || row >= GRID_SIDE || col < 0 || col >= GRID_SIDE) {
+    if (row < 0 || row >= gridSide || col < 0 || col >= gridSide) {
       return false;
     }
 
-    const cellIndex = row * GRID_SIDE + col;
+    const cellIndex = row * gridSide + col;
     if (visited.has(cellIndex)) {
       return false;
     }
@@ -310,8 +247,8 @@ function findPathForWord(grid, targetWord) {
     return false;
   };
 
-  for (let row = 0; row < GRID_SIDE; row += 1) {
-    for (let col = 0; col < GRID_SIDE; col += 1) {
+  for (let row = 0; row < gridSide; row += 1) {
+    for (let col = 0; col < gridSide; col += 1) {
       if (dfs(row, col, 0)) {
         return [...path];
       }
@@ -324,22 +261,22 @@ function findPathForWord(grid, targetWord) {
   return null;
 }
 
-function resolveCellCenter(canvasBox, layout, cell) {
-  const cellSize = layout.grid.width / GRID_SIDE;
+function resolveCellCenter(canvasBox, gridLayout, gridSide, cell) {
+  const cellSize = gridLayout.width / gridSide;
 
   return {
-    x: canvasBox.x + layout.grid.x + cell.col * cellSize + cellSize / 2,
-    y: canvasBox.y + layout.grid.y + cell.row * cellSize + cellSize / 2,
+    x: canvasBox.x + gridLayout.x + cell.col * cellSize + cellSize / 2,
+    y: canvasBox.y + gridLayout.y + cell.row * cellSize + cellSize / 2,
   };
 }
 
-async function swipePath(page, canvasBox, layout, pathCells) {
+async function swipePath(page, canvasBox, gridLayout, gridSide, pathCells) {
   const [firstCell] = pathCells;
   if (!firstCell) {
     throw new Error('Path is empty; cannot perform swipe.');
   }
 
-  const firstPoint = resolveCellCenter(canvasBox, layout, firstCell);
+  const firstPoint = resolveCellCenter(canvasBox, gridLayout, gridSide, firstCell);
   await page.mouse.move(firstPoint.x, firstPoint.y);
   await page.mouse.down();
 
@@ -349,7 +286,7 @@ async function swipePath(page, canvasBox, layout, pathCells) {
       continue;
     }
 
-    const point = resolveCellCenter(canvasBox, layout, cell);
+    const point = resolveCellCenter(canvasBox, gridLayout, gridSide, cell);
     await page.mouse.move(point.x, point.y, { steps: 8 });
     await sleep(16);
   }
@@ -376,29 +313,6 @@ async function readRenderSnapshot(page) {
   }
 
   return parsed;
-}
-
-async function readPersistedGameState(page) {
-  const rawSnapshot = await page.evaluate((storageKey) => {
-    return localStorage.getItem(storageKey);
-  }, PERSISTENCE_LOCAL_STORAGE_KEY);
-
-  const envelope = parseJsonOrNull(rawSnapshot);
-  if (!envelope || typeof envelope !== 'object') {
-    return null;
-  }
-
-  const serializedGameState = envelope.gameStateSerialized;
-  if (typeof serializedGameState !== 'string') {
-    return null;
-  }
-
-  const gameState = parseJsonOrNull(serializedGameState);
-  if (!gameState || typeof gameState !== 'object') {
-    return null;
-  }
-
-  return gameState;
 }
 
 async function main() {
@@ -472,8 +386,19 @@ async function main() {
       throw new Error('Failed to resolve canvas bounding box.');
     }
 
-    const layout = computeGameLayout(canvasBox.width, canvasBox.height);
-    const reshuffleButton = layout.buttons.reshuffle;
+    const initialSnapshot = await waitForCondition(
+      async () => {
+        const snapshot = await readRenderSnapshot(page);
+        if (!snapshot?.layout?.buttons?.reshuffle) {
+          return null;
+        }
+
+        return snapshot;
+      },
+      8000,
+      'Timed out while waiting for initial runtime layout snapshot.',
+    );
+    const reshuffleButton = initialSnapshot.layout.buttons.reshuffle;
 
     await page.mouse.click(
       canvasBox.x + reshuffleButton.x + reshuffleButton.width / 2,
@@ -501,31 +426,40 @@ async function main() {
 
     const targetWord = targetWordEntry.word;
 
-    const persistedGameState = await waitForCondition(
+    const runtimeSnapshot = await waitForCondition(
       async () => {
-        const gameState = await readPersistedGameState(page);
-        if (!gameState || typeof gameState !== 'object') {
+        const snapshot = await readRenderSnapshot(page);
+        if (!snapshot || typeof snapshot !== 'object') {
           return null;
         }
 
-        const levelSession = gameState.currentLevelSession;
-        if (!levelSession || typeof levelSession !== 'object') {
+        if (snapshot.gameplay?.levelId !== reshuffledLevelId) {
           return null;
         }
 
-        if (levelSession.levelId !== reshuffledLevelId) {
+        const grid = snapshot.gameplay?.grid;
+        const layoutGrid = snapshot.layout?.grid;
+        if (
+          !grid ||
+          !Number.isInteger(grid.side) ||
+          !Array.isArray(grid.letters) ||
+          !layoutGrid ||
+          typeof layoutGrid.x !== 'number' ||
+          typeof layoutGrid.y !== 'number' ||
+          typeof layoutGrid.width !== 'number' ||
+          typeof layoutGrid.height !== 'number'
+        ) {
           return null;
         }
 
-        return gameState;
+        return snapshot;
       },
       8000,
-      'Timed out while waiting for persisted reshuffled game state.',
+      'Timed out while waiting for reshuffled runtime grid snapshot.',
     );
 
-    const currentLevelSession = persistedGameState.currentLevelSession;
-    const grid = currentLevelSession.grid;
-    const pathForTargetWord = findPathForWord(grid, targetWord);
+    const runtimeGrid = runtimeSnapshot.gameplay.grid;
+    const pathForTargetWord = findPathForWord(runtimeGrid.letters, runtimeGrid.side, targetWord);
 
     if (!pathForTargetWord || pathForTargetWord.length === 0) {
       throw new Error(`Cannot resolve path for target word "${targetWord}".`);
@@ -535,7 +469,13 @@ async function main() {
     const beforeFoundTargets = beforeSnapshot.gameplay.progress.foundTargets;
     const beforeScore = beforeSnapshot.gameplay.allTimeScore;
 
-    await swipePath(page, canvasBox, layout, pathForTargetWord);
+    await swipePath(
+      page,
+      canvasBox,
+      beforeSnapshot.layout.grid,
+      beforeSnapshot.gameplay.grid.side,
+      pathForTargetWord,
+    );
 
     const expectedWordScore = TARGET_SCORE_BASE + TARGET_SCORE_PER_LETTER * targetWord.length;
 
