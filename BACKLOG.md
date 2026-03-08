@@ -93,7 +93,7 @@
       Task Context: Выполненные data-задачи исторически зафиксировали `grid 5x5`, `HelpWindow` и free-help semantics. Добавь актуализирующую задачу на перевод runtime-схемы к текущему `TECHSPEC.md`: `grid[36]`, `HelpLockState`, `wordMixStats`, `currentDisplayedTargetId`, `currentHintPathProgress`.
       Task DOD: Новая схема данных полностью соответствует текущему `TECHSPEC.md`; legacy-поля больше не являются рабочим source of truth; миграции безопасно переводят старые snapshots в новую форму.
 
-- [ ] [DATA]-[010] Добавить quota/readability инварианты генератора в domain model
+- [x] [DATA]-[010] Добавить quota/readability инварианты генератора в domain model
       Task Context: Текущий `TECHSPEC.md` требует не только диапазон `10..15`, но и scaffold около `35% short + 35% medium + 30% long`, минимум 30% длинных слов (`7+`, ceil), `wordMixStats` и rejection по читаемости displayed target. Эти ограничения должны быть выражены в явных domain-инвариантах, а не только в коде генератора.
       Task DOD: Domain validators покрывают quota/mix/readability rules; инварианты детерминированы и пригодны для property-based тестов; invalid-level states отсекаются до gameplay.
 

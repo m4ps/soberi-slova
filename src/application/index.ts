@@ -68,6 +68,7 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'domain/word-submitted': 1,
   'domain/target-word-accepted': 1,
   'domain/bonus-word-accepted': 1,
+  'domain/progress-bar-fill-requested': 1,
   'domain/displayed-target-changed': 1,
   'domain/hint-path-progress-advanced': 1,
   'domain/level-completed': 1,
@@ -224,6 +225,10 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
     ApplicationEvent,
     { eventType: 'domain/help-action-failed' }
   >['payload'];
+  type ProgressBarFillRequestedPayload = Extract<
+    ApplicationEvent,
+    { eventType: 'domain/progress-bar-fill-requested' }
+  >['payload'];
 
   const eventListeners = new Set<ApplicationEventListener>();
   let eventSequence = 0;
@@ -312,6 +317,44 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           foundTargets: nextSnapshot.gameplay.progress.foundTargets,
           totalTargets: nextSnapshot.gameplay.progress.totalTargets,
         },
+      }),
+    );
+  };
+
+  const publishProgressBarFillRequested = (
+    correlationId: string,
+    previousSnapshot: CoreStateSnapshot,
+    nextSnapshot: CoreStateSnapshot,
+    payload: Pick<
+      ProgressBarFillRequestedPayload,
+      | 'commandType'
+      | 'targetWord'
+      | 'pathCells'
+      | 'stateVersion'
+      | 'allTimeScore'
+      | 'levelCompleted'
+    >,
+  ): void => {
+    if (
+      previousSnapshot.gameplay.progress.foundTargets >= nextSnapshot.gameplay.progress.foundTargets
+    ) {
+      return;
+    }
+
+    publish(
+      createEvent('domain/progress-bar-fill-requested', correlationId, {
+        commandType: payload.commandType,
+        targetWord: payload.targetWord,
+        pathCells: clonePathCells(payload.pathCells),
+        levelId: nextSnapshot.gameplay.levelId,
+        stateVersion: payload.stateVersion,
+        progress: {
+          previousFoundTargets: previousSnapshot.gameplay.progress.foundTargets,
+          foundTargets: nextSnapshot.gameplay.progress.foundTargets,
+          totalTargets: nextSnapshot.gameplay.progress.totalTargets,
+        },
+        allTimeScore: payload.allTimeScore,
+        levelCompleted: payload.levelCompleted,
       }),
     );
   };
@@ -568,6 +611,15 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                       allTimeScore: submitResult.allTimeScore,
                     }),
                   );
+
+                  publishProgressBarFillRequested(correlationId, previousCoreState, nextCoreState, {
+                    commandType: command.type,
+                    targetWord: submitResult.normalizedWord,
+                    pathCells: command.pathCells,
+                    stateVersion: submitResult.stateVersion,
+                    allTimeScore: submitResult.allTimeScore,
+                    levelCompleted: submitResult.levelStatus === 'completed',
+                  });
 
                   if (
                     submitResult.levelStatus === 'completed' &&

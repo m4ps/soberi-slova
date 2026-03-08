@@ -677,7 +677,6 @@ export function createRenderMotionModule(
               elapsedMs: 0,
               durationMs: 520,
             });
-            queueFlyingLetters(payload.targetWord, payload.pathCells, kind);
 
             if (payload.wordSuccessOperationId) {
               const normalizedWord = payload.targetWord || payload.wordSuccessOperationId;
@@ -695,6 +694,11 @@ export function createRenderMotionModule(
             durationMs: 520,
           });
           queueFlyingLetters(payload.bonusWord, payload.pathCells, kind);
+          return;
+        }
+
+        if (event.eventType === 'domain/progress-bar-fill-requested') {
+          queueFlyingLetters(event.payload.targetWord, event.payload.pathCells, 'target');
           return;
         }
 
