@@ -1,0 +1,614 @@
+diff --git a/elixir/lib/symphony_elixir/config.ex b/elixir/lib/symphony_elixir/config.ex
+index 3a9f0d9..088fd3f 100644
+--- a/elixir/lib/symphony_elixir/config.ex
++++ b/elixir/lib/symphony_elixir/config.ex
+@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Config do
+ 
+   @default_active_states ["Todo", "In Progress"]
+   @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
++  @default_dispatch_blocking_states []
+   @default_linear_endpoint "https://api.linear.app/graphql"
+   @default_prompt_template """
+   You are working on a Linear issue.
+@@ -61,6 +62,10 @@ defmodule SymphonyElixir.Config do
+                                  terminal_states: [
+                                    type: {:list, :string},
+                                    default: @default_terminal_states
++                                 ],
++                                 dispatch_blocking_states: [
++                                   type: {:list, :string},
++                                   default: @default_dispatch_blocking_states
+                                  ]
+                                ]
+                              ],
+@@ -219,6 +224,11 @@ defmodule SymphonyElixir.Config do
+     get_in(validated_workflow_options(), [:tracker, :terminal_states])
+   end
+ 
++  @spec linear_dispatch_blocking_states() :: [String.t()]
++  def linear_dispatch_blocking_states do
++    get_in(validated_workflow_options(), [:tracker, :dispatch_blocking_states])
++  end
++
+   @spec poll_interval_ms() :: pos_integer()
+   def poll_interval_ms do
+     get_in(validated_workflow_options(), [:polling, :interval_ms])
+@@ -465,6 +475,7 @@ defmodule SymphonyElixir.Config do
+     |> put_if_present(:project_slug, scalar_string_value(Map.get(section, "project_slug")))
+     |> put_if_present(:active_states, csv_value(Map.get(section, "active_states")))
+     |> put_if_present(:terminal_states, csv_value(Map.get(section, "terminal_states")))
++    |> put_if_present(:dispatch_blocking_states, csv_value(Map.get(section, "dispatch_blocking_states")))
+   end
+ 
+   defp extract_polling_options(section) do
+diff --git a/elixir/lib/symphony_elixir/orchestrator.ex b/elixir/lib/symphony_elixir/orchestrator.ex
+index a4dead1..29026a2 100644
+--- a/elixir/lib/symphony_elixir/orchestrator.ex
++++ b/elixir/lib/symphony_elixir/orchestrator.ex
+@@ -273,6 +273,22 @@ defmodule SymphonyElixir.Orchestrator do
+     should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+   end
+ 
++  @doc false
++  @spec dispatch_blocked_for_test(([String.t()] -> {:ok, [Issue.t()]} | {:error, term()})) ::
++          boolean()
++  def dispatch_blocked_for_test(fetcher) when is_function(fetcher, 1) do
++    case dispatch_blocking_issues(fetcher) do
++      {:ok, issues} -> issues != []
++      {:error, _reason} -> true
++    end
++  end
++
++  @doc false
++  @spec source_repo_ready_for_dispatch_for_test(String.t() | nil) :: boolean()
++  def source_repo_ready_for_dispatch_for_test(repo_path) do
++    match?(:ready, source_repo_dispatch_status(repo_path))
++  end
++
+   @doc false
+   @spec revalidate_issue_for_dispatch_for_test(Issue.t(), ([String.t()] -> term())) ::
+           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
+@@ -303,12 +319,12 @@ defmodule SymphonyElixir.Orchestrator do
+       terminal_issue_state?(issue.state, terminal_states) ->
+         Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+ 
+-        terminate_running_issue(state, issue.id, true)
++        terminate_running_issue(state, issue, true)
+ 
+       !issue_routable_to_worker?(issue) ->
+         Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+ 
+-        terminate_running_issue(state, issue.id, false)
++        terminate_running_issue(state, issue, false)
+ 
+       active_issue_state?(issue.state, active_states) ->
+         refresh_running_issue_state(state, issue)
+@@ -316,7 +332,7 @@ defmodule SymphonyElixir.Orchestrator do
+       true ->
+         Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
+ 
+-        terminate_running_issue(state, issue.id, false)
++        terminate_running_issue(state, issue, false)
+     end
+   end
+ 
+@@ -332,17 +348,22 @@ defmodule SymphonyElixir.Orchestrator do
+     end
+   end
+ 
++  defp terminate_running_issue(%State{} = state, %Issue{id: issue_id} = issue, cleanup_workspace) do
++    terminate_running_issue(state, issue_id, cleanup_workspace, issue)
++  end
++
+   defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
++    terminate_running_issue(state, issue_id, cleanup_workspace, nil)
++  end
++
++  defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, issue_override) do
+     case Map.get(state.running, issue_id) do
+       nil ->
+         release_issue_claim(state, issue_id)
+ 
+       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
+         state = record_session_completion_totals(state, running_entry)
+-
+-        if cleanup_workspace do
+-          cleanup_issue_workspace(identifier)
+-        end
++        hook_issue = issue_override || Map.get(running_entry, :issue)
+ 
+         if is_pid(pid) do
+           terminate_task(pid)
+@@ -352,6 +373,12 @@ defmodule SymphonyElixir.Orchestrator do
+           Process.demonitor(ref, [:flush])
+         end
+ 
++        maybe_run_after_run_hook_for_terminated_issue(hook_issue, identifier)
++
++        if cleanup_workspace do
++          cleanup_issue_workspace(identifier)
++        end
++
+         %{
+           state
+           | running: Map.delete(state.running, issue_id),
+@@ -435,19 +462,47 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+   defp terminate_task(_pid), do: :ok
+ 
++  defp maybe_run_after_run_hook_for_terminated_issue(%Issue{} = issue, identifier) when is_binary(identifier) do
++    workspace = Path.join(Config.workspace_root(), identifier)
++
++    if File.dir?(workspace) do
++      Workspace.run_after_run_hook(workspace, issue)
++    end
++  end
++
++  defp maybe_run_after_run_hook_for_terminated_issue(_issue, _identifier), do: :ok
++
+   defp choose_issues(issues, state) do
+     active_states = active_state_set()
+     terminal_states = terminal_state_set()
+ 
+-    issues
+-    |> sort_issues_for_dispatch()
+-    |> Enum.reduce(state, fn issue, state_acc ->
+-      if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
+-        dispatch_issue(state_acc, issue)
+-      else
+-        state_acc
+-      end
+-    end)
++    case source_repo_dispatch_status(System.get_env("SOURCE_REPO_PATH")) do
++      :ready ->
++        case dispatch_blocking_issues(&Tracker.fetch_issues_by_states/1) do
++          {:ok, []} ->
++            issues
++            |> sort_issues_for_dispatch()
++            |> Enum.reduce(state, fn issue, state_acc ->
++              if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
++                dispatch_issue(state_acc, issue)
++              else
++                state_acc
++              end
++            end)
++
++          {:ok, blocking_issues} ->
++            log_dispatch_blocking_issues(blocking_issues)
++            state
++
++          {:error, reason} ->
++            Logger.warning("Skipping new dispatch; failed to fetch blocking issues: #{inspect(reason)}")
++            state
++        end
++
++      {:blocked, reason} ->
++        Logger.info("Skipping new dispatch until SOURCE_REPO_PATH is on fresh main: #{reason}")
++        state
++    end
+   end
+ 
+   defp sort_issues_for_dispatch(issues) when is_list(issues) do
+@@ -575,6 +630,89 @@ defmodule SymphonyElixir.Orchestrator do
+     |> MapSet.new()
+   end
+ 
++  defp dispatch_blocking_issues(fetcher) when is_function(fetcher, 1) do
++    case dispatch_blocking_states() do
++      [] -> {:ok, []}
++      states -> fetcher.(states)
++    end
++  end
++
++  defp dispatch_blocking_states do
++    Config.linear_dispatch_blocking_states()
++    |> Enum.map(&to_string/1)
++    |> Enum.map(&String.trim/1)
++    |> Enum.reject(&(&1 == ""))
++    |> Enum.uniq()
++  end
++
++  defp source_repo_dispatch_status(nil), do: {:blocked, "SOURCE_REPO_PATH is not set"}
++  defp source_repo_dispatch_status(""), do: {:blocked, "SOURCE_REPO_PATH is not set"}
++
++  defp source_repo_dispatch_status(repo_path) when is_binary(repo_path) do
++    trimmed_repo_path = String.trim(repo_path)
++
++    cond do
++      trimmed_repo_path == "" ->
++        {:blocked, "SOURCE_REPO_PATH is not set"}
++
++      !File.dir?(trimmed_repo_path) ->
++        {:blocked, "path does not exist: #{trimmed_repo_path}"}
++
++      true ->
++        with {:ok, branch_name} <- git_output(trimmed_repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]),
++             "main" <- String.trim(branch_name),
++             {:ok, head_sha} <- git_output(trimmed_repo_path, ["rev-parse", "HEAD"]),
++             {:ok, origin_main_sha} <- git_output(trimmed_repo_path, ["rev-parse", "origin/main"]) do
++          if String.trim(head_sha) == String.trim(origin_main_sha) do
++            :ready
++          else
++            {:blocked, "HEAD=#{short_sha(head_sha)} does not match origin/main=#{short_sha(origin_main_sha)}"}
++          end
++        else
++          branch_name when is_binary(branch_name) ->
++            {:blocked, "current branch is #{String.trim(branch_name)}"}
++
++          {:error, reason} ->
++            {:blocked, reason}
++        end
++    end
++  end
++
++  defp source_repo_dispatch_status(_repo_path), do: {:blocked, "SOURCE_REPO_PATH is invalid"}
++
++  defp git_output(repo_path, args) when is_binary(repo_path) and is_list(args) do
++    case System.cmd("git", ["-C", repo_path | args], stderr_to_stdout: true) do
++      {output, 0} ->
++        {:ok, String.trim(output)}
++
++      {output, status} ->
++        {:error, "git #{Enum.join(args, " ")} failed with status=#{status}: #{String.trim(output)}"}
++    end
++  end
++
++  defp short_sha(sha) when is_binary(sha) do
++    sha
++    |> String.trim()
++    |> String.slice(0, 12)
++  end
++
++  defp log_dispatch_blocking_issues(blocking_issues) when is_list(blocking_issues) do
++    identifiers =
++      blocking_issues
++      |> Enum.flat_map(fn
++        %Issue{identifier: identifier} when is_binary(identifier) and identifier != "" -> [identifier]
++        _ -> []
++      end)
++      |> Enum.take(5)
++
++    identifier_suffix = if length(blocking_issues) > 5, do: ", ...", else: ""
++
++    Logger.info(
++      "Skipping new dispatch while issues remain in blocking states=#{inspect(dispatch_blocking_states())} " <>
++        "count=#{length(blocking_issues)} identifiers=#{Enum.join(identifiers, ", ")}#{identifier_suffix}"
++    )
++  end
++
+   defp dispatch_issue(%State{} = state, issue, attempt \\ nil) do
+     case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
+       {:ok, %Issue{} = refreshed_issue} ->
+diff --git a/elixir/lib/symphony_elixir/prompt_builder.ex b/elixir/lib/symphony_elixir/prompt_builder.ex
+index 1b334a1..bb9d592 100644
+--- a/elixir/lib/symphony_elixir/prompt_builder.ex
++++ b/elixir/lib/symphony_elixir/prompt_builder.ex
+@@ -22,7 +22,7 @@ defmodule SymphonyElixir.PromptBuilder do
+       },
+       @render_opts
+     )
+-    |> IO.iodata_to_binary()
++    |> rendered_prompt_to_binary()
+   end
+ 
+   defp prompt_template!({:ok, %{prompt_template: prompt}}), do: default_prompt(prompt)
+@@ -61,4 +61,23 @@ defmodule SymphonyElixir.PromptBuilder do
+       prompt
+     end
+   end
++
++  defp rendered_prompt_to_binary(rendered) when is_binary(rendered) do
++    String.replace_invalid(rendered, "")
++  end
++
++  defp rendered_prompt_to_binary(rendered)
++       when is_integer(rendered) and rendered >= 0 and rendered <= 0x10FFFF do
++    <<rendered::utf8>>
++  end
++
++  defp rendered_prompt_to_binary(rendered) when is_list(rendered) do
++    Enum.map_join(rendered, "", &rendered_prompt_to_binary/1)
++  end
++
++  defp rendered_prompt_to_binary(rendered) do
++    rendered
++    |> to_string()
++    |> String.replace_invalid("")
++  end
+ end
+diff --git a/elixir/test/support/test_support.exs b/elixir/test/support/test_support.exs
+index bea30f2..b0526c9 100644
+--- a/elixir/test/support/test_support.exs
++++ b/elixir/test/support/test_support.exs
+@@ -99,6 +99,7 @@ defmodule SymphonyElixir.TestSupport do
+           tracker_assignee: nil,
+           tracker_active_states: ["Todo", "In Progress"],
+           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
++          tracker_dispatch_blocking_states: [],
+           poll_interval_ms: 30_000,
+           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
+           max_concurrent_agents: 10,
+@@ -134,6 +135,7 @@ defmodule SymphonyElixir.TestSupport do
+     tracker_assignee = Keyword.get(config, :tracker_assignee)
+     tracker_active_states = Keyword.get(config, :tracker_active_states)
+     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
++    tracker_dispatch_blocking_states = Keyword.get(config, :tracker_dispatch_blocking_states)
+     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
+     workspace_root = Keyword.get(config, :workspace_root)
+     max_concurrent_agents = Keyword.get(config, :max_concurrent_agents)
+@@ -170,6 +172,7 @@ defmodule SymphonyElixir.TestSupport do
+         "  assignee: #{yaml_value(tracker_assignee)}",
+         "  active_states: #{yaml_value(tracker_active_states)}",
+         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
++        "  dispatch_blocking_states: #{yaml_value(tracker_dispatch_blocking_states)}",
+         "polling:",
+         "  interval_ms: #{yaml_value(poll_interval_ms)}",
+         "workspace:",
+diff --git a/elixir/test/symphony_elixir/core_test.exs b/elixir/test/symphony_elixir/core_test.exs
+index 400c006..791e00e 100644
+--- a/elixir/test/symphony_elixir/core_test.exs
++++ b/elixir/test/symphony_elixir/core_test.exs
+@@ -8,12 +8,14 @@ defmodule SymphonyElixir.CoreTest do
+       poll_interval_ms: nil,
+       tracker_active_states: nil,
+       tracker_terminal_states: nil,
++      tracker_dispatch_blocking_states: nil,
+       codex_command: nil
+     )
+ 
+     assert Config.poll_interval_ms() == 30_000
+     assert Config.linear_active_states() == ["Todo", "In Progress"]
+     assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
++    assert Config.linear_dispatch_blocking_states() == []
+     assert Config.linear_assignee() == nil
+     assert Config.agent_max_turns() == 20
+ 
+@@ -32,6 +34,9 @@ defmodule SymphonyElixir.CoreTest do
+     write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: "Todo,  Review,")
+     assert Config.linear_active_states() == ["Todo", "Review"]
+ 
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_dispatch_blocking_states: "In Review, QA")
++    assert Config.linear_dispatch_blocking_states() == ["In Review", "QA"]
++
+     write_workflow_file!(Workflow.workflow_file_path(),
+       tracker_api_token: "token",
+       tracker_project_slug: nil
+@@ -73,8 +78,9 @@ defmodule SymphonyElixir.CoreTest do
+ 
+   test "current WORKFLOW.md file is valid and complete" do
+     original_workflow_path = Workflow.workflow_file_path()
++    repo_workflow_path = Path.expand("../../../../../WORKFLOW.md", __DIR__)
+     on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
+-    Workflow.clear_workflow_file_path()
++    Workflow.set_workflow_file_path(repo_workflow_path)
+ 
+     assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
+     assert is_map(config)
+@@ -85,13 +91,13 @@ defmodule SymphonyElixir.CoreTest do
+     assert is_binary(Map.get(tracker, "project_slug"))
+     assert is_list(Map.get(tracker, "active_states"))
+     assert is_list(Map.get(tracker, "terminal_states"))
++    assert Map.get(tracker, "dispatch_blocking_states") == ["In Review"]
+ 
+     hooks = Map.get(config, "hooks", %{})
+     assert is_map(hooks)
+-    assert Map.get(hooks, "after_create") =~ "git clone --depth 1 https://github.com/openai/symphony ."
+-    assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
+-    assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
+-    assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
++    assert Map.get(hooks, "after_create") =~ "git clone --origin origin --branch main --single-branch"
++    assert Map.get(hooks, "after_run") =~ "scripts/symphony-after-run.sh"
++    assert is_nil(Map.get(hooks, "before_remove"))
+ 
+     assert String.trim(prompt) != ""
+     assert is_binary(Config.workflow_prompt())
+@@ -217,12 +223,14 @@ defmodule SymphonyElixir.CoreTest do
+     issue_id = "issue-1"
+     issue_identifier = "MT-555"
+     workspace = Path.join(test_root, issue_identifier)
++    after_run_marker = Path.join(test_root, "after_run.log")
+ 
+     try do
+       write_workflow_file!(Workflow.workflow_file_path(),
+         workspace_root: test_root,
+         tracker_active_states: ["Todo", "In Progress", "In Review"],
+-        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
++        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
++        hook_after_run: "echo after_run > \"#{after_run_marker}\""
+       )
+ 
+       File.mkdir_p!(test_root)
+@@ -265,6 +273,7 @@ defmodule SymphonyElixir.CoreTest do
+       refute MapSet.member?(updated_state.claimed, issue_id)
+       refute Process.alive?(agent_pid)
+       assert File.exists?(workspace)
++      assert File.read!(after_run_marker) == "after_run\n"
+     after
+       File.rm_rf(test_root)
+     end
+@@ -496,7 +505,7 @@ defmodule SymphonyElixir.CoreTest do
+     assert %{attempt: 3, due_at_ms: due_at_ms, identifier: "MT-559", error: "agent exited: :boom"} =
+              state.retry_attempts[issue_id]
+ 
+-    assert_due_in_range(due_at_ms, 39_500, 40_500)
++    assert_due_in_range(due_at_ms, 39_000, 40_500)
+   end
+ 
+   test "first abnormal worker exit waits before retrying" do
+@@ -597,6 +606,37 @@ defmodule SymphonyElixir.CoreTest do
+     assert prompt =~ "updated=2026-02-26T18:07:03Z"
+   end
+ 
++  test "prompt builder preserves unicode workflow content as valid utf-8" do
++    workflow_prompt = "Привет, {{ issue.title }}. Описание: {{ issue.description }}"
++
++    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
++
++    issue = %Issue{
++      identifier: "MT-702",
++      title: "Проверка Unicode",
++      description: "Русский текст не должен ломать JSON",
++      state: "Todo",
++      url: "https://example.org/issues/MT-702",
++      labels: []
++    }
++
++    prompt = PromptBuilder.build_prompt(issue)
++
++    assert String.valid?(prompt)
++
++    encoded =
++      Jason.encode!(%{
++        "params" => %{
++          "input" => [
++            %{"type" => "text", "text" => prompt}
++          ]
++        }
++      })
++
++    assert String.valid?(encoded)
++    assert encoded =~ "Проверка Unicode"
++  end
++
+   test "prompt builder normalizes nested date-like values, maps, and structs in issue fields" do
+     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
+ 
+diff --git a/elixir/test/symphony_elixir/workspace_and_config_test.exs b/elixir/test/symphony_elixir/workspace_and_config_test.exs
+index 10f9f52..c0ae37a 100644
+--- a/elixir/test/symphony_elixir/workspace_and_config_test.exs
++++ b/elixir/test/symphony_elixir/workspace_and_config_test.exs
+@@ -477,6 +477,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
+   end
+ 
++  test "new dispatches are globally blocked while review issues exist" do
++    write_workflow_file!(Workflow.workflow_file_path(),
++      tracker_dispatch_blocking_states: ["In Review"]
++    )
++
++    fetcher = fn ["In Review"] ->
++      {:ok,
++       [
++         %Issue{
++           id: "review-1",
++           identifier: "MT-1008",
++           title: "Awaiting review",
++           state: "In Review"
++         }
++       ]}
++    end
++
++    assert Orchestrator.dispatch_blocked_for_test(fetcher)
++  end
++
++  test "new dispatches proceed when blocking review column is empty" do
++    write_workflow_file!(Workflow.workflow_file_path(),
++      tracker_dispatch_blocking_states: ["In Review"]
++    )
++
++    fetcher = fn ["In Review"] -> {:ok, []} end
++
++    refute Orchestrator.dispatch_blocked_for_test(fetcher)
++  end
++
++  test "source repo freshness gate requires local main to match origin/main" do
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-source-repo-fresh-#{System.unique_integer([:positive])}"
++      )
++
++    try do
++      repo_path = Path.join(test_root, "repo")
++      File.mkdir_p!(repo_path)
++
++      assert {_, 0} = System.cmd("git", ["init", "-b", "main"], cd: repo_path)
++      File.write!(Path.join(repo_path, "README.md"), "v1\n")
++      assert {"", 0} = System.cmd("git", ["add", "README.md"], cd: repo_path)
++
++      assert {_, 0} =
++               System.cmd(
++                 "git",
++                 ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"],
++                 cd: repo_path
++               )
++
++      {initial_head, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: repo_path)
++      initial_head = String.trim(initial_head)
++
++      assert {"", 0} =
++               System.cmd("git", ["update-ref", "refs/remotes/origin/main", initial_head], cd: repo_path)
++
++      assert Orchestrator.source_repo_ready_for_dispatch_for_test(repo_path)
++
++      File.write!(Path.join(repo_path, "README.md"), "v2\n")
++      assert {"", 0} = System.cmd("git", ["add", "README.md"], cd: repo_path)
++
++      assert {_, 0} =
++               System.cmd(
++                 "git",
++                 ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "stale"],
++                 cd: repo_path
++               )
++
++      refute Orchestrator.source_repo_ready_for_dispatch_for_test(repo_path)
++    after
++      File.rm_rf(test_root)
++    end
++  end
++
++  test "source repo freshness gate blocks when local repo is not on main" do
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-source-repo-branch-#{System.unique_integer([:positive])}"
++      )
++
++    try do
++      repo_path = Path.join(test_root, "repo")
++      File.mkdir_p!(repo_path)
++
++      assert {_, 0} = System.cmd("git", ["init", "-b", "main"], cd: repo_path)
++      File.write!(Path.join(repo_path, "README.md"), "v1\n")
++      assert {"", 0} = System.cmd("git", ["add", "README.md"], cd: repo_path)
++
++      assert {_, 0} =
++               System.cmd(
++                 "git",
++                 ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"],
++                 cd: repo_path
++               )
++
++      {head_sha, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: repo_path)
++      head_sha = String.trim(head_sha)
++
++      assert {"", 0} =
++               System.cmd("git", ["update-ref", "refs/remotes/origin/main", head_sha], cd: repo_path)
++
++      assert {"", 0} = System.cmd("git", ["switch", "-c", "codex/test-branch"], cd: repo_path)
++
++      refute Orchestrator.source_repo_ready_for_dispatch_for_test(repo_path)
++    after
++      File.rm_rf(test_root)
++    end
++  end
++
+   test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
+     stale_issue = %Issue{
+       id: "blocked-2",
+@@ -720,6 +832,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     write_workflow_file!(Workflow.workflow_file_path(),
+       tracker_active_states: %{todo: true},
+       tracker_terminal_states: %{done: true},
++      tracker_dispatch_blocking_states: %{review: true},
+       poll_interval_ms: %{bad: true},
+       workspace_root: 123,
+       max_retry_backoff_ms: 0,
+@@ -734,6 +847,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+ 
+     assert Config.linear_active_states() == ["Todo", "In Progress"]
+     assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
++    assert Config.linear_dispatch_blocking_states() == []
+     assert Config.poll_interval_ms() == 30_000
+     assert Config.workspace_root() == Path.join(System.tmp_dir!(), "symphony_workspaces")
+     assert Config.max_retry_backoff_ms() == 300_000

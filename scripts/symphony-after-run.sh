@@ -33,6 +33,11 @@ query GetIssue($id: String!) {
     state {
       name
     }
+    labels {
+      nodes {
+        name
+      }
+    }
   }
 }
 """,
@@ -54,12 +59,20 @@ issue = ((payload.get("data") or {}).get("issue"))
 if not issue:
     raise SystemExit("Linear issue lookup failed")
 
+labels = [
+    ((node or {}).get("name") or "").strip()
+    for node in (((issue.get("labels") or {}).get("nodes")) or [])
+]
+has_automerge = any(label.lower() == "automerge" for label in labels)
+
 values = {
     "LINEAR_ISSUE_ID": issue["id"],
     "LINEAR_ISSUE_IDENTIFIER": issue["identifier"],
     "LINEAR_ISSUE_TITLE": issue["title"],
     "LINEAR_ISSUE_URL": issue["url"],
     "LINEAR_ISSUE_STATE": issue["state"]["name"],
+    "LINEAR_ISSUE_HAS_AUTOMERGE": "1" if has_automerge else "0",
+    "LINEAR_ISSUE_LABELS": ",".join(label for label in labels if label),
 }
 
 for key, value in values.items():
@@ -113,7 +126,22 @@ build_pr_linear_comment() {
 EOF
 }
 
-find_existing_pr_url() {
+build_automerge_linear_comment() {
+  local pr_url="$1"
+  local branch_name="$2"
+  local merge_message="$3"
+  local source_repo_message="$4"
+
+  cat <<EOF
+Для задачи \`${LINEAR_ISSUE_IDENTIFIER}\` с label \`automerge\` выполнена post-review automation:
+- PR: ${pr_url}
+- Branch: \`${branch_name}\`
+- GitHub: ${merge_message}
+- Local main: ${source_repo_message}
+EOF
+}
+
+find_open_pr_url() {
   local repo_slug="$1"
   local branch_name="$2"
 
@@ -128,6 +156,54 @@ if data and data[0].get("url"):
 '
 }
 
+find_latest_pr_url() {
+  local repo_slug="$1"
+  local branch_name="$2"
+
+  gh pr list --repo "$repo_slug" --head "$branch_name" --state all --limit 1 --json url |
+    python3 -c '
+import json
+import sys
+
+data = json.load(sys.stdin)
+if data and data[0].get("url"):
+    print(data[0]["url"])
+'
+}
+
+parse_pr_metadata() {
+  python3 -c '
+import json
+import shlex
+import sys
+
+payload = json.load(sys.stdin)
+
+values = {
+    "PR_URL": payload.get("url") or "",
+    "PR_STATE": payload.get("state") or "",
+    "PR_MERGED_AT": payload.get("mergedAt") or "",
+    "PR_IS_DRAFT": "1" if payload.get("isDraft") else "0",
+    "PR_MERGE_STATE_STATUS": payload.get("mergeStateStatus") or "",
+}
+
+for key, value in values.items():
+    print(key + "=" + shlex.quote(value))
+'
+}
+
+load_pr_metadata() {
+  local repo_slug="$1"
+  local pr_url="$2"
+
+  eval "$(
+    gh pr view "$pr_url" \
+      --repo "$repo_slug" \
+      --json url,state,mergedAt,isDraft,mergeStateStatus |
+      parse_pr_metadata
+  )"
+}
+
 has_uncommitted_changes() {
   if ! git diff --quiet || ! git diff --cached --quiet; then
     return 0
@@ -140,8 +216,96 @@ has_uncommitted_changes() {
   return 1
 }
 
+sync_source_repo() {
+  local repo_path="${SOURCE_REPO_PATH:?SOURCE_REPO_PATH is required for automerge}"
+  local branch_name=""
+  local head_sha=""
+  local origin_main_sha=""
+
+  if [[ ! -d "$repo_path" ]]; then
+    SOURCE_REPO_SYNC_STATUS="failed"
+    SOURCE_REPO_SYNC_MESSAGE="путь \`${repo_path}\` не существует."
+    return 1
+  fi
+
+  if ! branch_name="$(git -C "$repo_path" rev-parse --abbrev-ref HEAD 2>/dev/null)"; then
+    SOURCE_REPO_SYNC_STATUS="failed"
+    SOURCE_REPO_SYNC_MESSAGE="не удалось определить текущую ветку локального репозитория."
+    return 1
+  fi
+
+  if [[ "$branch_name" != "main" ]]; then
+    SOURCE_REPO_SYNC_STATUS="failed"
+    SOURCE_REPO_SYNC_MESSAGE="локальный репозиторий находится не на \`main\`, а на \`${branch_name}\`."
+    return 1
+  fi
+
+  git -C "$repo_path" fetch origin main >/dev/null
+
+  head_sha="$(git -C "$repo_path" rev-parse HEAD)"
+  origin_main_sha="$(git -C "$repo_path" rev-parse origin/main)"
+
+  if [[ "$head_sha" != "$origin_main_sha" ]]; then
+    if ! git -C "$repo_path" pull --ff-only origin main >/dev/null; then
+      SOURCE_REPO_SYNC_STATUS="failed"
+      SOURCE_REPO_SYNC_MESSAGE="не удалось выполнить \`git pull --ff-only origin main\`."
+      return 1
+    fi
+
+    head_sha="$(git -C "$repo_path" rev-parse HEAD)"
+    origin_main_sha="$(git -C "$repo_path" rev-parse origin/main)"
+  fi
+
+  if [[ "$head_sha" == "$origin_main_sha" ]]; then
+    SOURCE_REPO_SYNC_STATUS="updated"
+    SOURCE_REPO_SYNC_MESSAGE="локальный \`main\` синхронизирован на commit \`${head_sha:0:12}\`."
+    return 0
+  fi
+
+  SOURCE_REPO_SYNC_STATUS="failed"
+  SOURCE_REPO_SYNC_MESSAGE="локальный \`main\` всё ещё отстаёт от \`origin/main\`."
+  return 1
+}
+
+merge_pr_for_automerge_issue() {
+  local repo_slug="$1"
+  local pr_url="$2"
+
+  load_pr_metadata "$repo_slug" "$pr_url"
+
+  if [[ "$PR_STATE" == "MERGED" || -n "$PR_MERGED_AT" ]]; then
+    AUTOMERGE_STATUS="already_merged"
+    AUTOMERGE_MESSAGE="PR уже смержен."
+    return 0
+  fi
+
+  if [[ "$PR_IS_DRAFT" == "1" ]]; then
+    AUTOMERGE_STATUS="failed"
+    AUTOMERGE_MESSAGE="PR остаётся draft и не может быть смержен автоматически."
+    return 1
+  fi
+
+  if gh pr merge --repo "$repo_slug" --merge "$pr_url" >/dev/null; then
+    load_pr_metadata "$repo_slug" "$pr_url"
+
+    if [[ "$PR_STATE" == "MERGED" || -n "$PR_MERGED_AT" ]]; then
+      AUTOMERGE_STATUS="merged"
+      AUTOMERGE_MESSAGE="PR автоматически смержен в \`main\`."
+      return 0
+    fi
+  fi
+
+  AUTOMERGE_STATUS="failed"
+  AUTOMERGE_MESSAGE="не удалось автоматически смержить PR через GitHub CLI."
+  return 1
+}
+
 issue_identifier="$(basename "$PWD")"
 dry_run="${SYMPHONY_AUTO_PR_DRY_RUN:-0}"
+AUTOMERGE_STATUS="not_requested"
+AUTOMERGE_MESSAGE=""
+SOURCE_REPO_SYNC_STATUS="not_run"
+SOURCE_REPO_SYNC_MESSAGE="локальный \`main\` не обновлялся."
 
 require_command curl
 require_command git
@@ -187,7 +351,7 @@ fi
 
 ahead_count="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
 if [[ "$ahead_count" == "0" ]]; then
-  message="Автоматический PR не создан: ветка \`$branch_name\` не содержит коммитов поверх \`origin/main\`."
+  message="Автоматический PR не создан: ветка \`${branch_name}\` не содержит коммитов поверх \`origin/main\`."
 
   if [[ "$dry_run" == "1" ]]; then
     echo "DRY RUN: would leave Linear comment: $message" >&2
@@ -202,27 +366,18 @@ repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 
 if [[ "$dry_run" == "1" ]]; then
   echo "DRY RUN: would push branch '$branch_name' to origin." >&2
-  pr_url=""
+  pr_url="https://github.com/${repo_slug}/pull/DRY-RUN"
 else
   git push --force-with-lease --set-upstream origin "$branch_name"
-  pr_url="$(find_existing_pr_url "$repo_slug" "$branch_name")"
+  pr_url="$(find_open_pr_url "$repo_slug" "$branch_name")"
 fi
 
-if [[ -n "${pr_url:-}" ]]; then
-  if [[ "$dry_run" == "1" ]]; then
-    echo "DRY RUN: existing-or-simulated PR URL: $pr_url" >&2
-  else
-    echo "PR already exists for $LINEAR_ISSUE_IDENTIFIER: $pr_url" >&2
-    create_linear_comment "$(build_pr_linear_comment "$pr_url" "$branch_name")"
-  fi
-  exit 0
-fi
+if [[ -z "${pr_url:-}" ]]; then
+  pr_title="[${LINEAR_ISSUE_IDENTIFIER}] ${LINEAR_ISSUE_TITLE}"
+  pr_body_file="$(mktemp)"
+  trap 'rm -f "$pr_body_file"' EXIT
 
-pr_title="[${LINEAR_ISSUE_IDENTIFIER}] ${LINEAR_ISSUE_TITLE}"
-pr_body_file="$(mktemp)"
-trap 'rm -f "$pr_body_file"' EXIT
-
-cat >"$pr_body_file" <<EOF
+  cat >"$pr_body_file" <<EOF
 ## Linear
 - Issue: [${LINEAR_ISSUE_IDENTIFIER}](${LINEAR_ISSUE_URL})
 
@@ -230,14 +385,60 @@ cat >"$pr_body_file" <<EOF
 Этот pull request был автоматически создан Symphony после перевода задачи в \`In Review\`.
 EOF
 
-if [[ "$dry_run" == "1" ]]; then
-  echo "DRY RUN: would create PR '$pr_title' with body:" >&2
-  cat "$pr_body_file" >&2
-  pr_url="https://github.com/${repo_slug}/pull/DRY-RUN"
-  echo "DRY RUN: would leave Linear comment with PR URL $pr_url." >&2
-else
-  pr_url="$(gh pr create --repo "$repo_slug" --base main --head "$branch_name" --title "$pr_title" --body-file "$pr_body_file")"
-  create_linear_comment "$(build_pr_linear_comment "$pr_url" "$branch_name")"
+  if [[ "$dry_run" == "1" ]]; then
+    echo "DRY RUN: would create PR '$pr_title' with body:" >&2
+    cat "$pr_body_file" >&2
+    pr_url="https://github.com/${repo_slug}/pull/DRY-RUN"
+  else
+    if ! pr_url="$(
+      gh pr create \
+        --repo "$repo_slug" \
+        --base main \
+        --head "$branch_name" \
+        --title "$pr_title" \
+        --body-file "$pr_body_file"
+    )"; then
+      pr_url="$(find_latest_pr_url "$repo_slug" "$branch_name")"
+
+      if [[ -z "${pr_url:-}" ]]; then
+        echo "Unable to create or locate pull request for ${LINEAR_ISSUE_IDENTIFIER}." >&2
+        exit 1
+      fi
+    fi
+  fi
 fi
 
-echo "PR URL for ${LINEAR_ISSUE_IDENTIFIER}: ${pr_url}"
+if [[ "$LINEAR_ISSUE_HAS_AUTOMERGE" != "1" ]]; then
+  if [[ "$dry_run" == "1" ]]; then
+    echo "DRY RUN: would leave Linear comment with PR URL $pr_url." >&2
+  else
+    create_linear_comment "$(build_pr_linear_comment "$pr_url" "$branch_name")"
+  fi
+
+  echo "PR URL for ${LINEAR_ISSUE_IDENTIFIER}: ${pr_url}"
+  exit 0
+fi
+
+if [[ "$dry_run" == "1" ]]; then
+  AUTOMERGE_STATUS="merged"
+  AUTOMERGE_MESSAGE="DRY RUN: PR был бы автоматически смержен в \`main\`."
+  SOURCE_REPO_SYNC_STATUS="updated"
+  SOURCE_REPO_SYNC_MESSAGE="DRY RUN: локальный \`main\` был бы синхронизирован."
+else
+  if merge_pr_for_automerge_issue "$repo_slug" "$pr_url"; then
+    if ! sync_source_repo; then
+      create_linear_comment \
+        "$(build_automerge_linear_comment "$pr_url" "$branch_name" "$AUTOMERGE_MESSAGE" "$SOURCE_REPO_SYNC_MESSAGE")"
+      exit 1
+    fi
+  else
+    create_linear_comment \
+      "$(build_automerge_linear_comment "$pr_url" "$branch_name" "$AUTOMERGE_MESSAGE" "$SOURCE_REPO_SYNC_MESSAGE")"
+    exit 1
+  fi
+fi
+
+create_linear_comment \
+  "$(build_automerge_linear_comment "$pr_url" "$branch_name" "$AUTOMERGE_MESSAGE" "$SOURCE_REPO_SYNC_MESSAGE")"
+
+echo "Automerge completed for ${LINEAR_ISSUE_IDENTIFIER}: ${pr_url}"

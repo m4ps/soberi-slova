@@ -24,22 +24,26 @@ hooks:
     issue_key="$(basename "$PWD")"
     repo_path="${SOURCE_REPO_PATH:?SOURCE_REPO_PATH is required}"
     branch_name="codex/${issue_key}"
+    origin_url="$(git -C "$repo_path" remote get-url origin)"
 
-    git -C "$repo_path" rev-parse --is-inside-work-tree >/dev/null
-    git -C "$repo_path" fetch origin main
-    git -C "$repo_path" worktree prune
-
-    if ! git -C "$repo_path" show-ref --verify --quiet "refs/heads/$branch_name"; then
-      git -C "$repo_path" branch "$branch_name" origin/main
-    fi
-
-    git -C "$repo_path" worktree add "$PWD" "$branch_name"
+    git clone --origin origin --branch main --single-branch "$origin_url" .
+    git switch -c "$branch_name"
     npm ci
   before_run: |
     set -euo pipefail
+    issue_key="$(basename "$PWD")"
+    branch_name="codex/${issue_key}"
+
     git fetch origin main
 
-    if git diff --quiet && git diff --cached --quiet; then
+    current_branch="$(git branch --show-current)"
+    if [ "$current_branch" = "main" ]; then
+      git switch -C "$branch_name"
+    elif [ "$current_branch" != "$branch_name" ]; then
+      git switch "$branch_name" || git switch -c "$branch_name"
+    fi
+
+    if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
       git rebase origin/main
     else
       echo "Skipping rebase: workspace contains uncommitted changes."
@@ -51,12 +55,6 @@ hooks:
   after_run: |
     set -euo pipefail
     bash "${SOURCE_REPO_PATH:?SOURCE_REPO_PATH is required}/scripts/symphony-after-run.sh"
-  before_remove: |
-    set -euo pipefail
-    repo_path="${SOURCE_REPO_PATH:?SOURCE_REPO_PATH is required}"
-    workspace_path="$PWD"
-    cd /
-    git -C "$repo_path" worktree remove --force "$workspace_path" || true
   timeout_ms: 600000
 agent:
   max_concurrent_agents: 1
@@ -93,10 +91,13 @@ Workflow в Linear для каждой задачи:
 1. Если задача находится в `Todo`, первым изменяющим действием должен быть перевод задачи в `In Progress`.
 2. Не изучай файлы репозитория, не запускай команды проекта и не начинай реализацию до перевода задачи в `In Progress`.
 3. Работай только над текущей задачей. Никогда не начинай и не упоминай другую задачу в рамках этого запуска.
-4. Когда реализация и проверка завершены, переведи задачу в `In Review`.
-5. Никогда не переводи задачу в `Done` автоматически. `Done` выставляет только человек после review и merge.
-6. Не создавай pull request вручную. После перевода задачи в `In Review` Symphony сама создаст branch push, pull request и добавит ссылку в Linear.
-7. Пока в проекте есть хотя бы одна задача в `In Review`, не начинай никакую новую задачу. Следующая задача может стартовать только после того, как колонка `In Review` станет пустой.
+4. Когда реализация, проверки и содержимое рабочей копии полностью готовы, переведи задачу в `In Review` самым последним изменяющим действием этого запуска.
+5. После перевода задачи в `In Review` не меняй код, не запускай новые команды репозитория и завершай turn.
+6. Никогда не переводи задачу в `Done` автоматически. `Done` выставляет только человек после review и merge.
+7. Не создавай pull request вручную. После перевода задачи в `In Review` Symphony сама закоммитит изменения, запушит branch, создаст pull request и добавит ссылку в Linear.
+8. Если у задачи есть label `automerge`, после создания pull request Symphony автоматически смержит его в `main` и синхронизирует локальный репозиторий из `SOURCE_REPO_PATH`.
+9. Пока в проекте есть хотя бы одна задача в `In Review`, следующая задача не должна стартовать.
+10. Следующая задача может стартовать только после перевода текущей задачи в `Done` и только когда `SOURCE_REPO_PATH` находится на актуальном `main`, где `HEAD` совпадает с `origin/main`.
 
 Источники истины в порядке убывания приоритета:
 1. `AGENTS.md` для правил агента, инвариантов, порядка реализации и DoD.

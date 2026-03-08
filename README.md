@@ -28,6 +28,7 @@ npm run dev:proxy
 - `WORKFLOW.md` в корне проекта (workflow для Linear + Codex app-server).
 - `scripts/symphony-bootstrap.sh` (клонирование и сборка `openai/symphony` через `mise`).
 - `scripts/symphony-start.sh` (запуск Symphony с текущим `WORKFLOW.md`).
+- `patches/symphony-local.patch` (локальный patch с минимальными изменениями vendored Symphony, автоматически накладывается в bootstrap).
 
 Перед запуском:
 
@@ -55,39 +56,35 @@ npm run symphony:start -- --port 4000
 Как теперь работает workspace-режим:
 
 1. Для каждой задачи Symphony создаёт отдельную директорию внутри `SYMPHONY_WORKSPACE_ROOT`.
-2. Вместо `git clone` используется `git worktree add`, поэтому каждая задача получает отдельный branch вида `codex/<ISSUE-ID>`.
-3. Агент работает в своём worktree, а основной репозиторий остаётся на `main`.
+2. Внутрь workspace делается обычный `git clone` из `origin/main`, затем создаётся branch вида `codex/<ISSUE-ID>`.
+3. Агент работает только в этой отдельной копии репозитория; основной локальный репозиторий не трогается.
 4. После перевода задачи в `In Review` hook `after_run` автоматически:
    - коммитит незакоммиченные изменения в branch задачи;
    - пушит branch в `origin`;
    - создаёт pull request в GitHub;
-   - оставляет ссылку на PR комментарием в Linear.
-5. Пока в проекте есть хотя бы одна задача в `In Review`, Symphony не возьмёт следующую задачу в работу.
-6. После завершения задачи изменения находятся в worktree-задачи и в соответствующем branch.
+   - добавляет ссылку на PR в Linear.
+5. Если у задачи в Linear есть label `automerge`, тот же `after_run` дополнительно:
+   - смержит PR в `main` через `gh`;
+   - выполнит `git fetch origin main` и `git pull --ff-only origin main` в `SOURCE_REPO_PATH`.
+6. Пока в проекте есть хотя бы одна задача в `In Review`, Symphony не возьмёт следующую задачу в работу.
+7. Даже после освобождения колонки `In Review` новый dispatch разрешён только когда `SOURCE_REPO_PATH` находится на ветке `main` и локальный `HEAD` совпадает с `origin/main`.
 
-Как забрать изменения в основной репозиторий:
+Рекомендуемый процесс по доске:
+
+1. Держите новые задачи в `Todo`.
+2. Symphony берёт задачу из `Todo`, переводит её в `In Progress` и выполняет работу.
+3. На завершении задача переводится в `In Review`, а PR создаётся автоматически.
+4. Если на задаче есть label `automerge`, PR смержится автоматически, а локальный `main` будет подтянут автоматически.
+5. Для обычных задач после review и merge переведите задачу в `Done` и подтяните локальный `main`.
+6. Только после этого Symphony возьмёт следующую задачу.
+
+Где смотреть изменения задачи:
 
 ```bash
-# посмотреть diff задачи
 cd /Users/pavel.m/Documents/yandex-games/symphony-workspaces/PVL-20
 git status
 git diff
-
-# при необходимости зафиксировать изменения в branch задачи
-git add .
-git commit -m "feat(pvl-20): guided state migration"
-
-# затем в основном репозитории влить branch задачи
-cd /Users/pavel.m/Documents/yandex-games/soberi-slova
-git switch main
-git merge codex/PVL-20
-```
-
-После merge worktree можно удалить:
-
-```bash
-git -C /Users/pavel.m/Documents/yandex-games/soberi-slova worktree remove /Users/pavel.m/Documents/yandex-games/symphony-workspaces/PVL-20
-git -C /Users/pavel.m/Documents/yandex-games/soberi-slova branch -d codex/PVL-20
+git log --oneline --decorate -n 5
 ```
 
 ## Скрипты
