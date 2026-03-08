@@ -1,8 +1,9 @@
 import type { ApplicationCommandBus, GridCellRef } from '../../application';
 import { MODULE_IDS } from '../../shared/module-ids';
+import { WORD_GRID_SIDE } from '../../shared/word-grid';
 import { createVisualSystemModule, type VisualSystemModule } from '../VisualSystem';
 
-const GRID_SIZE = 5;
+const GRID_SIZE = WORD_GRID_SIDE;
 const GRID_MIN_INDEX = 0;
 const GRID_MAX_INDEX = GRID_SIZE - 1;
 const SNAP_ACTIVATION_DISTANCE_CELLS = 0.38;

@@ -1,4 +1,5 @@
 import { MODULE_IDS } from '../../shared/module-ids';
+import { resolveWordGridSideFromLength } from '../../shared/word-grid';
 import { isLowercaseCyrillicLetter } from '../data-contract';
 import { normalizeDictionaryWord } from './dictionary-pipeline';
 
@@ -45,9 +46,6 @@ export interface WordValidationModule {
   applyPathWord: (request: WordValidationPathRequest) => WordValidationApplyResult;
 }
 
-const GRID_SIDE = 5;
-const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
-
 function normalizeWords(words: readonly string[]): readonly string[] {
   return words
     .map((word) => normalizeDictionaryWord(word))
@@ -63,8 +61,8 @@ function createFoundWordsSet(
   return new Set([...normalizeWords(foundTargets), ...normalizeWords(foundBonuses)]);
 }
 
-function isInGridBounds(row: number, col: number): boolean {
-  return row >= 0 && row < GRID_SIDE && col >= 0 && col < GRID_SIDE;
+function isInGridBounds(row: number, col: number, gridSide: number): boolean {
+  return row >= 0 && row < gridSide && col >= 0 && col < gridSide;
 }
 
 export function resolveWordFromPath(
@@ -75,7 +73,8 @@ export function resolveWordFromPath(
     return null;
   }
 
-  if (!Array.isArray(grid) || grid.length !== GRID_CELL_COUNT) {
+  const gridSide = resolveWordGridSideFromLength(grid.length);
+  if (!Array.isArray(grid) || gridSide === null) {
     return null;
   }
 
@@ -86,11 +85,11 @@ export function resolveWordFromPath(
       return null;
     }
 
-    if (!isInGridBounds(cell.row, cell.col)) {
+    if (!isInGridBounds(cell.row, cell.col, gridSide)) {
       return null;
     }
 
-    const cellIndex = cell.row * GRID_SIDE + cell.col;
+    const cellIndex = cell.row * gridSide + cell.col;
     const cellLetter = grid[cellIndex];
     if (typeof cellLetter !== 'string') {
       return null;

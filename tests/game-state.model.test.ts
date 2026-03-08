@@ -110,7 +110,11 @@ describe('game state model', () => {
     expect(state.currentHintPathProgress).toBe(0);
     expect(state.currentLevelSession.levelId).toBe('level-42');
     expect(state.currentLevelSession.readabilityScore).toBe(3.7);
-    expect(state.helpWindow.pendingHelpRequest?.kind).toBe('hint');
+    expect(state.helpLockState).toEqual({
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
+    });
     expect(state.pendingOps).toHaveLength(2);
   });
 
@@ -186,6 +190,7 @@ describe('game state model', () => {
       { fromVersion: 0, toVersion: 1 },
       { fromVersion: 1, toVersion: 2 },
       { fromVersion: 2, toVersion: 3 },
+      { fromVersion: 3, toVersion: 4 },
     ]);
     expect(firstMigration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(firstMigration.state.stateVersion).toBe(0);
@@ -227,14 +232,16 @@ describe('game state model', () => {
     expect(migration.appliedMigrations).toEqual([
       { fromVersion: 1, toVersion: 2 },
       { fromVersion: 2, toVersion: 3 },
+      { fromVersion: 3, toVersion: 4 },
     ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нос');
     expect(migration.state.currentHintPathProgress).toBe(0);
     expect(migration.state.currentLevelSession.readabilityScore).toBe(3.7);
-    expect(migration.state.helpWindow.pendingHelpRequest).toEqual({
-      operationId: 'help-op-legacy',
-      kind: 'hint',
+    expect(migration.state.helpLockState).toEqual({
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
     });
     expect(migration.state).not.toHaveProperty('sessionScore');
     expect(migration.state.currentLevelSession).not.toHaveProperty('sessionScore');
@@ -259,7 +266,10 @@ describe('game state model', () => {
 
     const migration = migrateGameStateSnapshot(legacyV2Snapshot);
 
-    expect(migration.appliedMigrations).toEqual([{ fromVersion: 2, toVersion: 3 }]);
+    expect(migration.appliedMigrations).toEqual([
+      { fromVersion: 2, toVersion: 3 },
+      { fromVersion: 3, toVersion: 4 },
+    ]);
     expect(migration.state.schemaVersion).toBe(GAME_STATE_SCHEMA_VERSION);
     expect(migration.state.currentDisplayedTargetId).toBe('нора');
     expect(migration.state.currentHintPathProgress).toBe(3);

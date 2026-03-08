@@ -130,11 +130,7 @@ async function bootstrap(): Promise<void> {
   clearDiagnosticHooks();
 
   const coreStateModule = createCoreStateModule(createCoreStateDictionaryDependencies());
-  const initialHelpWindow = coreStateModule.getSnapshot().gameState.helpWindow;
-  const helpEconomyModule = createHelpEconomyModule({
-    windowStartTs: initialHelpWindow.windowStartTs,
-    freeActionAvailable: initialHelpWindow.freeActionAvailable,
-  });
+  const helpEconomyModule = createHelpEconomyModule();
 
   const application = createApplicationLayer({
     coreState: coreStateModule,

@@ -814,7 +814,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             const restoredHelpWindow =
               resolveRestoreHelpWindow(restorePayload, restoreResult.source) ??
               (() => {
-                const snapshot = modules.coreState.getSnapshot().gameState.helpWindow;
+                const snapshot = modules.helpEconomy.getWindowState(restoreTs);
                 return {
                   windowStartTs: snapshot.windowStartTs,
                   freeActionAvailable: snapshot.freeActionAvailable,

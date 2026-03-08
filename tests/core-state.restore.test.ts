@@ -9,6 +9,7 @@ function createRestoreFixtureState(): GameStateInput {
     levelId: 'level-restore',
     source: 'restore-test',
     seed: 17,
+    schemaVersion: 2,
     meta: {
       hintTargetWord: 'сон',
       hintRevealCount: 2,

@@ -1,4 +1,5 @@
 import { MODULE_IDS } from '../../shared/module-ids';
+import { WORD_GRID_CELL_COUNT, WORD_GRID_SIDE } from '../../shared/word-grid';
 import type { WordEntry } from '../GameState';
 import {
   isLowercaseCyrillicLetter,
@@ -6,8 +7,8 @@ import {
   normalizeCyrillicWord,
 } from '../data-contract';
 
-const GRID_SIDE = 5;
-const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
+const GRID_SIDE = WORD_GRID_SIDE;
+const GRID_CELL_COUNT = WORD_GRID_CELL_COUNT;
 const TARGET_WORDS_MIN = 10;
 const TARGET_WORDS_MAX = 15;
 const SHORT_WORD_MIN_LENGTH = 3;
@@ -84,7 +85,7 @@ export interface GeneratedLevelMeta {
 
 export interface GeneratedLevel {
   readonly seed: number;
-  readonly gridSize: 5;
+  readonly gridSize: typeof WORD_GRID_SIDE;
   readonly grid: readonly string[];
   readonly targetWords: readonly string[];
   readonly placements: readonly GeneratedTargetPlacement[];

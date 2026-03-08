@@ -39,10 +39,6 @@ const LEVEL_CLEAR_SCORE_PER_TARGET = 1;
 const PENDING_OPERATION_STATUS_PENDING: PendingOperationStatus = 'pending';
 const PENDING_OPERATION_KIND_WORD_SUCCESS: PendingOperationKind = 'word-success-animation';
 const PENDING_OPERATION_KIND_LEVEL_TRANSITION: PendingOperationKind = 'level-transition';
-const DEFAULT_LEVEL_META_SOURCE = 'default-core-state';
-const AUTO_NEXT_LEVEL_META_SOURCE = 'core-state-auto-next';
-const MANUAL_RESHUFFLE_LEVEL_META_SOURCE = 'core-state-manual-reshuffle';
-const RESTORE_FALLBACK_LEVEL_META_SOURCE = 'core-state-restore-fallback';
 const AUTO_NEXT_LEVEL_ID_SUFFIX = 'next';
 const MANUAL_RESHUFFLE_LEVEL_ID_SUFFIX = 'reshuffle';
 const RESTORE_FALLBACK_LEVEL_ID_SUFFIX = 'restore';
@@ -230,14 +226,11 @@ function createDefaultGameStateInput(nowTs: number): GameStateInput {
       foundBonuses: [],
       status: 'active',
       seed: 1,
-      meta: {
-        source: DEFAULT_LEVEL_META_SOURCE,
-      },
     },
-    helpWindow: {
-      windowStartTs: nowTs,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
+    helpLockState: {
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
     },
     pendingOps: [],
     leaderboardSync: {
@@ -265,17 +258,12 @@ function toGameStateInput(state: GameState): GameStateInput {
       status: state.currentLevelSession.status,
       seed: state.currentLevelSession.seed,
       readabilityScore: state.currentLevelSession.readabilityScore,
-      meta: { ...state.currentLevelSession.meta },
+      wordMixStats: { ...state.currentLevelSession.wordMixStats },
     },
-    helpWindow: {
-      windowStartTs: state.helpWindow.windowStartTs,
-      freeActionAvailable: state.helpWindow.freeActionAvailable,
-      pendingHelpRequest: state.helpWindow.pendingHelpRequest
-        ? {
-            operationId: state.helpWindow.pendingHelpRequest.operationId,
-            kind: state.helpWindow.pendingHelpRequest.kind,
-          }
-        : null,
+    helpLockState: {
+      isLocked: state.helpLockState.isLocked,
+      lockedUntil: state.helpLockState.lockedUntil,
+      reason: state.helpLockState.reason,
     },
     pendingOps: state.pendingOps.map((operation) => ({
       operationId: operation.operationId,
@@ -718,9 +706,6 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
   const createFallbackGeneratedLevelSession = (
     levelId: string,
     seed: number,
-    source: string,
-    previousLevelId: string,
-    reason: 'generator-error' | 'invalid-generated-level',
   ): GameStateInput['currentLevelSession'] => {
     return createValidatedLevelSessionInput({
       levelId,
@@ -730,20 +715,12 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       foundBonuses: [],
       status: 'active',
       seed,
-      meta: {
-        source,
-        previousLevelId,
-        generatorFallback: true,
-        generatorFallbackReason: reason,
-      },
     });
   };
 
   const createGeneratedLevelSession = (
     levelId: string,
     seed: number,
-    source: string,
-    previousLevelId: string,
     recentWordsForGeneration: readonly string[],
   ): GameStateInput['currentLevelSession'] => {
     let generatedLevel: ReturnType<LevelGeneratorModule['generateLevel']>;
@@ -754,13 +731,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         recentTargetWords: recentWordsForGeneration,
       });
     } catch {
-      return createFallbackGeneratedLevelSession(
-        levelId,
-        seed,
-        source,
-        previousLevelId,
-        'generator-error',
-      );
+      return createFallbackGeneratedLevelSession(levelId, seed);
     }
 
     try {
@@ -772,24 +743,9 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         foundBonuses: [],
         status: 'active',
         seed: generatedLevel.seed,
-        meta: {
-          source,
-          previousLevelId,
-          generationAttempts: generatedLevel.meta.generationAttempts,
-          replacements: generatedLevel.meta.replacements,
-          backtracks: generatedLevel.meta.backtracks,
-          rareLetterCount: generatedLevel.meta.rareLetterCount,
-          rareLetterRatio: generatedLevel.meta.rareLetterRatio,
-        },
       });
     } catch {
-      return createFallbackGeneratedLevelSession(
-        levelId,
-        seed,
-        source,
-        previousLevelId,
-        'invalid-generated-level',
-      );
+      return createFallbackGeneratedLevelSession(levelId, seed);
     }
   };
 
@@ -806,8 +762,6 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     const nextLevelSession = createGeneratedLevelSession(
       nextLevelId,
       nextSeed,
-      AUTO_NEXT_LEVEL_META_SOURCE,
-      currentLevelSession.levelId,
       recentWordsForGeneration,
     );
 
@@ -835,8 +789,6 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     const nextLevelSession = createGeneratedLevelSession(
       reshuffleLevelId,
       nextSeed,
-      MANUAL_RESHUFFLE_LEVEL_META_SOURCE,
-      currentLevelSession.levelId,
       recentWordsForGeneration,
     );
 
@@ -866,8 +818,6 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
     const nextLevelSession = createGeneratedLevelSession(
       restoreLevelId,
       nextSeed,
-      RESTORE_FALLBACK_LEVEL_META_SOURCE,
-      fallbackBaseLevel.levelId,
       recentWordsForGeneration,
     );
 
@@ -935,7 +885,11 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         const fallbackLevelSession = createRestoreFallbackLevelSession(
           sourceState?.currentLevelSession ?? null,
         );
-        const fallbackHelpWindow = sourceState?.helpWindow ?? defaultState.helpWindow;
+        const fallbackHelpLockState = sourceState?.helpLockState ?? {
+          isLocked: false,
+          lockedUntil: null,
+          reason: null,
+        };
 
         return createGameState({
           ...defaultState,
@@ -943,11 +897,7 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
           updatedAt: normalizedRestoreTs,
           allTimeScore: restoredScore,
           currentLevelSession: fallbackLevelSession,
-          helpWindow: {
-            windowStartTs: fallbackHelpWindow.windowStartTs,
-            freeActionAvailable: fallbackHelpWindow.freeActionAvailable,
-            pendingHelpRequest: null,
-          },
+          helpLockState: fallbackHelpLockState,
           pendingOps: [],
           leaderboardSync: createRestoreLeaderboardSync(sourceState, restoredScore),
         });

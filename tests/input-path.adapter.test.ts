@@ -12,6 +12,7 @@ import {
   resolveGridCellFromPointer,
 } from '../src/adapters/InputPath';
 import { computeGameLayout } from '../src/adapters/VisualSystem';
+import { WORD_GRID_SIDE } from '../src/shared/word-grid';
 
 type PointerListener = (event: PointerEvent) => void;
 
@@ -93,7 +94,7 @@ function resolvePointerForGridCell(
 ): { clientX: number; clientY: number } {
   const bounds = canvas.getBoundingClientRect();
   const layout = computeGameLayout(bounds.width, bounds.height);
-  const cellSize = layout.grid.width / 5;
+  const cellSize = layout.grid.width / WORD_GRID_SIDE;
 
   return {
     clientX: Math.round(bounds.left + layout.grid.x + cellSize * (col + 0.5)),
@@ -111,7 +112,7 @@ function resolvePointerFromCellOffset(
   const center = resolvePointerForGridCell(canvas, row, col);
   const bounds = canvas.getBoundingClientRect();
   const layout = computeGameLayout(bounds.width, bounds.height);
-  const cellSize = layout.grid.width / 5;
+  const cellSize = layout.grid.width / WORD_GRID_SIDE;
 
   return {
     clientX: Math.round(center.clientX + deltaColInCells * cellSize),
@@ -120,7 +121,7 @@ function resolvePointerFromCellOffset(
 }
 
 describe('InputPath adapter', () => {
-  it('maps pointer coordinates to 5x5 grid cells and ignores out-of-bounds input', () => {
+  it(`maps pointer coordinates to ${WORD_GRID_SIDE}x${WORD_GRID_SIDE} grid cells and ignores out-of-bounds input`, () => {
     const bounds = {
       left: 100,
       top: 50,
@@ -133,8 +134,8 @@ describe('InputPath adapter', () => {
       col: 0,
     });
     expect(resolveGridCellFromPointer({ clientX: 599, clientY: 549 }, bounds)).toEqual({
-      row: 4,
-      col: 4,
+      row: WORD_GRID_SIDE - 1,
+      col: WORD_GRID_SIDE - 1,
     });
     expect(resolveGridCellFromPointer({ clientX: 600, clientY: 550 }, bounds)).toBeNull();
     expect(resolveGridCellFromPointer({ clientX: 99, clientY: 60 }, bounds)).toBeNull();

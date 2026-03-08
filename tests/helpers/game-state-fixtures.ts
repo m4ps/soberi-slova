@@ -1,4 +1,4 @@
-import type { GameStateInput } from '../../src/domain/GameState';
+import { GAME_STATE_SCHEMA_VERSION, type GameStateInput } from '../../src/domain/GameState';
 import type { WordPathCellRef } from '../../src/domain/WordValidation';
 import {
   cloneDefaultLevelDictionaryWords,
@@ -23,7 +23,7 @@ interface FixtureStateOptions {
 
 export function createFixtureGameStateInput(options: FixtureStateOptions): GameStateInput {
   return {
-    schemaVersion: options.schemaVersion ?? 2,
+    schemaVersion: options.schemaVersion ?? GAME_STATE_SCHEMA_VERSION,
     stateVersion: options.stateVersion ?? 0,
     updatedAt: options.updatedAt ?? 1_000,
     allTimeScore: options.allTimeScore ?? 0,
@@ -35,15 +35,19 @@ export function createFixtureGameStateInput(options: FixtureStateOptions): GameS
       foundBonuses: [...(options.foundBonuses ?? [])],
       status: 'active',
       seed: options.seed,
-      meta: {
-        source: options.source,
-        ...(options.meta ?? {}),
-      },
+      ...(options.meta === undefined
+        ? {}
+        : {
+            meta: {
+              source: options.source,
+              ...options.meta,
+            },
+          }),
     },
-    helpWindow: {
-      windowStartTs: options.updatedAt ?? 1_000,
-      freeActionAvailable: true,
-      pendingHelpRequest: null,
+    helpLockState: {
+      isLocked: false,
+      lockedUntil: null,
+      reason: null,
     },
     pendingOps: [],
     leaderboardSync: {

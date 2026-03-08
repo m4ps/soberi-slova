@@ -31,7 +31,7 @@
       Task Context: Ранее архитектурный baseline был собран без выделенного `VisualSystem`, но текущий `TECHSPEC.md` требует отдельный runtime/build-time модуль для design tokens, layout hierarchy и button/motion contracts. Добавь модуль и публичные контракты, не переписывая историю выполненных init-задач.
       Task DOD: В архитектуре есть отдельный `VisualSystem` модуль; его границы задокументированы и не нарушают strict layered model; остальные слои могут зависеть от него только по утвержденному контракту.
 
-- [ ] [INIT]-[007] Актуализировать command bus под текущий контракт TECHSPEC v1.1
+- [x] [INIT]-[007] Актуализировать command bus под текущий контракт TECHSPEC v1.1
       Task Context: Выполненный bootstrap командной шины опирался на более ранний набор команд. Добавь follow-up на выравнивание bus-контрактов под текущий `TECHSPEC.md`: `SubmitPath`, `RequestHint`, `RequestReshuffle`, `AcknowledgeAdResult`, `AcknowledgeWordSuccessAnimation`, `AcknowledgeLevelTransitionDone`, `RestoreSession`, `SyncLeaderboard`.
       Task DOD: Актуальный набор команд и envelopes соответствует `TECHSPEC.md`; устаревшие команды либо удалены, либо явно помечены как legacy-adapter path; архитектурные тесты и документация это отражают.
 
@@ -89,7 +89,7 @@
       Task Context: Добавь в event model обязательные события `TargetWordAccepted`, `BonusWordAccepted`, `DisplayedTargetChanged`, `HintPathProgressAdvanced`, `LevelCompleted`, `HelpActionApplied`, `HelpActionFailed`, `StatePersisted`; сохрани `correlationId` и versioning.
       Task DOD: Все новые события типизированы и задокументированы; события публикуются из соответствующих use-cases и доступны для telemetry/render/persistence цепочек.
 
-- [ ] [DATA]-[009] Мигрировать доменную схему с legacy 5x5/free-help на v1.1 schema
+- [x] [DATA]-[009] Мигрировать доменную схему с legacy 5x5/free-help на v1.1 schema
       Task Context: Выполненные data-задачи исторически зафиксировали `grid 5x5`, `HelpWindow` и free-help semantics. Добавь актуализирующую задачу на перевод runtime-схемы к текущему `TECHSPEC.md`: `grid[36]`, `HelpLockState`, `wordMixStats`, `currentDisplayedTargetId`, `currentHintPathProgress`.
       Task DOD: Новая схема данных полностью соответствует текущему `TECHSPEC.md`; legacy-поля больше не являются рабочим source of truth; миграции безопасно переводят старые snapshots в новую форму.
 

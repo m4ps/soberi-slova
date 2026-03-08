@@ -43,6 +43,50 @@ export interface PersistenceModule {
   getLastSnapshot: () => PersistenceSnapshot | null;
 }
 
+function derivePersistedHelpLockState(helpWindow: {
+  readonly isLocked: boolean;
+  readonly pendingRequest: { readonly operationId: string } | null;
+  readonly cooldownUntilTs: number;
+  readonly cooldownMsRemaining: number;
+  readonly cooldownReason: string | null;
+  readonly freeActionAvailable: boolean;
+  readonly nextFreeActionAt: number;
+}): {
+  readonly isLocked: boolean;
+  readonly lockedUntil: number | null;
+  readonly reason: string | null;
+} {
+  if (helpWindow.pendingRequest) {
+    return {
+      isLocked: true,
+      lockedUntil: null,
+      reason: 'pending-request',
+    };
+  }
+
+  if (helpWindow.cooldownMsRemaining > 0) {
+    return {
+      isLocked: true,
+      lockedUntil: helpWindow.cooldownUntilTs,
+      reason: 'cooldown',
+    };
+  }
+
+  if (!helpWindow.freeActionAvailable) {
+    return {
+      isLocked: true,
+      lockedUntil: helpWindow.nextFreeActionAt,
+      reason: 'legacy-free-window',
+    };
+  }
+
+  return {
+    isLocked: false,
+    lockedUntil: null,
+    reason: null,
+  };
+}
+
 function parsePersistedSessionSnapshot(
   rawSnapshot: string | null,
 ): PersistedSessionSnapshot | null {
@@ -165,10 +209,14 @@ export function createPersistenceModule(
     const coreStateSnapshot = coreStateResult.value;
     const helpWindowSnapshot = helpWindowResult.value;
     const capturedAt = now();
+    const persistedGameState = {
+      ...coreStateSnapshot.gameState,
+      helpLockState: derivePersistedHelpLockState(helpWindowSnapshot),
+    };
     const persisted: PersistedSessionSnapshot = {
       schemaVersion: PERSISTENCE_SNAPSHOT_SCHEMA_VERSION,
       capturedAt,
-      gameStateSerialized: JSON.stringify(coreStateSnapshot.gameState),
+      gameStateSerialized: JSON.stringify(persistedGameState),
       helpWindow: {
         windowStartTs: helpWindowSnapshot.windowStartTs,
         freeActionAvailable: helpWindowSnapshot.freeActionAvailable,
