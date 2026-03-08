@@ -159,12 +159,12 @@ async function bootstrap(): Promise<void> {
   });
 
   try {
-    renderMotionRuntime = await renderMotionModule.mount(rootElement);
-    const mountedRuntime = renderMotionRuntime;
-
     telemetryModule.start();
     await platformYandexModule.bootstrap();
     await persistenceModule.restore();
+
+    renderMotionRuntime = await renderMotionModule.mount(rootElement);
+    const mountedRuntime = renderMotionRuntime;
     inputPathModule.bindToCanvas(mountedRuntime.canvas);
 
     if (DIAGNOSTIC_HOOKS_ENABLED) {

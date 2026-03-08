@@ -462,6 +462,9 @@ describe('application command/query bus smoke', () => {
 
     expect(result.type).toBe('ok');
     expect(scoreObservedAtRoute).toBe(16);
+    if (result.type === 'ok') {
+      expect(result.value.correlationId).toEqual(expect.any(String));
+    }
     const submitEvent = events.find((event) => {
       return (event as { eventType: string }).eventType === 'domain/target-word-accepted';
     }) as CapturedTargetWordAcceptedEvent | undefined;
@@ -495,12 +498,16 @@ describe('application command/query bus smoke', () => {
     expect(coreState.gameplay).toMatchObject({
       allTimeScore: 16,
       stateVersion: 1,
+      isInputLocked: true,
       progress: {
         foundTargets: 8,
         totalTargets: 10,
       },
       levelStatus: 'active',
     });
+    if (result.type === 'ok') {
+      expect(coreState.gameplay.pendingWordSuccessOperationId).toBe(result.value.correlationId);
+    }
     expect(coreState.gameplay.foundTargets).toEqual([
       ...createScoringFixtureState().currentLevelSession.foundTargets,
       'дом',
@@ -531,16 +538,30 @@ describe('application command/query bus smoke', () => {
       return result.type === 'ok' ? result.value.correlationId : '';
     };
 
-    submitPath([
+    const acknowledgeWordSuccess = (operationId: string, wordId: string): void => {
+      const result = application.commands.dispatch({
+        type: 'AcknowledgeWordSuccessAnimation',
+        wordId,
+        operationId,
+      });
+
+      expect(result.type).toBe('ok');
+    };
+
+    const firstTargetCorrelationId = submitPath([
       { row: 0, col: 0 },
       { row: 0, col: 1 },
       { row: 0, col: 2 },
     ]);
-    submitPath([
+    acknowledgeWordSuccess(firstTargetCorrelationId, 'дом');
+
+    const secondTargetCorrelationId = submitPath([
       { row: 1, col: 1 },
       { row: 1, col: 2 },
       { row: 1, col: 3 },
     ]);
+    acknowledgeWordSuccess(secondTargetCorrelationId, 'нос');
+
     const finalTargetCorrelationId = submitPath([
       { row: 1, col: 3 },
       { row: 1, col: 2 },
@@ -557,7 +578,7 @@ describe('application command/query bus smoke', () => {
         foundTargets: 10,
         totalTargets: 10,
       },
-      stateVersion: 3,
+      stateVersion: 5,
     });
     expect(completedSnapshot.gameplay.pendingWordSuccessOperationId).toEqual(expect.any(String));
     expect(finalTargetCorrelationId).toBe(completedSnapshot.gameplay.pendingWordSuccessOperationId);
@@ -593,12 +614,7 @@ describe('application command/query bus smoke', () => {
     );
 
     const wordSuccessOperationId = completedSnapshot.gameplay.pendingWordSuccessOperationId!;
-    const wordSuccessAckResult = application.commands.dispatch({
-      type: 'AcknowledgeWordSuccessAnimation',
-      wordId: 'сон',
-      operationId: wordSuccessOperationId,
-    });
-    expect(wordSuccessAckResult.type).toBe('ok');
+    acknowledgeWordSuccess(wordSuccessOperationId, 'сон');
 
     const reshufflingSnapshot = application.readModel.getCoreState();
     expect(reshufflingSnapshot.gameplay).toMatchObject({
@@ -607,7 +623,7 @@ describe('application command/query bus smoke', () => {
       isInputLocked: true,
       showEphemeralCongrats: true,
       pendingWordSuccessOperationId: null,
-      stateVersion: 4,
+      stateVersion: 6,
     });
     expect(reshufflingSnapshot.gameplay.pendingLevelTransitionOperationId).toEqual(
       expect.any(String),
@@ -629,7 +645,7 @@ describe('application command/query bus smoke', () => {
       showEphemeralCongrats: false,
       pendingWordSuccessOperationId: null,
       pendingLevelTransitionOperationId: null,
-      stateVersion: 5,
+      stateVersion: 7,
     });
     expect(nextLevelSnapshot.gameplay.levelId).not.toBe('level-command-bus');
     expect(nextLevelSnapshot.gameplay.progress).toMatchObject({

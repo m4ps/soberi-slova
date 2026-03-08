@@ -75,7 +75,7 @@ describe('core state help actions', () => {
       currentHintPathProgress: 3,
     });
 
-    coreState.submitPath(
+    const submitResult = coreState.submitPath(
       [
         { row: 0, col: 0 },
         { row: 0, col: 1 },
@@ -83,14 +83,36 @@ describe('core state help actions', () => {
       ],
       5_003,
     );
+    expect(submitResult.wordSuccessOperationId).toEqual(expect.any(String));
 
-    const switchedHint = coreState.applyHelp('hint', 'hint-op-3', 5_004);
+    const blockedHintDuringSuccessFeedback = coreState.applyHelp('hint', 'hint-op-blocked', 5_004);
+    expect(blockedHintDuringSuccessFeedback).toMatchObject({
+      operationId: 'hint-op-blocked',
+      kind: 'hint',
+      applied: false,
+      reason: 'success-feedback-pending',
+      stateVersion: 3,
+    });
+
+    const wordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
+      submitResult.wordSuccessOperationId!,
+      5_005,
+    );
+    expect(wordSuccessAck).toMatchObject({
+      operationId: submitResult.wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: false,
+      levelStatus: 'active',
+      stateVersion: 4,
+    });
+
+    const switchedHint = coreState.applyHelp('hint', 'hint-op-3', 5_006);
     expect(switchedHint).toMatchObject({
       operationId: 'hint-op-3',
       kind: 'hint',
       applied: true,
       reason: 'applied',
-      stateVersion: 4,
+      stateVersion: 5,
     });
     expect(switchedHint.effect).toMatchObject({
       kind: 'hint',
@@ -111,7 +133,7 @@ describe('core state help actions', () => {
       nowProvider: () => 6_000,
     });
 
-    coreState.submitPath(
+    const submitResult = coreState.submitPath(
       [
         { row: 0, col: 0 },
         { row: 0, col: 1 },
@@ -119,15 +141,41 @@ describe('core state help actions', () => {
       ],
       6_001,
     );
+    expect(submitResult.wordSuccessOperationId).toEqual(expect.any(String));
 
-    const reshuffle = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_002);
+    const blockedReshuffleDuringSuccessFeedback = coreState.applyHelp(
+      'reshuffle',
+      'reshuffle-op-blocked',
+      6_002,
+    );
+    expect(blockedReshuffleDuringSuccessFeedback).toMatchObject({
+      operationId: 'reshuffle-op-blocked',
+      kind: 'reshuffle',
+      applied: false,
+      reason: 'success-feedback-pending',
+      stateVersion: 1,
+    });
+
+    const wordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
+      submitResult.wordSuccessOperationId!,
+      6_003,
+    );
+    expect(wordSuccessAck).toMatchObject({
+      operationId: submitResult.wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: false,
+      levelStatus: 'active',
+      stateVersion: 2,
+    });
+
+    const reshuffle = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_004);
     expect(reshuffle).toMatchObject({
       operationId: 'reshuffle-op-1',
       kind: 'reshuffle',
       applied: true,
       reason: 'applied',
       levelStatus: 'active',
-      stateVersion: 3,
+      stateVersion: 4,
     });
     expect(reshuffle.effect).toMatchObject({
       kind: 'reshuffle',
@@ -143,13 +191,13 @@ describe('core state help actions', () => {
     expect(snapshot.gameState.currentDisplayedTargetId).toBeTruthy();
     expect(snapshot.gameState.currentHintPathProgress).toBe(0);
 
-    const duplicateOperation = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_003);
+    const duplicateOperation = coreState.applyHelp('reshuffle', 'reshuffle-op-1', 6_005);
     expect(duplicateOperation).toMatchObject({
       operationId: 'reshuffle-op-1',
       kind: 'reshuffle',
       applied: false,
       reason: 'operation-already-applied',
-      stateVersion: 3,
+      stateVersion: 4,
     });
   });
 
