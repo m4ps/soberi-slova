@@ -68,7 +68,7 @@ npm run symphony:start -- --port 4000
    - выполнит `git fetch origin main` и `git pull --ff-only origin main` в `SOURCE_REPO_PATH`.
 6. Пока в проекте есть хотя бы одна задача в `In Review`, Symphony не возьмёт следующую задачу в работу.
 7. Даже после освобождения колонки `In Review` новый dispatch разрешён только когда `SOURCE_REPO_PATH` находится на ветке `main` и локальный `HEAD` совпадает с `origin/main`.
-8. Если одновременно доступны несколько задач, Symphony выбирает их в порядке первого незавершённого появления в `BACKLOG.md`, а не по priority/createdAt в Linear.
+8. Если одновременно доступны несколько задач, Symphony выбирает их только по порядку карточек в Linear: сначала возобновляет `In Progress`, затем берёт верхнюю карточку из `Todo`.
 
 Рекомендуемый процесс по доске:
 

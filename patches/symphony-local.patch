@@ -41,19 +41,75 @@ index 3a9f0d9..088fd3f 100644
    end
  
    defp extract_polling_options(section) do
+diff --git a/elixir/lib/symphony_elixir/linear/client.ex b/elixir/lib/symphony_elixir/linear/client.ex
+index ad8eee5..256dba6 100644
+--- a/elixir/lib/symphony_elixir/linear/client.ex
++++ b/elixir/lib/symphony_elixir/linear/client.ex
+@@ -18,6 +18,7 @@ defmodule SymphonyElixir.Linear.Client do
+         title
+         description
+         priority
++        sortOrder
+         state {
+           name
+         }
+@@ -63,6 +64,7 @@ defmodule SymphonyElixir.Linear.Client do
+         title
+         description
+         priority
++        sortOrder
+         state {
+           name
+         }
+@@ -398,6 +400,7 @@ defmodule SymphonyElixir.Linear.Client do
+       title: issue["title"],
+       description: issue["description"],
+       priority: parse_priority(issue["priority"]),
++      sort_order: parse_sort_order(issue["sortOrder"]),
+       state: get_in(issue, ["state", "name"]),
+       branch_name: issue["branchName"],
+       url: issue["url"],
+@@ -527,4 +530,15 @@ defmodule SymphonyElixir.Linear.Client do
+ 
+   defp parse_priority(priority) when is_integer(priority), do: priority
+   defp parse_priority(_priority), do: nil
++
++  defp parse_sort_order(sort_order) when is_integer(sort_order) or is_float(sort_order), do: sort_order
++
++  defp parse_sort_order(sort_order) when is_binary(sort_order) do
++    case Float.parse(sort_order) do
++      {value, ""} -> value
++      _ -> nil
++    end
++  end
++
++  defp parse_sort_order(_sort_order), do: nil
+ end
+diff --git a/elixir/lib/symphony_elixir/linear/issue.ex b/elixir/lib/symphony_elixir/linear/issue.ex
+index 7ed9476..35326f5 100644
+--- a/elixir/lib/symphony_elixir/linear/issue.ex
++++ b/elixir/lib/symphony_elixir/linear/issue.ex
+@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Linear.Issue do
+     :title,
+     :description,
+     :priority,
++    :sort_order,
+     :state,
+     :branch_name,
+     :url,
+@@ -26,6 +27,7 @@ defmodule SymphonyElixir.Linear.Issue do
+           title: String.t() | nil,
+           description: String.t() | nil,
+           priority: integer() | nil,
++          sort_order: number() | nil,
+           state: String.t() | nil,
+           branch_name: String.t() | nil,
+           url: String.t() | nil,
 diff --git a/elixir/lib/symphony_elixir/orchestrator.ex b/elixir/lib/symphony_elixir/orchestrator.ex
-index a4dead1..a5dffbf 100644
+index a4dead1..3e3d993 100644
 --- a/elixir/lib/symphony_elixir/orchestrator.ex
 +++ b/elixir/lib/symphony_elixir/orchestrator.ex
-@@ -20,6 +20,7 @@ defmodule SymphonyElixir.Orchestrator do
-     total_tokens: 0,
-     seconds_running: 0
-   }
-+  @backlog_missing_rank 9_223_372_036_854_775_807
- 
-   defmodule State do
-     @moduledoc """
-@@ -273,6 +274,22 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -273,6 +273,22 @@ defmodule SymphonyElixir.Orchestrator do
      should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
    end
  
@@ -76,7 +132,7 @@ index a4dead1..a5dffbf 100644
    @doc false
    @spec revalidate_issue_for_dispatch_for_test(Issue.t(), ([String.t()] -> term())) ::
            {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
-@@ -303,12 +320,12 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -303,12 +319,12 @@ defmodule SymphonyElixir.Orchestrator do
        terminal_issue_state?(issue.state, terminal_states) ->
          Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
  
@@ -91,7 +147,7 @@ index a4dead1..a5dffbf 100644
  
        active_issue_state?(issue.state, active_states) ->
          refresh_running_issue_state(state, issue)
-@@ -316,7 +333,7 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -316,7 +332,7 @@ defmodule SymphonyElixir.Orchestrator do
        true ->
          Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
  
@@ -100,7 +156,7 @@ index a4dead1..a5dffbf 100644
      end
    end
  
-@@ -332,17 +349,22 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -332,17 +348,22 @@ defmodule SymphonyElixir.Orchestrator do
      end
    end
  
@@ -127,7 +183,7 @@ index a4dead1..a5dffbf 100644
  
          if is_pid(pid) do
            terminate_task(pid)
-@@ -352,6 +374,12 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -352,6 +373,12 @@ defmodule SymphonyElixir.Orchestrator do
            Process.demonitor(ref, [:flush])
          end
  
@@ -140,7 +196,7 @@ index a4dead1..a5dffbf 100644
          %{
            state
            | running: Map.delete(state.running, issue_id),
-@@ -435,28 +463,63 @@ defmodule SymphonyElixir.Orchestrator do
+@@ -435,31 +462,82 @@ defmodule SymphonyElixir.Orchestrator do
  
    defp terminate_task(_pid), do: :ok
  
@@ -197,13 +253,12 @@ index a4dead1..a5dffbf 100644
    end
  
    defp sort_issues_for_dispatch(issues) when is_list(issues) do
-+    backlog_order = backlog_issue_order()
-+
      Enum.sort_by(issues, fn
        %Issue{} = issue ->
 -        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 +        {
-+          backlog_issue_rank(issue, backlog_order),
++          dispatch_state_rank(issue.state),
++          issue_sort_order_key(issue),
 +          priority_rank(issue.priority),
 +          issue_created_at_sort_key(issue),
 +          issue.identifier || issue.id || ""
@@ -211,11 +266,31 @@ index a4dead1..a5dffbf 100644
  
        _ ->
 -        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
-+        {@backlog_missing_rank, priority_rank(nil), issue_created_at_sort_key(nil), ""}
++        {dispatch_state_rank(nil), issue_sort_order_key(nil), priority_rank(nil), issue_created_at_sort_key(nil), ""}
      end)
    end
  
-@@ -575,6 +638,164 @@ defmodule SymphonyElixir.Orchestrator do
++  defp dispatch_state_rank(state_name) when is_binary(state_name) do
++    case normalize_issue_state(state_name) do
++      "in progress" -> 0
++      "todo" -> 1
++      _ -> 2
++    end
++  end
++
++  defp dispatch_state_rank(_state_name), do: 2
++
++  defp issue_sort_order_key(%Issue{sort_order: sort_order})
++       when is_integer(sort_order) or is_float(sort_order),
++       do: sort_order
++
++  defp issue_sort_order_key(%Issue{}), do: 9_223_372_036_854_775_807
++  defp issue_sort_order_key(_issue), do: 9_223_372_036_854_775_807
++
+   defp priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
+   defp priority_rank(_priority), do: 5
+ 
+@@ -575,6 +653,89 @@ defmodule SymphonyElixir.Orchestrator do
      |> MapSet.new()
    end
  
@@ -233,81 +308,6 @@ index a4dead1..a5dffbf 100644
 +    |> Enum.reject(&(&1 == ""))
 +    |> Enum.uniq()
 +  end
-+
-+  defp backlog_issue_order do
-+    case backlog_file_path() do
-+      nil ->
-+        %{}
-+
-+      backlog_path ->
-+        with true <- File.exists?(backlog_path),
-+             {:ok, content} <- File.read(backlog_path) do
-+          content
-+          |> extract_backlog_issue_keys()
-+          |> Enum.with_index()
-+          |> Map.new()
-+        else
-+          _ -> %{}
-+        end
-+    end
-+  end
-+
-+  defp backlog_file_path do
-+    case System.get_env("SOURCE_REPO_PATH") do
-+      repo_path when is_binary(repo_path) and repo_path != "" ->
-+        Path.join(repo_path, "BACKLOG.md")
-+
-+      _ ->
-+        nil
-+    end
-+  end
-+
-+  defp extract_backlog_issue_keys(content) when is_binary(content) do
-+    Regex.scan(~r/^- \[ \] \[([A-Z]+)\]-\[(\d+)\]/m, content)
-+    |> Enum.map(fn
-+      [_full, phase, number] -> "#{phase}-#{number}"
-+      _ -> nil
-+    end)
-+    |> Enum.reject(&is_nil/1)
-+  end
-+
-+  defp backlog_issue_rank(%Issue{} = issue, backlog_order) when is_map(backlog_order) do
-+    issue
-+    |> issue_backlog_key()
-+    |> case do
-+      nil -> @backlog_missing_rank
-+      key -> Map.get(backlog_order, key, @backlog_missing_rank)
-+    end
-+  end
-+
-+  defp backlog_issue_rank(_issue, _backlog_order), do: @backlog_missing_rank
-+
-+  defp issue_backlog_key(%Issue{title: title, description: description}) do
-+    title_key = backlog_key_from_text(title)
-+
-+    if is_binary(title_key) do
-+      title_key
-+    else
-+      backlog_key_from_text(description)
-+    end
-+  end
-+
-+  defp issue_backlog_key(_issue), do: nil
-+
-+  defp backlog_key_from_text(text) when is_binary(text) do
-+    case Regex.run(~r/\[([A-Z]+-\d+)\]/, text, capture: :all_but_first) do
-+      [key] ->
-+        key
-+
-+      _ ->
-+        case Regex.run(~r/\bID:\s*([A-Z]+-\d+)\b/, text, capture: :all_but_first) do
-+          [key] -> key
-+          _ -> nil
-+        end
-+    end
-+  end
-+
-+  defp backlog_key_from_text(_text), do: nil
 +
 +  defp source_repo_dispatch_status(nil), do: {:blocked, "SOURCE_REPO_PATH is not set"}
 +  defp source_repo_dispatch_status(""), do: {:blocked, "SOURCE_REPO_PATH is not set"}
@@ -575,66 +575,84 @@ index 400c006..791e00e 100644
      write_workflow_file!(Workflow.workflow_file_path(), prompt: "Ticket {{ issue.identifier }}")
  
 diff --git a/elixir/test/symphony_elixir/workspace_and_config_test.exs b/elixir/test/symphony_elixir/workspace_and_config_test.exs
-index 10f9f52..3394eaa 100644
+index 10f9f52..3c024fb 100644
 --- a/elixir/test/symphony_elixir/workspace_and_config_test.exs
 +++ b/elixir/test/symphony_elixir/workspace_and_config_test.exs
-@@ -377,42 +377,125 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -276,6 +276,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+       "title" => "Blocked todo",
+       "description" => "Needs dependency",
+       "priority" => 2,
++      "sortOrder" => -42.5,
+       "state" => %{"name" => "Todo"},
+       "branchName" => "mt-1",
+       "url" => "https://example.org/issues/MT-1",
+@@ -312,6 +313,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     assert issue.blocked_by == [%{id: "issue-2", identifier: "MT-2", state: "In Progress"}]
+     assert issue.labels == ["backend"]
+     assert issue.priority == 2
++    assert issue.sort_order == -42.5
+     assert issue.state == "Todo"
+     assert issue.assignee_id == "user-1"
+     assert issue.assigned_to_worker
+@@ -377,42 +379,93 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      assert log =~ "Variable \\\"$ids\\\" got invalid value"
    end
  
 -  test "orchestrator sorts dispatch by priority then oldest created_at" do
 -    issue_same_priority_older = %Issue{
 -      id: "issue-old-high",
-+  test "orchestrator sorts dispatch by unfinished BACKLOG order before priority" do
-+    previous_source_repo_path = System.get_env("SOURCE_REPO_PATH")
-+
-+    test_root =
-+      Path.join(
-+        System.tmp_dir!(),
-+        "symphony-elixir-backlog-order-#{System.unique_integer([:positive])}"
-+      )
-+
-+    on_exit(fn ->
-+      restore_env("SOURCE_REPO_PATH", previous_source_repo_path)
-+      File.rm_rf(test_root)
-+    end)
-+
-+    File.mkdir_p!(test_root)
-+
-+    File.write!(
-+      Path.join(test_root, "BACKLOG.md"),
-+      """
-+      # Backlog
-+
-+      - [x] [INIT]-[001] Done baseline
-+      - [ ] [INIT]-[006] First active task
-+      - [ ] [INIT]-[007] Second active task
-+      - [ ] [DATA]-[009] Third active task
-+      """
-+    )
-+
-+    System.put_env("SOURCE_REPO_PATH", test_root)
-+
-+    issue_first = %Issue{
-+      id: "issue-first",
++  test "orchestrator resumes in-progress issues before todo issues" do
++    resumed_issue = %Issue{
++      id: "issue-in-progress",
        identifier: "MT-200",
 -      title: "Old high priority",
-+      title: "[INIT-006] First active task",
-       state: "Todo",
--      priority: 1,
--      created_at: ~U[2026-01-01 00:00:00Z]
++      title: "Resume active task",
++      state: "In Progress",
++      sort_order: -10,
 +      priority: 4,
 +      created_at: ~U[2026-01-03 00:00:00Z]
++    }
++
++    todo_issue = %Issue{
++      id: "issue-todo",
++      identifier: "MT-201",
++      title: "Queued task",
+       state: "Todo",
++      sort_order: -100,
+       priority: 1,
+       created_at: ~U[2026-01-01 00:00:00Z]
      }
  
 -    issue_same_priority_newer = %Issue{
 -      id: "issue-new-high",
-+    issue_second = %Issue{
-+      id: "issue-second",
-       identifier: "MT-201",
+-      identifier: "MT-201",
 -      title: "New high priority",
-+      title: "[INIT-007] Second active task",
++    sorted =
++      Orchestrator.sort_issues_for_dispatch_for_test([
++        todo_issue,
++        resumed_issue
++      ])
++
++    assert Enum.map(sorted, & &1.identifier) == ["MT-200", "MT-201"]
++  end
++
++  test "orchestrator sorts todo dispatch by Linear manual sort order before priority" do
++    issue_top = %Issue{
++      id: "issue-top",
++      identifier: "MT-300",
++      title: "Top of column",
        state: "Todo",
++      sort_order: -200,
++      priority: 4,
++      created_at: ~U[2026-01-03 00:00:00Z]
++    }
++
++    issue_bottom = %Issue{
++      id: "issue-bottom",
++      identifier: "MT-301",
++      title: "Lower in column",
++      state: "Todo",
++      sort_order: -100,
        priority: 1,
 -      created_at: ~U[2026-01-02 00:00:00Z]
 +      created_at: ~U[2026-01-01 00:00:00Z]
@@ -644,14 +662,35 @@ index 10f9f52..3394eaa 100644
 -      id: "issue-old-low",
 -      identifier: "MT-199",
 -      title: "Old lower priority",
-+    issue_third = %Issue{
-+      id: "issue-third",
-+      identifier: "MT-202",
-+      title: "[DATA-009] Third active task",
++    sorted =
++      Orchestrator.sort_issues_for_dispatch_for_test([
++        issue_bottom,
++        issue_top
++      ])
++
++    assert Enum.map(sorted, & &1.identifier) == ["MT-300", "MT-301"]
++  end
++
++  test "issues missing manual sort order fall back behind ordered issues" do
++    ordered_issue = %Issue{
++      id: "issue-ordered",
++      identifier: "MT-400",
++      title: "Ordered task",
        state: "Todo",
 -      priority: 2,
+-      created_at: ~U[2025-12-01 00:00:00Z]
++      sort_order: -50,
++      priority: 4,
++      created_at: ~U[2026-01-03 00:00:00Z]
++    }
++
++    missing_issue = %Issue{
++      id: "issue-missing",
++      identifier: "MT-401",
++      title: "Missing sort order",
++      state: "Todo",
 +      priority: 1,
-       created_at: ~U[2025-12-01 00:00:00Z]
++      created_at: ~U[2026-01-01 00:00:00Z]
      }
  
      sorted =
@@ -659,71 +698,16 @@ index 10f9f52..3394eaa 100644
 -        issue_lower_priority_older,
 -        issue_same_priority_newer,
 -        issue_same_priority_older
-+        issue_third,
-+        issue_second,
-+        issue_first
++        missing_issue,
++        ordered_issue
        ])
  
 -    assert Enum.map(sorted, & &1.identifier) == ["MT-200", "MT-201", "MT-199"]
-+    assert Enum.map(sorted, & &1.identifier) == ["MT-200", "MT-201", "MT-202"]
-+  end
-+
-+  test "issues missing from BACKLOG fall back behind matched backlog tasks" do
-+    previous_source_repo_path = System.get_env("SOURCE_REPO_PATH")
-+
-+    test_root =
-+      Path.join(
-+        System.tmp_dir!(),
-+        "symphony-elixir-backlog-missing-#{System.unique_integer([:positive])}"
-+      )
-+
-+    on_exit(fn ->
-+      restore_env("SOURCE_REPO_PATH", previous_source_repo_path)
-+      File.rm_rf(test_root)
-+    end)
-+
-+    File.mkdir_p!(test_root)
-+
-+    File.write!(
-+      Path.join(test_root, "BACKLOG.md"),
-+      """
-+      # Backlog
-+
-+      - [ ] [INIT]-[006] First active task
-+      """
-+    )
-+
-+    System.put_env("SOURCE_REPO_PATH", test_root)
-+
-+    backlog_issue = %Issue{
-+      id: "issue-first",
-+      identifier: "MT-300",
-+      title: "[INIT-006] First active task",
-+      state: "Todo",
-+      priority: 4,
-+      created_at: ~U[2026-01-03 00:00:00Z]
-+    }
-+
-+    missing_issue = %Issue{
-+      id: "issue-missing",
-+      identifier: "MT-301",
-+      title: "[MISC-001] Not in backlog",
-+      state: "Todo",
-+      priority: 1,
-+      created_at: ~U[2026-01-01 00:00:00Z]
-+    }
-+
-+    sorted =
-+      Orchestrator.sort_issues_for_dispatch_for_test([
-+        missing_issue,
-+        backlog_issue
-+      ])
-+
-+    assert Enum.map(sorted, & &1.identifier) == ["MT-300", "MT-301"]
++    assert Enum.map(sorted, & &1.identifier) == ["MT-400", "MT-401"]
    end
  
    test "todo issue with non-terminal blocker is not dispatch-eligible" do
-@@ -477,6 +560,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -477,6 +530,118 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      assert Orchestrator.should_dispatch_issue_for_test(issue, state)
    end
  
@@ -842,7 +826,7 @@ index 10f9f52..3394eaa 100644
    test "dispatch revalidation skips stale todo issue once a non-terminal blocker appears" do
      stale_issue = %Issue{
        id: "blocked-2",
-@@ -720,6 +915,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -720,6 +885,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
      write_workflow_file!(Workflow.workflow_file_path(),
        tracker_active_states: %{todo: true},
        tracker_terminal_states: %{done: true},
@@ -850,7 +834,7 @@ index 10f9f52..3394eaa 100644
        poll_interval_ms: %{bad: true},
        workspace_root: 123,
        max_retry_backoff_ms: 0,
-@@ -734,6 +930,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+@@ -734,6 +900,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
  
      assert Config.linear_active_states() == ["Todo", "In Progress"]
      assert Config.linear_terminal_states() == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
