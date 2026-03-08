@@ -535,48 +535,67 @@ export function computeGameLayout(
   const horizontalPadding = clamp(viewportWidth * 0.06, 14, 28);
   const verticalPadding = clamp(viewportHeight * 0.02, 10, 24);
   const metricsGap = clamp(viewportWidth * 0.025, 10, 16);
-  const hudGap = clamp(viewportHeight * 0.012, 8, 14);
+  const metricsToWordGap = clamp(viewportHeight * 0.012, 8, 14);
+  const wordToGridBaseGap = clamp(viewportHeight * 0.018, 10, 20);
+  const gridToControlsBaseGap = clamp(viewportHeight * 0.016, 10, 18);
 
-  let metricsHeight = clamp(viewportHeight * 0.1, 68, 94);
-  let currentWordHeight = clamp(viewportHeight * 0.085, 56, 86);
-  let controlsHeight = clamp(viewportHeight * 0.19, 120, 196);
+  let metricsHeight = clamp(Math.min(viewportHeight * 0.088, viewportWidth * 0.21), 64, 88);
+  let currentWordHeight = clamp(Math.min(viewportHeight * 0.068, viewportWidth * 0.17), 48, 72);
+  let controlsHeight = clamp(Math.min(viewportHeight * 0.15, viewportWidth * 0.31), 104, 148);
 
   const maxGridWidth = Math.max(MIN_GRID_SIZE, viewportWidth - horizontalPadding * 2);
-  let hudHeight = metricsHeight + currentWordHeight + hudGap;
-  let availableGridHeight = viewportHeight - hudHeight - controlsHeight - verticalPadding * 4;
+  let hudHeight = metricsHeight + currentWordHeight + metricsToWordGap;
+  let availableGridHeight =
+    viewportHeight -
+    hudHeight -
+    controlsHeight -
+    wordToGridBaseGap -
+    gridToControlsBaseGap -
+    verticalPadding * 2;
 
   if (availableGridHeight < MIN_GRID_SIZE) {
     const shortfall = MIN_GRID_SIZE - availableGridHeight;
-    const maxControlReduction = Math.max(0, controlsHeight - 104);
+    const maxControlReduction = Math.max(0, controlsHeight - 96);
     const controlReduction = Math.min(shortfall * 0.55, maxControlReduction);
     controlsHeight -= controlReduction;
 
     let remainingShortfall = shortfall - controlReduction;
     if (remainingShortfall > 0) {
-      const maxCurrentWordReduction = Math.max(0, currentWordHeight - 50);
+      const maxCurrentWordReduction = Math.max(0, currentWordHeight - 44);
       const currentWordReduction = Math.min(remainingShortfall * 0.65, maxCurrentWordReduction);
       currentWordHeight -= currentWordReduction;
       remainingShortfall -= currentWordReduction;
     }
 
     if (remainingShortfall > 0) {
-      const maxMetricsReduction = Math.max(0, metricsHeight - 62);
+      const maxMetricsReduction = Math.max(0, metricsHeight - 60);
       const metricsReduction = Math.min(remainingShortfall, maxMetricsReduction);
       metricsHeight -= metricsReduction;
     }
 
-    hudHeight = metricsHeight + currentWordHeight + hudGap;
-    availableGridHeight = viewportHeight - hudHeight - controlsHeight - verticalPadding * 4;
+    hudHeight = metricsHeight + currentWordHeight + metricsToWordGap;
+    availableGridHeight =
+      viewportHeight -
+      hudHeight -
+      controlsHeight -
+      wordToGridBaseGap -
+      gridToControlsBaseGap -
+      verticalPadding * 2;
   }
 
   const gridSize = Math.max(MIN_GRID_SIZE, Math.min(maxGridWidth, availableGridHeight));
+  const compositionHeight =
+    hudHeight + gridSize + controlsHeight + wordToGridBaseGap + gridToControlsBaseGap;
+  const extraVerticalSpace = Math.max(0, viewportHeight - compositionHeight - verticalPadding * 2);
+  const hudY = verticalPadding + extraVerticalSpace * 0.14;
+  const wordToGridGap = wordToGridBaseGap + extraVerticalSpace * 0.28;
+  const gridToControlsGap = gridToControlsBaseGap + extraVerticalSpace * 0.18;
   const gridX = (viewportWidth - gridSize) / 2;
-  const hudY = verticalPadding;
   const metricsWidth = viewportWidth - horizontalPadding * 2;
   const cardWidth = (metricsWidth - metricsGap) / 2;
-  const currentWordY = hudY + metricsHeight + hudGap;
-  const gridY = currentWordY + currentWordHeight + verticalPadding;
-  const controlsY = gridY + gridSize + verticalPadding;
+  const currentWordY = hudY + metricsHeight + metricsToWordGap;
+  const gridY = currentWordY + currentWordHeight + wordToGridGap;
+  const controlsY = gridY + gridSize + gridToControlsGap;
   const controlsWidth = viewportWidth - horizontalPadding * 2;
   const buttonGap = clamp(controlsWidth * 0.025, 8, 14);
   const topRowHeight = Math.max(42, (controlsHeight - buttonGap) / 2);
