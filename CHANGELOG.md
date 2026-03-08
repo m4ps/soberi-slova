@@ -2,6 +2,27 @@
 
 ## 2026-03-08
 
+### [CODE]-[012] Guided target-word loop и корректное переключение displayed target
+
+- `src/domain/CoreState/index.ts` переведён на полноценный `word-success` lifecycle для каждого успешного `target`:
+  - `pendingWordSuccessOperationId` теперь создаётся не только для последнего слова, но и для обычных target-success;
+  - ввод и help-action мягко блокируются на время success-feedback;
+  - state по-прежнему фиксируется сразу, но следующий gameplay-step открывается только после `AcknowledgeWordSuccessAnimation`.
+- `src/adapters/RenderMotion/index.ts` получил отдельный видимый `displayed target` над сеткой:
+  - target-слово теперь реально рендерится в HUD над grid;
+  - видимое слово синхронизируется со state на старте, после restore, hint/reshuffle и level transition;
+  - при успешной разгадке displayed target не перескакивает во время success-feedback и обновляется только после завершения ack-этапа.
+- `src/main.ts` переставлен на restore-first bootstrap:
+  - render mount теперь происходит после `persistence.restore()`, чтобы при старте не мигал дефолтный target до восстановления snapshot.
+- Обновлены тесты:
+  - `tests/core-state.scoring.test.ts` фиксирует deferred lifecycle для обычных target-слов и блокировку ввода до ack;
+  - `tests/core-state.help.test.ts` проверяет, что hint/reshuffle не пролезают во время success-feedback;
+  - `tests/application-command-bus.smoke.test.ts` подтверждает новый command pipeline и pending-word-success state.
+- Синхронизирован `BACKLOG.md`: задача `[CODE]-[012]` отмечена выполненной.
+- Верификация:
+  - `npm run ci:baseline` — passed;
+  - попытка browser-smoke через `$WEB_GAME_CLIENT` и локальный Playwright fallback в sandbox-среде не воспроизвелась из-за запрета на локальный listener (`listen EPERM`) и аварийного завершения headless browser (`SIGTRAP` / `SIGABRT`).
+
 ### [DATA]-[008] Расширение доменных событий под guided loop и hint progression
 
 - `src/application/contracts.ts` и `src/application/index.ts` расширены новым semantic event-model для `v1.1`:

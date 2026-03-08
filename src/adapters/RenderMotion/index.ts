@@ -83,6 +83,8 @@ export interface RenderMotionSnapshot {
     readonly levelId: string;
     readonly levelStatus: 'active' | 'completed' | 'reshuffling';
     readonly allTimeScore: number;
+    readonly displayedTargetWord: string | null;
+    readonly currentHintPathProgress: number;
     readonly progress: {
       readonly foundTargets: number;
       readonly totalTargets: number;
@@ -381,12 +383,38 @@ export function createRenderMotionModule(
         text: 'Счёт 0',
         style: {
           fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
-          fontSize: 34,
+          fontSize: 28,
           fontWeight: '700',
           fill: 0xfef9c3,
         },
       });
       scoreText.anchor.set(1, 0.5);
+
+      const targetLabelText = new Text({
+        text: 'Текущая цель',
+        style: {
+          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontSize: 16,
+          fontWeight: '700',
+          fill: 0x7dd3fc,
+          align: 'center',
+        },
+      });
+      targetLabelText.anchor.set(0.5, 0);
+
+      const targetWordText = new Text({
+        text: '',
+        style: {
+          fontFamily: 'Trebuchet MS, Segoe UI, sans-serif',
+          fontSize: 30,
+          fontWeight: '700',
+          fill: 0xf8fafc,
+          align: 'center',
+          wordWrap: true,
+          wordWrapWidth: 260,
+        },
+      });
+      targetWordText.anchor.set(0.5, 0);
 
       const congratsText = new Text({
         text: 'Уровень пройден',
@@ -456,7 +484,15 @@ export function createRenderMotionModule(
         reshuffleButton.container,
         leaderboardButton.container,
       );
-      textLayer.addChild(progressText, scoreText, congratsText, toastText, ...letterTexts);
+      textLayer.addChild(
+        progressText,
+        scoreText,
+        targetLabelText,
+        targetWordText,
+        congratsText,
+        toastText,
+        ...letterTexts,
+      );
 
       app.stage.addChild(
         backgroundLayer,
@@ -478,6 +514,7 @@ export function createRenderMotionModule(
       let toastMessage: { text: string; remainingMs: number } | null = null;
       let latestCoreState = readModel.getCoreState();
       let latestHelpState = readModel.getHelpWindowState();
+      let displayedTargetWord = latestCoreState.gameState.currentDisplayedTargetId;
       let lastDevTargetWordsSignature: string | null = null;
 
       const pathGlowAnimations: PathGlowAnimation[] = [];
@@ -740,13 +777,23 @@ export function createRenderMotionModule(
         });
       };
 
+      const syncDisplayedTargetWord = (): void => {
+        if (latestCoreState.gameplay.pendingWordSuccessOperationId) {
+          return;
+        }
+
+        displayedTargetWord = latestCoreState.gameState.currentDisplayedTargetId;
+      };
+
       const renderFrame = (deltaMs: number): void => {
         latestCoreState = readModel.getCoreState();
         latestHelpState = readModel.getHelpWindowState();
         currentLayout = computeGameLayout(app.screen.width, app.screen.height);
-        logDevTargetWordsToConsole();
-
         updatePendingAcknowledgeJobs(deltaMs);
+        latestCoreState = readModel.getCoreState();
+        latestHelpState = readModel.getHelpWindowState();
+        syncDisplayedTargetWord();
+        logDevTargetWordsToConsole();
 
         backgroundLayer
           .clear()
@@ -764,10 +811,40 @@ export function createRenderMotionModule(
         drawPanel(hudLayer, currentLayout.hud, 22, 0x1e293b, 0.78, 0x7dd3fc, 0.26);
 
         progressText.text = `Цели ${latestCoreState.gameplay.progress.foundTargets}/${latestCoreState.gameplay.progress.totalTargets}`;
-        progressText.position.set(currentLayout.progressAnchor.x, currentLayout.progressAnchor.y);
+        progressText.position.set(
+          currentLayout.progressAnchor.x,
+          currentLayout.hud.y + currentLayout.hud.height * 0.28,
+        );
 
         scoreText.text = `Счёт ${latestCoreState.gameplay.allTimeScore}`;
-        scoreText.position.set(currentLayout.scoreAnchor.x, currentLayout.scoreAnchor.y);
+        scoreText.position.set(
+          currentLayout.scoreAnchor.x,
+          currentLayout.hud.y + currentLayout.hud.height * 0.28,
+        );
+
+        const isCompactHud = currentLayout.hud.height < 84;
+        progressText.style.fontSize = isCompactHud ? 22 : 28;
+        scoreText.style.fontSize = isCompactHud ? 22 : 28;
+        targetLabelText.style.fontSize = isCompactHud ? 13 : 16;
+        targetWordText.style.fontSize = isCompactHud ? 24 : 30;
+        targetWordText.style.wordWrapWidth = currentLayout.hud.width * 0.74;
+
+        const targetText =
+          displayedTargetWord ??
+          (latestCoreState.gameplay.showEphemeralCongrats ? 'Уровень пройден' : '...');
+        targetLabelText.visible = true;
+        targetWordText.visible = true;
+        targetLabelText.position.set(
+          currentLayout.viewport.width / 2,
+          currentLayout.hud.y + currentLayout.hud.height * 0.44,
+        );
+        targetWordText.text = targetText;
+        targetWordText.position.set(
+          currentLayout.viewport.width / 2,
+          currentLayout.hud.y + currentLayout.hud.height * 0.56,
+        );
+        targetWordText.tint = displayedTargetWord ? 0xf8fafc : 0x86efac;
+        targetWordText.alpha = displayedTargetWord ? 1 : 0.9;
 
         const helpButtonsEnabled =
           !latestCoreState.gameplay.isInputLocked &&
@@ -1045,6 +1122,8 @@ export function createRenderMotionModule(
             levelId: latestCoreState.gameplay.levelId,
             levelStatus: latestCoreState.gameplay.levelStatus,
             allTimeScore: latestCoreState.gameplay.allTimeScore,
+            displayedTargetWord,
+            currentHintPathProgress: latestCoreState.gameState.currentHintPathProgress,
             progress: {
               foundTargets: latestCoreState.gameplay.progress.foundTargets,
               totalTargets: latestCoreState.gameplay.progress.totalTargets,

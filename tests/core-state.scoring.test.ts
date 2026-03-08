@@ -52,8 +52,55 @@ describe('core state scoring/progression', () => {
       stateVersion: 1,
       levelStatus: 'active',
     });
+    expect(targetDom.wordSuccessOperationId).toEqual(expect.any(String));
+    expect(coreState.getSnapshot().gameplay).toMatchObject({
+      isInputLocked: true,
+      pendingWordSuccessOperationId: targetDom.wordSuccessOperationId,
+      stateVersion: 1,
+    });
+    expect(coreState.getSnapshot().gameState).toMatchObject({
+      currentDisplayedTargetId: 'нос',
+      currentHintPathProgress: 0,
+    });
 
-    const bonusTom = coreState.submitPath([cell(1, 0), cell(0, 1), cell(0, 2)], 2_002);
+    const blockedDuringSuccessFeedback = coreState.submitPath(
+      [cell(1, 0), cell(0, 1), cell(0, 2)],
+      2_002,
+    );
+    expect(blockedDuringSuccessFeedback).toMatchObject({
+      result: 'invalid',
+      normalizedWord: 'том',
+      isSilent: true,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      allTimeScore: 16,
+      stateVersion: 1,
+      levelStatus: 'active',
+    });
+
+    const firstWordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
+      targetDom.wordSuccessOperationId!,
+      2_003,
+    );
+    expect(firstWordSuccessAck).toMatchObject({
+      operationId: targetDom.wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      levelStatus: 'active',
+      showEphemeralCongrats: false,
+      allTimeScore: 16,
+      stateVersion: 2,
+    });
+
+    const bonusTom = coreState.submitPath([cell(1, 0), cell(0, 1), cell(0, 2)], 2_004);
     expect(bonusTom).toMatchObject({
       result: 'bonus',
       normalizedWord: 'том',
@@ -68,11 +115,11 @@ describe('core state scoring/progression', () => {
         totalTargets: 10,
       },
       allTimeScore: 21,
-      stateVersion: 2,
+      stateVersion: 3,
       levelStatus: 'active',
     });
 
-    const repeatTom = coreState.submitPath([cell(1, 0), cell(0, 1), cell(0, 2)], 2_003);
+    const repeatTom = coreState.submitPath([cell(1, 0), cell(0, 1), cell(0, 2)], 2_005);
     expect(repeatTom).toMatchObject({
       result: 'repeat',
       normalizedWord: 'том',
@@ -83,11 +130,11 @@ describe('core state scoring/progression', () => {
         totalScore: 0,
       },
       allTimeScore: 21,
-      stateVersion: 2,
+      stateVersion: 3,
       levelStatus: 'active',
     });
 
-    const targetNos = coreState.submitPath([cell(1, 1), cell(1, 2), cell(1, 3)], 2_004);
+    const targetNos = coreState.submitPath([cell(1, 1), cell(1, 2), cell(1, 3)], 2_006);
     expect(targetNos).toMatchObject({
       result: 'target',
       normalizedWord: 'нос',
@@ -103,11 +150,36 @@ describe('core state scoring/progression', () => {
         totalTargets: 10,
       },
       allTimeScore: 37,
-      stateVersion: 3,
+      stateVersion: 4,
       levelStatus: 'active',
     });
+    expect(targetNos.wordSuccessOperationId).toEqual(expect.any(String));
+    expect(coreState.getSnapshot().gameplay).toMatchObject({
+      isInputLocked: true,
+      pendingWordSuccessOperationId: targetNos.wordSuccessOperationId,
+      stateVersion: 4,
+    });
 
-    const finalTarget = coreState.submitPath([cell(1, 3), cell(1, 2), cell(1, 1)], 2_005);
+    const secondWordSuccessAck = coreState.acknowledgeWordSuccessAnimation(
+      targetNos.wordSuccessOperationId!,
+      2_007,
+    );
+    expect(secondWordSuccessAck).toMatchObject({
+      operationId: targetNos.wordSuccessOperationId,
+      handled: true,
+      levelClearAwarded: false,
+      scoreDelta: {
+        wordScore: 0,
+        levelClearScore: 0,
+        totalScore: 0,
+      },
+      levelStatus: 'active',
+      showEphemeralCongrats: false,
+      allTimeScore: 37,
+      stateVersion: 5,
+    });
+
+    const finalTarget = coreState.submitPath([cell(1, 3), cell(1, 2), cell(1, 1)], 2_008);
     expect(finalTarget).toMatchObject({
       result: 'target',
       normalizedWord: 'сон',
@@ -123,14 +195,14 @@ describe('core state scoring/progression', () => {
         totalTargets: 10,
       },
       allTimeScore: 53,
-      stateVersion: 4,
+      stateVersion: 6,
       levelStatus: 'completed',
     });
     expect(finalTarget.wordSuccessOperationId).toEqual(expect.any(String));
 
     const blockedBonusAfterCompletion = coreState.submitPath(
       [cell(1, 0), cell(0, 1), cell(1, 1)],
-      2_006,
+      2_009,
     );
     expect(blockedBonusAfterCompletion).toMatchObject({
       result: 'invalid',
@@ -146,14 +218,14 @@ describe('core state scoring/progression', () => {
         totalTargets: 10,
       },
       allTimeScore: 53,
-      stateVersion: 4,
+      stateVersion: 6,
       levelStatus: 'completed',
     });
 
     const wordSuccessOperationId = finalTarget.wordSuccessOperationId;
     expect(wordSuccessOperationId).not.toBeNull();
 
-    const levelClearAck = coreState.acknowledgeWordSuccessAnimation(wordSuccessOperationId!, 2_007);
+    const levelClearAck = coreState.acknowledgeWordSuccessAnimation(wordSuccessOperationId!, 2_010);
     expect(levelClearAck).toMatchObject({
       operationId: wordSuccessOperationId,
       handled: true,
@@ -166,13 +238,13 @@ describe('core state scoring/progression', () => {
       levelStatus: 'reshuffling',
       showEphemeralCongrats: true,
       allTimeScore: 133,
-      stateVersion: 5,
+      stateVersion: 7,
     });
     expect(levelClearAck.levelTransitionOperationId).toEqual(expect.any(String));
 
     const duplicateLevelClearAck = coreState.acknowledgeWordSuccessAnimation(
       wordSuccessOperationId!,
-      2_008,
+      2_011,
     );
     expect(duplicateLevelClearAck).toMatchObject({
       operationId: wordSuccessOperationId,
@@ -185,12 +257,12 @@ describe('core state scoring/progression', () => {
       },
       levelStatus: 'reshuffling',
       allTimeScore: 133,
-      stateVersion: 5,
+      stateVersion: 7,
     });
 
     const blockedInputDuringTransition = coreState.submitPath(
       [cell(1, 0), cell(0, 1), cell(1, 1)],
-      2_009,
+      2_012,
     );
     expect(blockedInputDuringTransition).toMatchObject({
       result: 'invalid',
@@ -202,7 +274,7 @@ describe('core state scoring/progression', () => {
         totalScore: 0,
       },
       allTimeScore: 133,
-      stateVersion: 5,
+      stateVersion: 7,
       levelStatus: 'reshuffling',
     });
 
@@ -211,7 +283,7 @@ describe('core state scoring/progression', () => {
 
     const transitionAck = coreState.acknowledgeLevelTransitionDone(
       levelTransitionOperationId!,
-      2_010,
+      2_013,
     );
     expect(transitionAck).toMatchObject({
       operationId: levelTransitionOperationId,
@@ -219,20 +291,20 @@ describe('core state scoring/progression', () => {
       transitionedToNextLevel: true,
       levelStatus: 'active',
       allTimeScore: 133,
-      stateVersion: 6,
+      stateVersion: 8,
     });
     expect(transitionAck.levelId).not.toBe('level-scoring');
 
     const duplicateTransitionAck = coreState.acknowledgeLevelTransitionDone(
       levelTransitionOperationId!,
-      2_011,
+      2_014,
     );
     expect(duplicateTransitionAck).toMatchObject({
       operationId: levelTransitionOperationId,
       handled: false,
       transitionedToNextLevel: false,
       allTimeScore: 133,
-      stateVersion: 6,
+      stateVersion: 8,
     });
 
     const snapshot = coreState.getSnapshot();
@@ -242,7 +314,7 @@ describe('core state scoring/progression', () => {
         foundTargets: 0,
       },
       levelStatus: 'active',
-      stateVersion: 6,
+      stateVersion: 8,
       isInputLocked: false,
       showEphemeralCongrats: false,
     });

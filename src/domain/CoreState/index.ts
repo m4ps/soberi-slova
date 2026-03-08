@@ -128,6 +128,7 @@ export type CoreStateHelpApplyResultReason =
   | 'invalid-operation-id'
   | 'operation-already-applied'
   | 'level-not-active'
+  | 'success-feedback-pending'
   | 'no-remaining-targets'
   | 'target-path-unavailable';
 
@@ -306,8 +307,20 @@ function createProgressSnapshot(levelSession: LevelSession): CoreStateProgressSn
   };
 }
 
-function isInputLocked(levelStatus: LevelSession['status']): boolean {
-  return levelStatus !== 'active';
+function hasPendingOperationKind(
+  pendingOps: readonly PendingOperation[],
+  kind: PendingOperationKind,
+): boolean {
+  return pendingOps.some((item) => {
+    return item.kind === kind && item.status === PENDING_OPERATION_STATUS_PENDING;
+  });
+}
+
+function isInputLocked(gameState: GameState): boolean {
+  return (
+    gameState.currentLevelSession.status !== 'active' ||
+    hasPendingOperationKind(gameState.pendingOps, PENDING_OPERATION_KIND_WORD_SUCCESS)
+  );
 }
 
 function createPendingOperation(
@@ -540,7 +553,7 @@ function createGameplaySnapshot(
     updatedAt: gameState.updatedAt,
     levelId: gameState.currentLevelSession.levelId,
     levelStatus: gameState.currentLevelSession.status,
-    isInputLocked: isInputLocked(gameState.currentLevelSession.status),
+    isInputLocked: isInputLocked(gameState),
     showEphemeralCongrats,
     progress: createProgressSnapshot(gameState.currentLevelSession),
     foundTargets: [...gameState.currentLevelSession.foundTargets],
@@ -1007,6 +1020,10 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
         return createSubmitResult('invalid', wordApply.normalizedWord, gameState);
       }
 
+      if (hasPendingOperationKind(gameState.pendingOps, PENDING_OPERATION_KIND_WORD_SUCCESS)) {
+        return createSubmitResult('invalid', wordApply.normalizedWord, gameState);
+      }
+
       if (wordApply.isSilent || wordApply.normalizedWord === null) {
         return createSubmitResult(wordApply.result, wordApply.normalizedWord, gameState);
       }
@@ -1015,9 +1032,10 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
       const isLastTargetWord =
         wordApply.result === 'target' &&
         wordApply.nextFoundTargets.length === currentLevelSession.targetWords.length;
-      const wordSuccessOperationId = isLastTargetWord
-        ? createOperationId(PENDING_OPERATION_KIND_WORD_SUCCESS)
-        : null;
+      const wordSuccessOperationId =
+        wordApply.result === 'target'
+          ? createOperationId(PENDING_OPERATION_KIND_WORD_SUCCESS)
+          : null;
       const nextPendingOps = wordSuccessOperationId
         ? appendPendingOperation(
             gameState.pendingOps,
@@ -1090,6 +1108,16 @@ export function createCoreStateModule(options: CoreStateModuleOptions = {}): Cor
           kind,
           false,
           'level-not-active',
+          gameState,
+        );
+      }
+
+      if (hasPendingOperationKind(gameState.pendingOps, PENDING_OPERATION_KIND_WORD_SUCCESS)) {
+        return createHelpApplyResult(
+          normalizedOperationId,
+          kind,
+          false,
+          'success-feedback-pending',
           gameState,
         );
       }
