@@ -31,7 +31,7 @@ npm run dev:proxy
 
 Перед запуском:
 
-1. Установите `mise` (нужен для Elixir/Erlang runtime) и убедитесь, что доступен `codex`.
+1. Установите `mise` (нужен для Elixir/Erlang runtime) и убедитесь, что доступны `codex` и `gh`.
 2. Создайте `.env.symphony` на основе `.env.symphony.example` и заполните значения.
 3. В `WORKFLOW.md` задайте `tracker.project_slug` вашего проекта в Linear.
 
@@ -50,6 +50,44 @@ npm run symphony:start
 
 ```bash
 npm run symphony:start -- --port 4000
+```
+
+Как теперь работает workspace-режим:
+
+1. Для каждой задачи Symphony создаёт отдельную директорию внутри `SYMPHONY_WORKSPACE_ROOT`.
+2. Вместо `git clone` используется `git worktree add`, поэтому каждая задача получает отдельный branch вида `codex/<ISSUE-ID>`.
+3. Агент работает в своём worktree, а основной репозиторий остаётся на `main`.
+4. После перевода задачи в `In Review` hook `after_run` автоматически:
+   - коммитит незакоммиченные изменения в branch задачи;
+   - пушит branch в `origin`;
+   - создаёт pull request в GitHub;
+   - оставляет ссылку на PR комментарием в Linear.
+5. Пока в проекте есть хотя бы одна задача в `In Review`, Symphony не возьмёт следующую задачу в работу.
+6. После завершения задачи изменения находятся в worktree-задачи и в соответствующем branch.
+
+Как забрать изменения в основной репозиторий:
+
+```bash
+# посмотреть diff задачи
+cd /Users/pavel.m/Documents/yandex-games/symphony-workspaces/PVL-20
+git status
+git diff
+
+# при необходимости зафиксировать изменения в branch задачи
+git add .
+git commit -m "feat(pvl-20): guided state migration"
+
+# затем в основном репозитории влить branch задачи
+cd /Users/pavel.m/Documents/yandex-games/soberi-slova
+git switch main
+git merge codex/PVL-20
+```
+
+После merge worktree можно удалить:
+
+```bash
+git -C /Users/pavel.m/Documents/yandex-games/soberi-slova worktree remove /Users/pavel.m/Documents/yandex-games/symphony-workspaces/PVL-20
+git -C /Users/pavel.m/Documents/yandex-games/soberi-slova branch -d codex/PVL-20
 ```
 
 ## Скрипты

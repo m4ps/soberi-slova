@@ -6,6 +6,8 @@ SYMPHONY_HOME="${SYMPHONY_HOME:-$ROOT_DIR/.tools/symphony}"
 WORKFLOW_PATH="${SYMPHONY_WORKFLOW_PATH:-$ROOT_DIR/WORKFLOW.md}"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/symphony-bootstrap.sh"
 
+export SOURCE_REPO_PATH="${SOURCE_REPO_PATH:-$ROOT_DIR}"
+
 if [ ! -f "$WORKFLOW_PATH" ]; then
   echo "Workflow file not found: $WORKFLOW_PATH" >&2
   exit 1
