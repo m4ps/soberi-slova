@@ -18,6 +18,7 @@ import type {
   RoutedCommandType,
   GridCellRef,
 } from './contracts';
+import { resolveHelpAdOutcomePolicy } from '../config/help-ad-policy';
 import type { CoreStateHelpEffect, CoreStateSnapshot } from '../domain/CoreState';
 import { toErrorMessage } from '../shared/errors';
 import { parseNonNegativeSafeInteger } from '../shared/runtime-guards';
@@ -81,8 +82,6 @@ const EVENT_VERSIONS: Readonly<Record<ApplicationEvent['eventType'], number>> = 
   'domain/state-persisted': 1,
   'domain/leaderboard-sync': 1,
 };
-const HELP_NO_FILL_TOAST_MESSAGE = 'Реклама сейчас недоступна';
-const HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE = 'Не удалось показать рекламу';
 
 function normalizeDurationMs(durationMs: number | undefined): number | null {
   if (durationMs === undefined) {
@@ -104,21 +103,6 @@ function normalizeOutcomeContext(outcomeContext: string | null | undefined): str
   const normalized = outcomeContext.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
-function resolveHelpAdToastMessage(
-  outcome: 'reward' | 'close' | 'error' | 'no-fill',
-): string | null {
-  if (outcome === 'reward') {
-    return null;
-  }
-
-  if (outcome === 'no-fill') {
-    return HELP_NO_FILL_TOAST_MESSAGE;
-  }
-
-  return HELP_GENERIC_AD_FAILURE_TOAST_MESSAGE;
-}
-
 function normalizePersistedHelpWindow(
   snapshot: PersistedSessionSnapshot | null | undefined,
 ): PersistedHelpWindowSnapshot | null {
@@ -516,6 +500,7 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
           cooldownApplied: false,
           cooldownDurationMs: 0,
           toastMessage: null,
+          technicalErrorPolicy: null,
         }),
       );
     });
@@ -700,7 +685,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
             const isMatchingPendingRequest =
               pendingRequest?.operationId === command.operationId &&
               pendingRequest.kind === command.helpType;
-            const shouldApplyHelp = isMatchingPendingRequest && command.outcome === 'reward';
+            const outcomePolicy = resolveHelpAdOutcomePolicy(command.outcome);
+            const shouldApplyHelp = isMatchingPendingRequest && outcomePolicy?.applyHelp === true;
             const helpApplyResult: ReturnType<DomainModules['coreState']['applyHelp']> | null =
               shouldApplyHelp
                 ? modules.coreState.applyHelp(command.helpType, command.operationId, acknowledgedAt)
@@ -714,10 +700,6 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
               acknowledgedAt,
               command.outcome,
             );
-            const toastMessage =
-              finalizeResult.finalized && !applied
-                ? resolveHelpAdToastMessage(command.outcome)
-                : null;
             const nextCoreState = modules.coreState.getSnapshot();
 
             return routeCommand(command.type, command.operationId, (correlationId) => {
@@ -733,7 +715,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                   outcomeContext,
                   cooldownApplied: finalizeResult.cooldownApplied,
                   cooldownDurationMs: finalizeResult.cooldownDurationMs,
-                  toastMessage,
+                  toastMessage: finalizeResult.toastMessage,
+                  technicalErrorPolicy: finalizeResult.technicalErrorPolicy,
                 }),
               );
 
@@ -803,7 +786,8 @@ export function createApplicationLayer(modules: DomainModules): ApplicationLayer
                   outcomeContext,
                   cooldownApplied: finalizeResult.cooldownApplied,
                   cooldownDurationMs: finalizeResult.cooldownDurationMs,
-                  toastMessage,
+                  toastMessage: finalizeResult.toastMessage,
+                  technicalErrorPolicy: finalizeResult.technicalErrorPolicy,
                 }),
               );
             });

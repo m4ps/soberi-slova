@@ -5,6 +5,7 @@ import type {
   CoreStateSnapshot,
 } from '../domain/CoreState';
 import type { HelpEconomyModule, HelpKind, HelpWindowState } from '../domain/HelpEconomy';
+import type { HelpAdOutcome, HelpAdTechnicalErrorPolicy } from '../config/help-ad-policy';
 
 export interface DomainModules {
   readonly coreState: CoreStateModule;
@@ -16,7 +17,7 @@ export interface GridCellRef {
   readonly col: number;
 }
 
-export type RewardedAdOutcome = 'reward' | 'close' | 'error' | 'no-fill';
+export type RewardedAdOutcome = HelpAdOutcome;
 
 export interface PersistedHelpWindowSnapshot {
   readonly windowStartTs: number;
@@ -363,6 +364,7 @@ export type HelpActionFailedEvent = EventEnvelope<
     readonly cooldownApplied: boolean;
     readonly cooldownDurationMs: number;
     readonly toastMessage: string | null;
+    readonly technicalErrorPolicy: HelpAdTechnicalErrorPolicy | null;
   }
 >;
 
@@ -411,6 +413,7 @@ export type HelpEvent = EventEnvelope<
       readonly cooldownApplied: boolean;
       readonly cooldownDurationMs: number;
       readonly toastMessage: string | null;
+      readonly technicalErrorPolicy: HelpAdTechnicalErrorPolicy | null;
     }
 >;
 
