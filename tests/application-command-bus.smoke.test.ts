@@ -514,6 +514,90 @@ describe('application command/query bus smoke', () => {
     ]);
   });
 
+  it('accepts out-of-focus target words without emitting a premature displayed-target switch', () => {
+    const application = createApplicationLayer({
+      coreState: createCoreStateModule({
+        initialGameState: {
+          ...createScoringFixtureState(),
+          currentDisplayedTargetId: 'дом',
+          currentHintPathProgress: 2,
+        },
+        wordValidation: createWordValidationModule(new Set(createDefaultDictionaryWords())),
+        nowProvider: () => 3_500,
+      }),
+      helpEconomy: createHelpEconomyModule(0),
+    });
+
+    const events: ApplicationEvent[] = [];
+    application.events.subscribe((event) => {
+      events.push(event);
+    });
+
+    const result = application.commands.dispatch({
+      type: 'SubmitPath',
+      pathCells: [
+        { row: 1, col: 3 },
+        { row: 1, col: 2 },
+        { row: 1, col: 1 },
+      ],
+    });
+
+    expect(result.type).toBe('ok');
+    const correlationId = result.type === 'ok' ? result.value.correlationId : '';
+
+    const coreState = application.readModel.getCoreState();
+    expect(coreState.gameplay).toMatchObject({
+      allTimeScore: 16,
+      stateVersion: 1,
+      isInputLocked: true,
+      levelStatus: 'active',
+      progress: {
+        foundTargets: 8,
+        totalTargets: 10,
+      },
+    });
+    expect(coreState.gameState).toMatchObject({
+      currentDisplayedTargetId: 'дом',
+      currentHintPathProgress: 2,
+    });
+    expect(coreState.gameplay.pendingWordSuccessOperationId).toBe(correlationId);
+    expect(coreState.gameplay.foundTargets).toEqual([
+      ...createScoringFixtureState().currentLevelSession.foundTargets,
+      'сон',
+    ]);
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        eventType: 'domain/target-word-accepted',
+        correlationId,
+        payload: expect.objectContaining({
+          commandType: 'SubmitPath',
+          targetWord: 'сон',
+          displayedTargetId: 'дом',
+          progress: {
+            foundTargets: 8,
+            totalTargets: 10,
+          },
+          scoreDelta: {
+            wordScore: 16,
+            levelClearScore: 0,
+            totalScore: 16,
+          },
+          allTimeScore: 16,
+        }),
+      }),
+    );
+
+    expect(
+      events.filter((event) => {
+        return (
+          event.eventType === 'domain/displayed-target-changed' &&
+          event.correlationId === correlationId
+        );
+      }),
+    ).toEqual([]);
+  });
+
   it('processes completion pipeline and auto-next via acknowledge commands', () => {
     const application = createApplicationLayer({
       coreState: createCoreStateModule({
