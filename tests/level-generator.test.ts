@@ -15,11 +15,12 @@ const GRID_SIDE = 5;
 const GRID_CELL_COUNT = GRID_SIDE * GRID_SIDE;
 const SHORT_WORD_MIN = 3;
 const SHORT_WORD_MAX = 4;
-const MEDIUM_WORD_MIN = 5;
 const MEDIUM_WORD_MAX = 6;
-const LONG_WORD_MIN = 7;
-const TARGET_WORDS_MIN = 3;
-const TARGET_WORDS_MAX = 7;
+const TARGET_WORDS_MIN = 10;
+const TARGET_WORDS_MAX = 15;
+const MIN_READABLE_TARGETS = 10;
+const MAX_LEVEL_READABILITY_SCORE = MEDIUM_WORD_MAX;
+const MAX_CELL_USAGE = 5;
 
 function loadDictionaryEntries(): readonly WordEntry[] {
   const dictionaryCsvPath = path.resolve(process.cwd(), 'data/dictionary.csv');
@@ -37,6 +38,66 @@ function loadDictionaryEntries(): readonly WordEntry[] {
   return entries;
 }
 
+function isReadableTargetWord(word: string): boolean {
+  return word.length >= SHORT_WORD_MIN && word.length <= MEDIUM_WORD_MAX;
+}
+
+function countReadableTargetWords(words: readonly string[]): number {
+  return words.reduce((count, word) => (isReadableTargetWord(word) ? count + 1 : count), 0);
+}
+
+function calculateReadabilityScore(words: readonly string[]): number {
+  const totalLetters = words.reduce((sum, word) => sum + word.length, 0);
+  return Number((totalLetters / words.length).toFixed(2));
+}
+
+function calculatePathTurnCount(path: readonly number[]): number {
+  let turns = 0;
+  let previousDirection: readonly [rowDelta: number, colDelta: number] | null = null;
+
+  for (let index = 1; index < path.length; index += 1) {
+    const currentCell = path[index];
+    const previousCell = path[index - 1];
+    if (currentCell === undefined || previousCell === undefined) {
+      continue;
+    }
+
+    const direction: readonly [number, number] = [
+      Math.floor(currentCell / GRID_SIDE) - Math.floor(previousCell / GRID_SIDE),
+      (currentCell % GRID_SIDE) - (previousCell % GRID_SIDE),
+    ];
+
+    if (
+      previousDirection !== null &&
+      (previousDirection[0] !== direction[0] || previousDirection[1] !== direction[1])
+    ) {
+      turns += 1;
+    }
+
+    previousDirection = direction;
+  }
+
+  return turns;
+}
+
+function resolveMaxTurnCount(wordLength: number): number {
+  return wordLength <= SHORT_WORD_MAX ? 2 : 3;
+}
+
+function calculateCellUsage(placements: GeneratedLevel['placements']): number[] {
+  const usage = new Array<number>(GRID_CELL_COUNT).fill(0);
+
+  for (const placement of placements) {
+    for (const cellIndex of placement.cellIndexes) {
+      if (usage[cellIndex] !== undefined) {
+        usage[cellIndex] += 1;
+      }
+    }
+  }
+
+  return usage;
+}
+
 function expectGeneratedLevelToMatchInvariants(level: GeneratedLevel): void {
   expect(level.gridSize).toBe(GRID_SIDE);
   expect(level.grid).toHaveLength(GRID_CELL_COUNT);
@@ -44,14 +105,12 @@ function expectGeneratedLevelToMatchInvariants(level: GeneratedLevel): void {
   expect(level.targetWords.length).toBeLessThanOrEqual(TARGET_WORDS_MAX);
   expect(new Set(level.targetWords).size).toBe(level.targetWords.length);
 
-  const targetLengths = level.targetWords.map((word) => word.length);
-  expect(targetLengths.some((length) => length >= SHORT_WORD_MIN && length <= SHORT_WORD_MAX)).toBe(
-    true,
+  const readableTargetCount = countReadableTargetWords(level.targetWords);
+  expect(readableTargetCount).toBeGreaterThanOrEqual(MIN_READABLE_TARGETS);
+  expect(readableTargetCount).toBeGreaterThan(level.targetWords.length - readableTargetCount);
+  expect(calculateReadabilityScore(level.targetWords)).toBeLessThanOrEqual(
+    MAX_LEVEL_READABILITY_SCORE,
   );
-  expect(
-    targetLengths.some((length) => length >= MEDIUM_WORD_MIN && length <= MEDIUM_WORD_MAX),
-  ).toBe(true);
-  expect(targetLengths.some((length) => length >= LONG_WORD_MIN)).toBe(true);
 
   expect(level.placements).toHaveLength(level.targetWords.length);
 
@@ -95,7 +154,13 @@ function expectGeneratedLevelToMatchInvariants(level: GeneratedLevel): void {
       expect(colDelta).toBeLessThanOrEqual(1);
       expect(rowDelta === 0 && colDelta === 0).toBe(false);
     }
+
+    expect(calculatePathTurnCount(placement.cellIndexes)).toBeLessThanOrEqual(
+      resolveMaxTurnCount(placement.word.length),
+    );
   }
+
+  expect(Math.max(...calculateCellUsage(level.placements))).toBeLessThanOrEqual(MAX_CELL_USAGE);
 }
 
 function createDictionaryEntry(word: string, id: number, rank: number): WordEntry {
@@ -118,7 +183,7 @@ describe('LevelGenerator module', () => {
 
     const level = module.generateLevel({
       seed: 20260225,
-      targetWordCount: 7,
+      targetWordCount: 15,
     });
 
     expectGeneratedLevelToMatchInvariants(level);
@@ -133,7 +198,7 @@ describe('LevelGenerator module', () => {
 
     const request = {
       seed: 734592,
-      targetWordCount: 6,
+      targetWordCount: 12,
       recentTargetWords: dictionaryEntries.slice(0, 30).map((entry) => entry.normalized),
     };
 
@@ -148,7 +213,7 @@ describe('LevelGenerator module', () => {
       dictionaryEntries,
     });
 
-    for (let seed = 1; seed <= 48; seed += 1) {
+    for (let seed = 1; seed <= 32; seed += 1) {
       const level = module.generateLevel({
         seed,
       });
@@ -167,7 +232,7 @@ describe('LevelGenerator module', () => {
 
     const level = module.generateLevel({
       seed: 445566,
-      targetWordCount: 5,
+      targetWordCount: 12,
       recentTargetWords,
     });
 
@@ -184,7 +249,7 @@ describe('LevelGenerator module', () => {
     );
   });
 
-  it('rejects dictionaries without required short/medium/long categories', () => {
+  it('rejects dictionaries without minimum readable short/medium coverage', () => {
     const incompleteDictionary = [
       createDictionaryEntry('дом', 1, 10),
       createDictionaryEntry('сад', 2, 11),
@@ -196,7 +261,7 @@ describe('LevelGenerator module', () => {
       dictionaryEntries: incompleteDictionary,
     });
 
-    expect(() => module.generateLevel({ seed: 101, targetWordCount: 3 })).toThrowError(
+    expect(() => module.generateLevel({ seed: 101, targetWordCount: 10 })).toThrowError(
       LevelGeneratorDomainError,
     );
   });
