@@ -324,7 +324,7 @@ function createAdRequiredHelpEvent(
 }
 
 describe('PlatformYandex adapter', () => {
-  it('bootstraps YaGames lifecycle and dispatches RuntimeReady command', async () => {
+  it('bootstraps YaGames lifecycle and dispatches internal RuntimeReady command', async () => {
     const sdkRuntime = createMockSdkRuntime();
     const { commandBus, dispatchedCommands } = createCommandBusSpy();
     const platformModule = createPlatformYandexModule(commandBus, createEventBus(), {
@@ -449,7 +449,7 @@ describe('PlatformYandex adapter', () => {
     await expect(platformModule.bootstrap()).rejects.toThrow('Untrusted YaGames SDK script source');
   });
 
-  it('rolls back gameplay/listeners if RuntimeReady dispatch fails', async () => {
+  it('rolls back gameplay/listeners if internal RuntimeReady dispatch fails', async () => {
     const sdkRuntime = createMockSdkRuntime();
     const runtimeReadyFailure: ApplicationResult<CommandAck> = {
       type: 'domainError',

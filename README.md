@@ -241,7 +241,16 @@ flowchart TD
 - Все use-cases application-слоя вызываются через единый typed bus:
   - `commands.dispatch(command)`
   - `queries.execute(query)`
-- Обязательные команды v1 реализованы как типы `ApplicationCommand` (см. `src/application/contracts.ts`).
+- Публичный command-set `TECHSPEC v1.1` зафиксирован в `src/application/contracts.ts` как:
+  - `SubmitPath`
+  - `RequestHint`
+  - `RequestReshuffle`
+  - `AcknowledgeAdResult`
+  - `AcknowledgeWordSuccessAnimation`
+  - `AcknowledgeLevelTransitionDone`
+  - `RestoreSession`
+  - `SyncLeaderboard`
+- Внутренние runtime-команды `RuntimeReady` и `Tick` сохранены только как adapter-only flow и не входят в routed `TECHSPEC`-контракт.
 - Результат команд и запросов возвращается в унифицированном envelope:
   - `ok`
   - `domainError`

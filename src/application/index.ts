@@ -948,8 +948,13 @@ export type {
   CommandAck,
   DomainModules,
   GridCellRef,
+  InternalAdapterCommand,
+  InternalAdapterCommandType,
   PersistedHelpWindowSnapshot,
   PersistedSessionSnapshot,
   RestoreSessionPayload,
   RewardedAdOutcome,
+  TechspecApplicationCommand,
+  TechspecCommandType,
 } from './contracts';
+export { INTERNAL_ADAPTER_COMMAND_TYPES, TECHSPEC_V1_1_COMMAND_TYPES } from './contracts';
